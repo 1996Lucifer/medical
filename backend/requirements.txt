@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+python-multipart
+python-dotenv
+google-genai
+pydantic
+opencv-python
+insightface
+onnxruntime
+pgvector
+ultralytics

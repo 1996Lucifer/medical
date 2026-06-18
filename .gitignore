@@ -1,0 +1,43 @@
+# Environments
+.env
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary files created by the application
+temp_*
+
+# Model weights
+*.pt
+yolov8n.pt
+
+# MacOS
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
+
+# Flutter/Dart (assuming flutter_source has its own, but just in case)
+.dart_tool/
+.packages
+build/
+.pub-cache/
+.pub/
+/flutter_source/build/
+/flutter_source/.dart_tool/
+*.log
+
+# C/C++ (if any OpenCV builds happen)
+*.o
+*.so
+
+# Jupyter Notebook
+.ipynb_checkpoints
