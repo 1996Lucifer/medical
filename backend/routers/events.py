@@ -33,3 +33,24 @@ def get_events(
         query = query.filter(models.SystemEvent.event_type == event_type)
         
     return query.order_by(models.SystemEvent.timestamp.desc()).limit(limit).all()
+
+
+@router.get("/timeline")
+def get_timeline(
+    date_str: Optional[str] = None,
+    staff_name: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Returns a correlated chronological timeline of events for a specific day."""
+    from correlation_engine import correlation_engine
+    
+    if date_str:
+        try:
+            target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            target_date = datetime.date.today()
+    else:
+        target_date = datetime.date.today()
+        
+    timeline = correlation_engine.get_timeline(db, date=target_date, staff_name=staff_name)
+    return {"date": target_date.isoformat(), "timeline": timeline}

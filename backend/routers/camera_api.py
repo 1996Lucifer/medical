@@ -54,6 +54,18 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
     cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
+    
+    # Check for linked records
+    has_attendance = db.query(models.Attendance).filter(models.Attendance.camera_id == camera_id).first() is not None
+    has_events = db.query(models.SystemEvent).filter(models.SystemEvent.camera_id == camera_id).first() is not None
+    has_alerts = db.query(models.SecurityAlert).filter(models.SecurityAlert.camera_id == camera_id).first() is not None
+    
+    if has_attendance or has_events or has_alerts:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot delete camera because it is linked to existing attendance, event, or security alert records. Please unlink or reassign them first."
+        )
+    
     db.delete(cam)
     db.commit()
     return {"status": "deleted"}

@@ -31,6 +31,7 @@ def _maybe_mark_attendance(
     name: str, score: float,
     camera_id: Optional[int] = None,
     camera_name: Optional[str] = None,
+    **kwargs
 ):
     """
     Session-aware attendance marking:
@@ -43,6 +44,24 @@ def _maybe_mark_attendance(
            → update last_seen on the existing open session.
        (exit_time is set manually via the checkout API, never here.)
     """
+    if name == "Unknown":
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        throttle_key = f"unknown_{camera_id}"
+        with _last_db_write_lock:
+            last_write = _last_db_write.get(throttle_key)
+            if last_write and (now - last_write).total_seconds() < LAST_SEEN_FREQ_SEC:
+                return
+            _last_db_write[throttle_key] = now
+            
+        event_engine.publish_event(
+            event_type="UnknownFaceDetected",
+            camera_id=camera_id,
+            camera_name=camera_name,
+            confidence=score,
+            details={"status": "detected"}
+        )
+        return
+
     now = datetime.datetime.now(tz=datetime.timezone.utc)
 
     # In-memory throttle — skip DB entirely if we wrote recently
@@ -93,10 +112,21 @@ def _maybe_mark_attendance(
                 camera_id=camera_id,
                 camera_name=camera_name,
                 confidence=score,
-                details={"staff_name": name, "status": "check_in"}
+                details={"staff_name": name, "status": "check_in", "has_mask": kwargs.get("has_mask", True)}
             )
         else:
             # ── Update last_seen on open session ───────────────────────────
+            if latest.camera_id != camera_id:
+                event_engine.publish_event(
+                    event_type="AreaTransition",
+                    camera_id=camera_id,
+                    camera_name=camera_name,
+                    confidence=score,
+                    details={"staff_name": name, "from_camera": latest.camera_name, "to_camera": camera_name}
+                )
+                latest.camera_id = camera_id
+                latest.camera_name = camera_name
+
             latest.last_seen = now
             db.commit()
             # (silent — don't spam the log every 30 seconds)
@@ -209,9 +239,12 @@ class CameraWorker:
         self.stop()
         self._loop = loop
         self._running = True
+        
+        vision_service.update_staff_embeddings(staff_list)
+        
         self._thread = threading.Thread(
             target=self._run,
-            args=(camera_url, staff_list, camera_id, camera_name),
+            args=(camera_url, camera_id, camera_name),
             daemon=True
         )
         self._thread.start()
@@ -236,120 +269,142 @@ class CameraWorker:
 
     # ── Background thread ─────────────────────────────────────────────────────
 
-    def _run(self, camera_url: str, staff_list: list,
+    def _run(self, camera_url: str,
              camera_id: Optional[int] = None,
              camera_name: Optional[str] = None):
         fixed_url = fix_rtsp_url(camera_url)
 
-        if isinstance(fixed_url, str) and fixed_url.startswith("rtsp://"):
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
-                "rtsp_transport;tcp|stimeout;8000000"
-            )
-            cap = cv2.VideoCapture(fixed_url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        elif str(fixed_url).isdigit():
-            cap = cv2.VideoCapture(int(fixed_url))
-        else:
-            cap = cv2.VideoCapture(fixed_url)
-
-        if not cap.isOpened():
-            err = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(err, "Connection Failed", (50, 240),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
-            _, buf = cv2.imencode(".jpg", err)
-            self._broadcast(buf.tobytes())
-            self._running = False
-            return
-
-        print(f"[Camera] Connected → {camera_url} ({vision_service.backend_label})")
-
-        # ── Adaptive quality settings based on GPU / CPU ─────────────────────
         target_w     = vision_service.frame_width   # e.g. 640 on CPU, 1280 on GPU
         jpeg_quality = vision_service.jpeg_quality  # e.g. 75 on CPU, 85 on GPU
         target_fps   = vision_service.target_fps    # e.g. 10 on CPU, 25 on GPU
         frame_interval = 1.0 / target_fps
+        
+        retry_count = 0
 
-        # ── Reader thread: single thread owns cap, reads at full camera rate ──
-        # This stores only the LATEST raw frame to eliminate the buffer lag.
-        # OpenCV VideoCapture is NOT thread-safe — only this thread touches cap.
-        latest_raw = [None]          # shared buffer (list for mutability)
-        raw_lock   = threading.Lock()
-        frame_ready = threading.Event()
-
-        def reader():
-            while self._running:
-                ret, frame = cap.read()
-                if ret:
-                    with raw_lock:
-                        latest_raw[0] = frame   # overwrite old frame → always latest
-                    frame_ready.set()
-
-        reader_thread = threading.Thread(target=reader, daemon=True)
-        reader_thread.start()
-
-        # ── Processor: picks the latest frame, runs AI, broadcasts ───────────
         while self._running:
-            t0 = time.monotonic()
+            if isinstance(fixed_url, str) and fixed_url.startswith("rtsp://"):
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+                    "rtsp_transport;tcp|stimeout;8000000"
+                )
+                cap = cv2.VideoCapture(fixed_url, cv2.CAP_FFMPEG)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            elif str(fixed_url).isdigit():
+                cap = cv2.VideoCapture(int(fixed_url))
+            else:
+                cap = cv2.VideoCapture(fixed_url)
 
-            if not frame_ready.wait(timeout=2.0):
-                continue                    # camera stalled — retry
-            frame_ready.clear()
-
-            with raw_lock:
-                frame = latest_raw[0]
-            if frame is None:
-                continue
-
-            # ── Resize to backend-appropriate resolution ──────────────────
-            h, w = frame.shape[:2]
-            if w != target_w:
-                scale = target_w / w
-                frame = cv2.resize(frame, (target_w, int(h * scale)),
-                                   interpolation=cv2.INTER_LINEAR)
-
-            # ── AI face recognition & Equipment Tracking ───────────────────────────────────────
-            try:
-                processed, face_events, equipment_events = vision_service.process_frame(frame, staff_list)
-                # Mark attendance for every recognised face (with cooldown)
-                for ev in face_events:
-                    _maybe_mark_attendance(
-                        ev["name"], ev["score"],
+            if not cap.isOpened():
+                err = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(err, "Connection Failed", (50, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+                _, buf = cv2.imencode(".jpg", err)
+                self._broadcast(buf.tobytes())
+                
+                if retry_count == 0:
+                    event_engine.publish_event(
+                        event_type="CameraOffline",
                         camera_id=camera_id,
                         camera_name=camera_name,
+                        details={"error": "Failed to connect to RTSP stream"}
                     )
-                    
-                # Track equipment
-                for ev in equipment_events:
-                    _maybe_track_equipment(
-                        equip_class=ev["class"],
-                        track_id=ev["track_id"],
-                        score=ev["score"],
-                        camera_id=camera_id,
-                        camera_name=camera_name
-                    )
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                processed = frame
+                
+                retry_count += 1
+                time.sleep(min(2 ** retry_count, 30))
+                continue
 
-            # ── Encode JPEG at backend-appropriate quality ────────────────
-            _, buf = cv2.imencode(
-                ".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality]
-            )
-            jpeg_bytes = buf.tobytes()
+            retry_count = 0
+            print(f"[Camera] Connected → {camera_url} ({vision_service.backend_label})")
 
-            with self._lock:
-                self._latest_frame = jpeg_bytes
+            latest_raw = [None]
+            raw_lock   = threading.Lock()
+            frame_ready = threading.Event()
+            
+            reader_running = [True]
 
-            self._broadcast(jpeg_bytes)
+            def reader():
+                while reader_running[0] and self._running:
+                    ret, frame = cap.read()
+                    if ret:
+                        with raw_lock:
+                            latest_raw[0] = frame
+                        frame_ready.set()
+                    else:
+                        reader_running[0] = False
 
-            # ── Throttle processor to target FPS ─────────────────────────
-            elapsed = time.monotonic() - t0
-            sleep = frame_interval - elapsed
-            if sleep > 0:
-                time.sleep(sleep)
+            reader_thread = threading.Thread(target=reader, daemon=True)
+            reader_thread.start()
 
-        cap.release()
+            while reader_running[0] and self._running:
+                t0 = time.monotonic()
+
+                if not frame_ready.wait(timeout=2.0):
+                    reader_running[0] = False
+                    continue
+                frame_ready.clear()
+
+                with raw_lock:
+                    frame = latest_raw[0]
+                if frame is None:
+                    continue
+
+                h, w = frame.shape[:2]
+                if w != target_w:
+                    scale = target_w / w
+                    frame = cv2.resize(frame, (target_w, int(h * scale)),
+                                       interpolation=cv2.INTER_LINEAR)
+
+                try:
+                    processed, face_events, equipment_events = vision_service.process_frame(frame)
+                    for ev in face_events:
+                        _maybe_mark_attendance(
+                            ev["name"], ev["score"],
+                            camera_id=camera_id,
+                            camera_name=camera_name,
+                            has_mask=ev.get("has_mask", True)
+                        )
+                        
+                    for ev in equipment_events:
+                        _maybe_track_equipment(
+                            equip_class=ev["class"],
+                            track_id=ev["track_id"],
+                            score=ev["score"],
+                            camera_id=camera_id,
+                            camera_name=camera_name
+                        )
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    processed = frame
+
+                _, buf = cv2.imencode(
+                    ".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality]
+                )
+                jpeg_bytes = buf.tobytes()
+
+                with self._lock:
+                    self._latest_frame = jpeg_bytes
+
+                self._broadcast(jpeg_bytes)
+
+                elapsed = time.monotonic() - t0
+                sleep = frame_interval - elapsed
+                if sleep > 0:
+                    time.sleep(sleep)
+
+            cap.release()
+            reader_running[0] = False
+            if reader_thread.is_alive():
+                reader_thread.join(timeout=1.0)
+                
+            if self._running:
+                print("[Camera] Stream dropped. Reconnecting...")
+                event_engine.publish_event(
+                    event_type="CameraOffline",
+                    camera_id=camera_id,
+                    camera_name=camera_name,
+                    details={"error": "Stream dropped"}
+                )
+
         print("[Camera] Worker stopped.")
 
     def _broadcast(self, frame: bytes):

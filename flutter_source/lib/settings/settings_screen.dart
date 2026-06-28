@@ -1,8 +1,12 @@
 import 'dart:convert';
+import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../main.dart' show GlassCard, GlassBackground;
+import '../network/api_routes.dart';
+import '../network/network_manager.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,15 +16,13 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const String _httpBase = 'http://127.0.0.1:8000';
-
   List<Map<String, dynamic>> _staffList = [];
   List<Map<String, dynamic>> _savedCameras = [];
 
   // ── Camera API ────────────────────────────────────────────────────────────
   Future<void> _fetchCameras() async {
     try {
-      final resp = await http.get(Uri.parse('$_httpBase/api/cameras'))
+      final resp = await NetworkManager.instance.get(ApiRoutes.cameras)
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200 && mounted) {
         setState(() {
@@ -33,7 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ── Staff API ─────────────────────────────────────────────────────────────
   Future<void> _fetchStaff() async {
     try {
-      final resp = await http.get(Uri.parse('$_httpBase/api/staff'))
+      final resp = await NetworkManager.instance.get(ApiRoutes.staff)
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200 && mounted) {
         setState(() {
@@ -47,27 +49,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: const Text(
+          'Settings',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+        ),
+        backgroundColor: Colors.white.withOpacity(0.6),
+        elevation: 0,
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(color: Colors.transparent),
+          ),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
+        ),
       ),
-      body: ListView(
-        children: [
-          ListTile(
-            leading: const Icon(Icons.manage_accounts),
-            title: const Text('Manage Staff'),
-            subtitle: const Text('Add, remove, or update staff photos for AI recognition'),
-            onTap: _showStaffManagementDialog,
+      body: GlassBackground(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 800),
+              child: GlassCard(
+                padding: EdgeInsets.zero,
+                child: ListView(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.shade50,
+                        child: Icon(Icons.manage_accounts_rounded, color: Colors.teal.shade700),
+                      ),
+                      title: const Text(
+                        'Manage Staff',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      subtitle: const Text('Add, remove, or update staff photos for AI recognition'),
+                      onTap: _showStaffManagementDialog,
+                    ),
+                    const Divider(height: 1, thickness: 1, indent: 20, endIndent: 20),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.shade50,
+                        child: Icon(Icons.videocam_rounded, color: Colors.teal.shade700),
+                      ),
+                      title: const Text(
+                        'Manage Cameras',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      subtitle: const Text('Add or remove registered RTSP camera sources'),
+                      onTap: _showCameraSourceDialog,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.videocam),
-            title: const Text('Manage Cameras'),
-            subtitle: const Text('Add or remove registered RTSP camera sources'),
-            onTap: _showCameraSourceDialog,
-          ),
-          const Divider(height: 1),
-        ],
+        ),
       ),
     );
   }
@@ -79,10 +124,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        final screenWidth = MediaQuery.of(ctx).size.width;
+        final dialogWidth = screenWidth > 500 ? 400.0 : screenWidth * 0.85;
         return AlertDialog(
           title: const Text('Camera Sources'),
           content: SizedBox(
-            width: 380,
+            width: dialogWidth,
             height: 400,
             child: Column(children: [
               Expanded(
@@ -112,10 +159,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   icon: const Icon(Icons.delete_outline,
                                       size: 18, color: Colors.red),
                                   onPressed: () async {
-                                    await http.delete(
-                                        Uri.parse('$_httpBase/api/cameras/${c['id']}'));
-                                    await _fetchCameras();
-                                    setD(() {});
+                                    final resp = await NetworkManager.instance.delete(
+                                        ApiRoutes.camera(c['id']));
+                                    
+                                    if (resp.statusCode != 200) {
+                                      if (ctx.mounted) {
+                                        String errorMsg = 'Failed to delete camera.';
+                                        try {
+                                          errorMsg = jsonDecode(resp.body)['detail'] ?? errorMsg;
+                                        } catch (_) {}
+                                        ScaffoldMessenger.of(ctx).showSnackBar(
+                                          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+                                        );
+                                      }
+                                    } else {
+                                      await _fetchCameras();
+                                      setD(() {});
+                                    }
                                   },
                                 ),
                               ],
@@ -182,8 +242,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: isSaving ? null : () async {
                 if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
                 setD(() => isSaving = true);
-                final resp = await http.post(
-                  Uri.parse('$_httpBase/api/cameras'),
+                final resp = await NetworkManager.instance.post(
+                  ApiRoutes.cameras,
                   headers: {'Content-Type': 'application/json'},
                   body: jsonEncode({
                     'name': nameCtrl.text,
@@ -197,7 +257,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     await _showCameraSourceDialog(); // Re-open management dialog
                   }
                 }
-                setD(() => isSaving = false);
+                if (ctx.mounted) {
+                  setD(() => isSaving = false);
+                }
               },
               child: const Text('Save'),
             ),
@@ -247,8 +309,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: isSaving ? null : () async {
                 if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
                 setD(() => isSaving = true);
-                final resp = await http.put(
-                  Uri.parse('$_httpBase/api/cameras/${camera['id']}'),
+                final resp = await NetworkManager.instance.put(
+                  ApiRoutes.camera(camera['id']),
                   headers: {'Content-Type': 'application/json'},
                   body: jsonEncode({
                     'name': nameCtrl.text,
@@ -262,7 +324,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     await _showCameraSourceDialog(); // Re-open management dialog
                   }
                 }
-                setD(() => isSaving = false);
+                if (ctx.mounted) {
+                  setD(() => isSaving = false);
+                }
               },
               child: const Text('Save'),
             ),
@@ -279,10 +343,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        final screenWidth = MediaQuery.of(ctx).size.width;
+        final dialogWidth = screenWidth > 500 ? 400.0 : screenWidth * 0.85;
         return AlertDialog(
           title: const Text('Staff Management'),
           content: SizedBox(
-            width: 380,
+            width: dialogWidth,
             height: 420,
             child: Column(children: [
               Expanded(
@@ -325,7 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
                                   tooltip: 'Remove staff',
                                   onPressed: () async {
-                                    await http.delete(Uri.parse('$_httpBase/api/staff/${s['id']}'));
+                                    await NetworkManager.instance.delete(ApiRoutes.staffMember(s['id']));
                                     await _fetchStaff();
                                     setD(() {});
                                   },
@@ -389,9 +455,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (nameController.text.isEmpty || pickedFile == null) return;
                 setD(() => isUploading = true);
                 try {
-                  final uri = Uri.parse(
-                      '$_httpBase/api/staff?name=${Uri.encodeComponent(nameController.text)}');
-                  final request = http.MultipartRequest('POST', uri);
+                  final request = NetworkManager.instance.multipartRequest(
+                      'POST', ApiRoutes.staffSearch(nameController.text));
                   if (kIsWeb) {
                     request.files.add(http.MultipartFile.fromBytes('file',
                         pickedFile!.files.single.bytes!,
@@ -410,7 +475,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ));
                   }
                 } finally {
-                  setD(() => isUploading = false);
+                  if (ctx.mounted) {
+                    setD(() => isUploading = false);
+                  }
                 }
               },
               child: const Text('Register'),
@@ -443,15 +510,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: isSaving ? null : () async {
                 if (nameController.text.isEmpty) return;
                 setD(() => isSaving = true);
-                final resp = await http.put(
-                  Uri.parse('$_httpBase/api/staff/${staff['id']}'),
+                final resp = await NetworkManager.instance.put(
+                  ApiRoutes.staffMember(staff['id']),
                   headers: {'Content-Type': 'application/json'},
                   body: jsonEncode({'name': nameController.text}),
                 );
                 if (ctx.mounted) {
                   Navigator.pop(ctx);
                 }
-                setD(() => isSaving = false);
+                if (ctx.mounted) {
+                  setD(() => isSaving = false);
+                }
               },
               child: const Text('Save'),
             ),
@@ -467,7 +536,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     Future<void> fetchPhotos() async {
       try {
-        final resp = await http.get(Uri.parse('$_httpBase/api/staff/$staffId/photos'));
+        final resp = await NetworkManager.instance.get(ApiRoutes.staffPhotos(staffId));
         if (resp.statusCode == 200) {
           photos = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
         }
@@ -482,10 +551,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        final screenWidth = MediaQuery.of(ctx).size.width;
+        final dialogWidth = screenWidth > 500 ? 400.0 : screenWidth * 0.85;
         return AlertDialog(
           title: Text('Manage Photos for $staffName'),
           content: SizedBox(
-            width: 380,
+            width: dialogWidth,
             height: 400,
             child: isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -501,7 +572,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             trailing: IconButton(
                               icon: const Icon(Icons.delete_outline, color: Colors.red),
                               onPressed: () async {
-                                await http.delete(Uri.parse('$_httpBase/api/staff/$staffId/photo/${p['id']}'));
+                                await NetworkManager.instance.delete(ApiRoutes.staffPhotoDelete(staffId, p['id']));
                                 setD(() => isLoading = true);
                                 await fetchPhotos();
                                 setD(() => isLoading = false);
@@ -567,9 +638,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: (isUploading || pickedFile == null) ? null : () async {
                 setD(() => isUploading = true);
                 try {
-                  final uri = Uri.parse(
-                      '$_httpBase/api/staff/$staffId/photo?label=${Uri.encodeComponent(selectedLabel)}');
-                  final request = http.MultipartRequest('POST', uri);
+                  final request = NetworkManager.instance.multipartRequest(
+                      'POST', ApiRoutes.staffPhotoUpload(staffId, selectedLabel));
                   if (kIsWeb) {
                     request.files.add(http.MultipartFile.fromBytes('file',
                         pickedFile!.files.single.bytes!,
@@ -588,7 +658,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ));
                   }
                 } finally {
-                  setD(() => isUploading = false);
+                  if (ctx.mounted) {
+                    setD(() => isUploading = false);
+                  }
                 }
               },
               child: const Text('Upload Photo'),

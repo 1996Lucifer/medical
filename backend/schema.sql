@@ -86,6 +86,32 @@ CREATE INDEX IF NOT EXISTS ix_attendance_staff_name ON attendance (staff_name);
 CREATE INDEX IF NOT EXISTS ix_attendance_date       ON attendance (date);
 
 
+-- Cameras
+CREATE TABLE IF NOT EXISTS cameras (
+    id            SERIAL PRIMARY KEY,
+    name          VARCHAR(255)  NOT NULL,
+    location      VARCHAR(255),
+    rtsp_url      VARCHAR(1024) NOT NULL,
+    is_restricted BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS ix_cameras_id ON cameras (id);
+
+
+-- Security Alerts
+CREATE TABLE IF NOT EXISTS security_alerts (
+    id          SERIAL PRIMARY KEY,
+    rule_name   VARCHAR(100) NOT NULL,
+    severity    VARCHAR(50)  NOT NULL DEFAULT 'high',
+    camera_id   INTEGER REFERENCES cameras (id) ON DELETE SET NULL,
+    details     TEXT,
+    timestamp   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    resolved    BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS ix_security_alerts_id ON security_alerts (id);
+
+
 -- Equipment Types
 CREATE TABLE IF NOT EXISTS equipment_types (
     id   SERIAL PRIMARY KEY,

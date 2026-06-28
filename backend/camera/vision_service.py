@@ -64,11 +64,33 @@ class VisionService:
             det_size=self.config["det_size"],
         )
         
+        self.rejection_threshold = 0.5
+        self.min_face_size = 60
+
         if YOLO:
             print("[VisionService] Loading YOLOv8n for equipment tracking...")
             self.yolo_model = YOLO("yolov8n.pt")
         else:
             self.yolo_model = None
+            
+        self.staff_names = []
+        self.staff_embeddings_matrix = np.empty((0, 512))
+
+    def update_staff_embeddings(self, staff_list):
+        self.staff_names = []
+        embeddings = []
+        for staff in staff_list:
+            self.staff_names.append(staff["name"])
+            emb = np.array(staff["embedding"])
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+                emb = emb / norm
+            embeddings.append(emb)
+        if embeddings:
+            self.staff_embeddings_matrix = np.vstack(embeddings)
+        else:
+            self.staff_embeddings_matrix = np.empty((0, 512))
+        print(f"[VisionService] Cached {len(embeddings)} face embeddings in memory.")
 
     # ── Properties consumed by routes.py ─────────────────────────────────────
 
@@ -109,9 +131,9 @@ class VisionService:
         n2 = np.linalg.norm(embedding2)
         return dot / (n1 * n2) if (n1 and n2) else 0.0
 
-    def process_frame(self, frame, db_staff_list):
+    def process_frame(self, frame):
         """
-        Detect faces, match against staff DB, draw bounding boxes.
+        Detect faces, match against cached staff embeddings, draw bounding boxes.
         Detect equipment using YOLO.
         Returns:
             (processed_frame, face_events, equipment_events)
@@ -121,22 +143,34 @@ class VisionService:
 
         for face in faces:
             bbox = face.bbox.astype(int)
+            width = bbox[2] - bbox[0]
+            height = bbox[3] - bbox[1]
+
+            # Anti-spoofing / junk rejection: minimum face size
+            if width < self.min_face_size or height < self.min_face_size:
+                continue
+
             emb = face.embedding
+            emb_norm = np.linalg.norm(emb)
+            if emb_norm > 0:
+                emb = emb / emb_norm
 
             best_match = "Unknown"
             best_score = 0.0
 
-            for staff in db_staff_list:
-                db_emb = np.array(staff["embedding"])
-                score = self.cosine_similarity(emb, db_emb)
-                if score > best_score:
-                    best_score = score
-                    best_match = staff["name"]
-
-            if best_score < 0.3:
-                best_match = "Unknown"
-            else:
-                face_events.append({"name": best_match, "score": float(best_score)})
+            if self.staff_embeddings_matrix.shape[0] > 0:
+                scores = np.dot(self.staff_embeddings_matrix, emb)
+                best_idx = np.argmax(scores)
+                best_score = scores[best_idx]
+                
+                if best_score >= self.rejection_threshold:
+                    best_match = self.staff_names[best_idx]
+            
+            face_events.append({
+                "name": best_match,
+                "score": float(best_score),
+                "bbox": bbox.tolist()
+            })
 
             color = (0, 255, 0) if best_match != "Unknown" else (0, 0, 255)
             cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)

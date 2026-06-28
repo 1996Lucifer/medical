@@ -24,19 +24,12 @@ models.Base.metadata.create_all(bind=engine)
 load_dotenv()
 
 from camera import routes as camera_routes
-from routers import staff, camera_api, attendance, equipment, events
+from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients
+from routers.auth import get_current_user
 
-app = FastAPI(title="AI Discharge Summary Generator")
+app = FastAPI(title="Healthcare Operations Copilot API")
 
-# Include all modular routers
-app.include_router(camera_routes.router)
-app.include_router(staff.router)
-app.include_router(camera_api.router)
-app.include_router(attendance.router)
-app.include_router(equipment.router)
-app.include_router(events.router)
-
-# Allow CORS for Flutter app
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,6 +37,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register public routers
+app.include_router(camera_routes.router)
+app.include_router(auth.router)
+app.include_router(analysis.router)
+app.include_router(patients.router)
+
+# Protect these endpoints with JWT
+auth_dep = [Depends(get_current_user)]
+app.include_router(staff.router, dependencies=auth_dep)
+app.include_router(camera_api.router, dependencies=auth_dep)
+app.include_router(attendance.router, dependencies=auth_dep)
+app.include_router(equipment.router, dependencies=auth_dep)
+app.include_router(events.router, dependencies=auth_dep)
+app.include_router(analytics.router, dependencies=auth_dep)
+app.include_router(analysis.router, dependencies=auth_dep)
+
+# Security router has a websocket, so we protect its HTTP routes individually
+app.include_router(security.router)
 
 # Configure Gemini API
 GENAI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -110,9 +122,17 @@ async def upload_audio(
         else:
             summary_part = text_response.strip()
 
+        # Get or create patient
+        patient = db.query(models.Patient).filter(models.Patient.name == patient_name).first()
+        if not patient:
+            patient = models.Patient(name=patient_name)
+            db.add(patient)
+            db.commit()
+            db.refresh(patient)
+
         # Save to database
         db_consultation = models.Consultation(
-            patient_name=patient_name,
+            patient_id=patient.id,
             transcript=transcript_part,
             discharge_summary=summary_part,
         )

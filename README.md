@@ -1,6 +1,8 @@
-# Healthcare Operations Copilot - AI Camera System
+# Healthcare Operations & Clinical Copilot - Medical Software & On-Device AI
 
-This repository contains a full-stack system consisting of a Python/FastAPI backend and a Flutter frontend. The application is an AI-powered surveillance and staff management system that connects to RTSP IP cameras (e.g., TP-Link Tapo), performs real-time facial recognition using InsightFace, and logs staff attendance automatically.
+This repository contains a full-stack system consisting of a Python/FastAPI backend and an offline-first Flutter frontend. The application serves two primary roles for a hospital:
+1. **Clinical Copilot (Frontend-Heavy)**: An on-device AI assistant for doctors. It uses local multimodal AI (MediaPipe Audio, Gemini Nano/Gemma 4) for offline SOAP note generation, medical report analysis, and hybrid syncing to a private server.
+2. **Operations Copilot (Backend-Heavy)**: An AI-powered surveillance system that connects to RTSP IP cameras, performs real-time facial recognition (InsightFace), tracks staff/equipment, and enforces safety compliance (PPE).
 
 ## Architecture Overview
 
@@ -53,3 +55,44 @@ The frontend is located in the `flutter_source/` directory.
 - The system heavily relies on `SessionLocal()` instances spawned manually inside the `CameraWorker` background thread, rather than FastAPI's `Depends(get_db)` because background threads do not have access to FastAPI's request lifecycle.
 - When sending face photos to the backend (`/api/staff?name=...` or `/api/staff/{id}/photo`), the file is sent as `multipart/form-data`. The backend reads the file, detects the face via `VisionService`, extracts the embedding, and converts the NumPy embedding to JSON before saving it to the SQLite database.
 - TP-Link Tapo cameras require the username and password to be raw in the RTSP URL, e.g., `rtsp://user:pass@ip:554/stream1`. Special characters in the password are supported but must be formatted properly.
+
+## Roadmap / Future Enhancements
+
+The current system covers the hard infrastructure: RTSP ingestion, multi-client WebSocket broadcasting, vector-based face matching, and session-aware attendance logging. The items below are grouped by category so it's clear which are safe incremental improvements and which are bigger capability decisions that need a deliberate call before building.
+
+### A. Reliability & Accuracy (low risk, do anytime)
+- **Recognition confidence tuning**: Enforce a proper rejection threshold so a stranger isn't misattributed to the closest-matching staff member. Log "unknown face detected" events as their own category instead of silently dropping or misassigning them.
+- **RTSP reconnect handling**: Verify `camera_worker.py` retries gracefully on stream drops rather than letting the background thread die silently. Add a heartbeat/health check per camera.
+- **Multi-face-in-frame handling**: Confirm the system correctly produces separate bounding boxes and separate attendance entries when 2+ staff are visible simultaneously.
+- **Liveness / anti-spoofing**: A single-frame embedding match can potentially be fooled by a photo held up to the camera. This is a real open problem, not a one-line fix — worth evaluating a dedicated liveness-detection approach (e.g., a depth/motion-based or blink-based check) rather than an ad hoc heuristic.
+- **Embedding storage at scale**: Embeddings are currently stored as JSON bytes in SQLite with (presumably) a linear cosine-similarity scan per frame. Fine at small scale; past roughly 50-100 staff x multiple angles, consider an in-memory cache of all embeddings at startup, and/or a proper vector index (FAISS, `sqlite-vec`) instead of a per-frame linear scan.
+
+### B. Analytics & Reporting (low risk, high visible value)
+- **Attendance analytics dashboard**: Daily/weekly summaries (total hours, late arrivals, early departures) built from existing `Attendance` rows — mostly an aggregation query + frontend view away.
+- **Camera-offline alerts**: Notify admins when a registered camera's RTSP stream drops, using the heartbeat check above.
+- **Unknown-face alerts**: Webhook/push notification when an unrecognized face is seen, especially during off-hours.
+
+### C. Event Correlation Layer (medium effort, foundational)
+- Build a queryable event timeline/graph: `person -> camera -> timestamp -> action` (entered, exited, lingered, unknown-face-flagged), rather than treating each camera's attendance log as a silo.
+- Decide explicitly how a handoff between cameras is treated — e.g., a staff member walking from Camera A's view into Camera B's — as one continuous session vs. an exit + new entry. Currently this is likely incidental rather than designed behavior.
+- This layer is worth building before the items in section D, since the LLM query interface and anomaly detection are much easier on top of a structured event log than on raw per-camera rows.
+
+### D. Conversational / Agentic Layer (medium effort, high leverage)
+- **Natural-language query over logs**: An LLM layer that translates plain-English questions ("Who was in Camera 2's view between 2-4pm yesterday?") into queries against the existing `Attendance`/`Staff` tables via function calling into the existing FastAPI endpoints. This reuses existing data and endpoints rather than requiring new ML.
+- **Automatic shift/anomaly digests**: LLM-generated daily summaries (irregular check-ins, camera downtime, unusual shift overlaps) instead of admins reading raw logs.
+- **Chat tab in the Flutter app**: A conversational interface as an alternative to digging through the Settings CRUD screens.
+- **Predictive staffing-gap analysis**: Time-series analysis on existing attendance history to flag recurring understaffed windows (e.g., a ward consistently thin between 2-4pm).
+
+### E. Behavioral & Compliance Monitoring (bigger capability decision — needs sign-off before building)
+These move the system from "attendance logger" to "continuous behavioral monitoring of healthcare staff," which is a materially bigger step in scope than anything above. They are technically reasonable extensions of the existing pipeline (same camera feed, an additional model running alongside InsightFace), but each one should go through an explicit privacy/HR/legal decision before implementation, not be added casually:
+- **PPE/compliance detection**: Object detection (e.g., YOLO) on the same frame to flag missing mask/gloves/gown in zones that require it.
+- **Hand-hygiene zone monitoring**: Detect whether staff pause at a sanitizer station before entering a ward.
+- **Fall/incident detection**: Pose estimation (e.g., MediaPipe) on the same feed to detect a person collapsing in a hallway and trigger an alert. This one is safety-critical rather than compliance-oriented, and arguably has the clearest justification of this group.
+- **Patient-related tracking**: Any feature that touches patient presence or movement — even without identifying a patient by name — brings in health-data regulation (HIPAA-equivalent depending on jurisdiction; India's DPDP Act) and should not be built without that review.
+
+### F. Platform & Access Control (longer horizon)
+- **Role-based access control**: Add admin authentication; currently anyone with the Flutter app can manage staff/cameras and view attendance.
+- **Explicit hardware acceleration wiring**: CoreML/CUDA are available but currently picked up via auto-detection. As camera count grows, explicitly configuring this (and/or batching frames across streams) will matter for scaling beyond a single server's CPU budget.
+- **Privacy/compliance layer**: Since this system stores biometric data (face embeddings) on staff, plan for: consent records, a defined retention/deletion policy for photos and embeddings, and audit logs of who accessed attendance data. Relevant regardless of which features above get built, given the biometric data already being stored today.
+
+**Suggested build order for maximum leverage per unit effort**: A and B items first (low risk, immediate value) -> C, the event correlation layer (foundation for everything after) -> D, the LLM query interface (high perceived value, reuses existing infrastructure) -> a single flagship item from E only after an explicit privacy/compliance decision -> F as the system matures toward real deployment.

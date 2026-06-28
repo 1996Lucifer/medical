@@ -13,5 +13,6 @@
   "[markdown]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "charliermarsh.ruff"
-  }
+  },
+  "java.configuration.updateBuildConfiguration": "interactive"
 }

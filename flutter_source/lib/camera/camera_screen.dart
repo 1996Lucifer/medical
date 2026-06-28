@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import '../main.dart' show GlassCard, GlassBackground;
+import '../network/api_routes.dart';
+import '../network/network_manager.dart';
 
 // ── Data models ───────────────────────────────────────────────────────────────
 
@@ -56,9 +58,6 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
 
-  static const String _httpBase = 'http://127.0.0.1:8000';
-  static const String _wsBase = 'ws://127.0.0.1:8000';
-
   // Camera
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -90,7 +89,7 @@ class _CameraScreenState extends State<CameraScreen> {
     // Build WS URI: prefer saved camera_id
     Uri wsUri;
     if (_selectedCamera != null) {
-      wsUri = Uri.parse('$_wsBase/api/ws/camera?camera_id=${_selectedCamera!['id']}');
+      wsUri = Uri.parse(ApiRoutes.cameraWs(_selectedCamera!['id']));
     } else {
       setState(() { _isConnecting = false; _errorMessage = 'No camera selected'; });
       return;
@@ -125,7 +124,7 @@ class _CameraScreenState extends State<CameraScreen> {
     await _sub?.cancel();
     await _channel?.sink.close();
     _sub = null; _channel = null;
-    http.get(Uri.parse('$_httpBase/api/camera/stop'))
+    NetworkManager.instance.get(ApiRoutes.cameraStop)
         .timeout(const Duration(seconds: 3))
         .catchError((_) => http.Response('', 200));
     if (mounted) setState(() { _isConnected = false; _frameBytes = null; _attendance = []; });
@@ -139,7 +138,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _fetchAttendance() async {
     try {
-      final resp = await http.get(Uri.parse('$_httpBase/api/attendance'))
+      final resp = await NetworkManager.instance.get(ApiRoutes.attendance)
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200 && mounted) {
         final data = jsonDecode(resp.body) as List<dynamic>;
@@ -149,7 +148,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _deleteAttendance(int id) async {
-    await http.delete(Uri.parse('$_httpBase/api/attendance/$id'))
+    await NetworkManager.instance.delete(ApiRoutes.attendanceDelete(id))
         .timeout(const Duration(seconds: 5))
         .catchError((_) => http.Response('', 500));
     _fetchAttendance();
@@ -159,7 +158,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _fetchCameras() async {
     try {
-      final resp = await http.get(Uri.parse('$_httpBase/api/cameras'))
+      final resp = await NetworkManager.instance.get(ApiRoutes.cameras)
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200 && mounted) {
         setState(() {
@@ -180,88 +179,171 @@ class _CameraScreenState extends State<CameraScreen> {
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('AI Camera Stream'),
-        actions: [
-          if (_isConnected)
-            TextButton.icon(
-              onPressed: _disconnect,
-              icon: const Icon(Icons.stop_circle, color: Colors.red),
-              label: const Text('Disconnect', style: TextStyle(color: Colors.red)),
-            ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // ── Camera view ──────────────────────────────────────────────────
-          Expanded(
-            flex: 3,
-            child: Column(children: [
-              // ── Camera selection chips ──────────────────────────────────
-              if (_savedCameras.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text('No cameras configured. Add them in Settings.', style: TextStyle(color: Colors.grey)),
-                )
-              else
-                SizedBox(
-                  width: double.infinity,
-                  child: Wrap(
-                    spacing: 8.0,
-                    runSpacing: 8.0,
-                    children: _savedCameras.map((camera) {
-                      final isSelected = _selectedCamera?['id'] == camera['id'];
-                      return ChoiceChip(
-                        label: Text(camera['name']),
-                        selected: isSelected,
-                        onSelected: (selected) async {
-                          if (selected) {
-                            if (_isConnected || _isConnecting) {
-                              await _disconnect();
-                            }
-                            setState(() => _selectedCamera = camera);
-                            _connectStream();
-                          }
-                        },
-                        selectedColor: Colors.blue.shade100,
-                        avatar: Icon(Icons.videocam, 
-                            size: 16, 
-                            color: isSelected ? Colors.blue.shade700 : Colors.grey.shade600),
-                      );
-                    }).toList(),
-                  ),
-                ),
+    final width = MediaQuery.of(context).size.width;
+    final isMobile = width < 768;
 
-              const SizedBox(height: 10),
-              Expanded(
+    Widget cameraPanel = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Camera selection chips ──────────────────────────────────
+        if (_savedCameras.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No cameras configured. Add them in Settings.',
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
+            ),
+          )
+        else
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children: _savedCameras.map((camera) {
+                final isSelected = _selectedCamera?['id'] == camera['id'];
+                return ChoiceChip(
+                  label: Text(camera['name']),
+                  selected: isSelected,
+                  onSelected: (selected) async {
+                    if (selected) {
+                      if (_isConnected || _isConnecting) {
+                        await _disconnect();
+                      }
+                      setState(() => _selectedCamera = camera);
+                      _connectStream();
+                    }
+                  },
+                  selectedColor: Colors.teal.shade50,
+                  checkmarkColor: Colors.teal.shade700,
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.teal.shade800 : Colors.black87,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  avatar: Icon(Icons.videocam,
+                      size: 16,
+                      color: isSelected ? Colors.teal.shade700 : Colors.grey.shade600),
+                );
+              }).toList(),
+            ),
+          ),
+        const SizedBox(height: 12),
+        // Video box
+        isMobile
+            ? AspectRatio(
+                aspectRatio: 4 / 3,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    border: Border.all(color: Colors.grey.shade800),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  clipBehavior: Clip.hardEdge,
+                  child: _buildVideoArea(),
+                ),
+              )
+            : Expanded(
                 child: Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.black,
-                    border: Border.all(color: Colors.grey.shade700),
-                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade800),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   clipBehavior: Clip.hardEdge,
                   child: _buildVideoArea(),
                 ),
               ),
-            ]),
-          ),
+      ],
+    );
 
-          const SizedBox(width: 12),
+    Widget attendancePanel = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _attendanceHeader(),
+        const SizedBox(height: 10),
+        isMobile
+            ? SizedBox(
+                height: 350,
+                child: _attendanceList(),
+              )
+            : Expanded(
+                child: _attendanceList(),
+              ),
+      ],
+    );
 
-          // ── Attendance panel ─────────────────────────────────────────────
-          SizedBox(
-            width: 280,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _attendanceHeader(),
-              const SizedBox(height: 8),
-              Expanded(child: _attendanceList()),
-            ]),
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: const Text(
+          'AI Camera Stream',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+        ),
+        backgroundColor: Colors.white.withOpacity(0.6),
+        elevation: 0,
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(color: Colors.transparent),
           ),
-        ]),
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
+        ),
+        actions: [
+          if (_isConnected)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: TextButton.icon(
+                onPressed: _disconnect,
+                icon: const Icon(Icons.stop_circle, color: Color(0xFFF43F5E), size: 20),
+                label: const Text('Disconnect', style: TextStyle(color: Color(0xFFF43F5E), fontWeight: FontWeight.bold)),
+              ),
+            ),
+        ],
+      ),
+      body: GlassBackground(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: isMobile
+              ? SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      GlassCard(
+                        padding: const EdgeInsets.all(16),
+                        child: cameraPanel,
+                      ),
+                      const SizedBox(height: 16),
+                      GlassCard(
+                        padding: const EdgeInsets.all(16),
+                        child: attendancePanel,
+                      ),
+                    ],
+                  ),
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: GlassCard(
+                        padding: const EdgeInsets.all(16),
+                        child: cameraPanel,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    SizedBox(
+                      width: 320,
+                      child: GlassCard(
+                        padding: const EdgeInsets.all(16),
+                        child: attendancePanel,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -429,8 +511,7 @@ class _CameraScreenState extends State<CameraScreen> {
                         color: Colors.orange),
                     tooltip: 'Checkout',
                     onPressed: () async {
-                      await http.post(Uri.parse(
-                          '$_httpBase/api/attendance/${r.id}/checkout'));
+                      await NetworkManager.instance.post(ApiRoutes.attendanceCheckout(r.id));
                       _fetchAttendance();
                     },
                     padding: EdgeInsets.zero,

@@ -1,18 +1,73 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Date, ForeignKey, Boolean
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from database import Base
 import datetime
+
+
+class User(Base):
+    """
+    Admin user for Role-Based Access Control (RBAC).
+    """
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="admin")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Patient(Base):
+    """
+    Centralized Patient record for scalability.
+    """
+    __tablename__ = "patients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True, nullable=False)
+    mrn = Column(String, unique=True, index=True, nullable=True) # Medical Record Number
+    dob = Column(Date, nullable=True)
+    gender = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    consultations = relationship("Consultation", back_populates="patient", cascade="all, delete-orphan")
+    medical_reports = relationship("MedicalReport", back_populates="patient", cascade="all, delete-orphan")
 
 
 class Consultation(Base):
     __tablename__ = "consultations"
 
     id = Column(Integer, primary_key=True, index=True)
-    patient_name = Column(String, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
     date = Column(DateTime(timezone=True), server_default=func.now())
     transcript = Column(Text, nullable=True)
     discharge_summary = Column(Text, nullable=True)
+
+    patient = relationship("Patient", back_populates="consultations")
+
+    @property
+    def patient_name(self):
+        return self.patient.name if self.patient else None
+
+
+class MedicalReport(Base):
+    __tablename__ = "medical_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    date = Column(DateTime(timezone=True), server_default=func.now())
+    key_findings = Column(Text, nullable=True)
+    abnormalities = Column(Text, nullable=True)
+    recommendations = Column(Text, nullable=True)
+    raw_response = Column(Text, nullable=True)
+
+    patient = relationship("Patient", back_populates="medical_reports")
+
+    @property
+    def patient_name(self):
+        return self.patient.name if self.patient else None
 
 
 from sqlalchemy.orm import relationship
@@ -58,7 +113,10 @@ class Camera(Base):
     name       = Column(String, nullable=False)     # e.g. "Main Entrance"
     location   = Column(String, nullable=True)      # e.g. "Ground Floor, Block A"
     rtsp_url   = Column(String, nullable=False)
+    is_restricted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    security_alerts = relationship("SecurityAlert", back_populates="camera")
 
 
 class Attendance(Base):
@@ -138,3 +196,15 @@ class SystemEvent(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     details = Column(String, nullable=True) # JSON string for extra info
 
+class SecurityAlert(Base):
+    __tablename__ = "security_alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_name = Column(String(100), nullable=False)
+    severity = Column(String(50), nullable=False, default="high")
+    camera_id = Column(Integer, ForeignKey("cameras.id", ondelete="SET NULL"), nullable=True)
+    details = Column(String, nullable=True) # JSON string for extra info
+    timestamp = Column(DateTime(timezone=True), default=func.now())
+    resolved = Column(Boolean, default=False, nullable=False)
+
+    camera = relationship("Camera", back_populates="security_alerts")
