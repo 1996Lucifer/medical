@@ -227,15 +227,15 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                           decoration: BoxDecoration(
                             color: isResolved
                                 ? Colors.white.withOpacity(0.50)
-                                : (isCritical 
-                                    ? const Color(0xFFFFF1F2).withOpacity(0.75) 
+                                : (isCritical
+                                    ? const Color(0xFFFFF1F2).withOpacity(0.75)
                                     : Colors.amber.shade50.withOpacity(0.75)),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: isResolved
                                   ? Colors.white.withOpacity(0.3)
-                                  : (isCritical 
-                                      ? const Color(0xFFFECDD3).withOpacity(0.4) 
+                                  : (isCritical
+                                      ? const Color(0xFFFECDD3).withOpacity(0.4)
                                       : Colors.amber.shade200.withOpacity(0.4)),
                               width: 1.5,
                             ),
@@ -306,12 +306,12 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                   children: [
                     const Icon(Icons.auto_awesome, color: Colors.teal),
                     const SizedBox(width: 12),
-                    Expanded(
+                    const Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Dynamic Rules Engine', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                          const Text('Write rules in natural language. Gemini AI will evaluate camera feeds to enforce them!', style: TextStyle(color: Colors.black54, fontSize: 13)),
+                          Text('Dynamic Rules Engine', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text('Write rules in natural language. Gemini AI will evaluate camera feeds to enforce them!', style: TextStyle(color: Colors.black54, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -353,7 +353,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                                   border: Border.all(color: Colors.teal.shade200)
                                 ),
                                 child: Text(
-                                  rule['target_area'] ?? 'Global Area', 
+                                  rule['target_area'] ?? 'Global Area',
                                   style: TextStyle(fontSize: 11, color: Colors.teal.shade700, fontWeight: FontWeight.w600)
                                 )
                               ),
@@ -397,7 +397,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
               controller: textCtrl,
               maxLines: 3,
               decoration: const InputDecoration(
-                labelText: 'Rule (e.g. All staff must wear gloves)', 
+                labelText: 'Rule (e.g. All staff must wear gloves)',
                 border: OutlineInputBorder(),
                 alignLabelWithHint: true,
               ),

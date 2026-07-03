@@ -1,18 +1,9 @@
-import 'dart:convert';
-import 'dart:io';
 import 'dart:ui';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 
 import 'camera/camera_screen.dart';
-import 'network/api_routes.dart';
 import 'network/environment.dart';
-import 'network/network_manager.dart';
 import 'security/security_dashboard.dart';
 import 'settings/settings_screen.dart';
 import 'analytics/analytics_screen.dart';
@@ -46,8 +37,8 @@ class _MyAppState extends State<MyApp> {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: _isAuthenticated 
-          ? const MainLayout() 
+      home: _isAuthenticated
+          ? const MainLayout()
           : LoginScreen(onLoginSuccess: () {
               setState(() {
                 _isAuthenticated = true;

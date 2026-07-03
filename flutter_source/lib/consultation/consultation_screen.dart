@@ -25,16 +25,16 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   TextEditingController _patientNameController = TextEditingController();
   bool _ownsPatientNameController = true;
-  String _transcription = "";
-  
+  final String _transcription = "";
+
   final ImagePicker _imagePicker = ImagePicker();
-  
+
   bool _isRecording = false;
   bool _isProcessing = false;
-  
+
   Map<String, dynamic>? _currentNote;
   Map<String, dynamic>? _currentReport;
-  
+
   List<Map<String, dynamic>> _savedNotes = [];
   List<String> _availablePatients = [];
 
@@ -107,10 +107,10 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
           path = '${dir.path}/consultation_${DateTime.now().millisecondsSinceEpoch}.m4a';
         }
         await _audioRecorder.start(const RecordConfig(), path: path ?? '');
-        
+
         setState(() {
           _isRecording = true;
-          _currentNote = null; 
+          _currentNote = null;
           _currentReport = null;
         });
       }
@@ -145,7 +145,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   Future<void> _uploadAudioForAnalysis(String pathOrUrl) async {
     try {
       final request = NetworkManager.instance.multipartRequest('POST', '${ApiRoutes.baseUrl}/api/consultations?patient_name=${Uri.encodeComponent(_patientNameController.text.trim())}');
-      
+
       if (kIsWeb) {
         final response = await http.get(Uri.parse(pathOrUrl));
         request.files.add(http.MultipartFile.fromBytes('file', response.bodyBytes, filename: 'audio.webm'));
@@ -158,9 +158,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
+
         await SecureStorageService.instance.savePatientNote(_patientNameController.text.trim(), data);
-        _loadSavedNotes(); 
+        _loadSavedNotes();
         _openDrawerWithNote(data);
       } else {
         throw Exception('Server error: ${response.statusCode} - ${response.body}');
@@ -192,7 +192,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
       final request = NetworkManager.instance.multipartRequest('POST', '${ApiRoutes.baseUrl}/api/analysis/report');
       request.fields['patient_name'] = _patientNameController.text.trim();
-      
+
       final bytes = await image.readAsBytes();
       request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: image.name));
 
@@ -201,9 +201,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
+
         await SecureStorageService.instance.savePatientNote(_patientNameController.text.trim(), data);
-        _loadSavedNotes(); 
+        _loadSavedNotes();
         _openDrawerWithReport(data);
       } else {
         throw Exception('Server error: ${response.statusCode} - ${response.body}');
@@ -216,7 +216,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       setState(() => _isProcessing = false);
     }
   }
-  
+
   Widget _buildPatientCard(Map<String, dynamic> note, bool isReport) {
     return Card(
       elevation: 8,
@@ -254,7 +254,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: Text(note['patient_name'] ?? 'Unknown Patient', 
+                    child: Text(note['patient_name'] ?? 'Unknown Patient',
                       style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF1E293B)),
                       maxLines: 1, overflow: TextOverflow.ellipsis,
                     ),
@@ -272,7 +272,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                       color: isReport ? Colors.blue.shade200 : Colors.teal.shade200,
                       borderRadius: BorderRadius.circular(20)
                     ),
-                    child: Text(isReport ? 'AI Report' : 'SOAP Note', 
+                    child: Text(isReport ? 'AI Report' : 'SOAP Note',
                       style: TextStyle(color: isReport ? Colors.blue.shade900 : Colors.teal.shade900, fontSize: 12, fontWeight: FontWeight.bold)),
                   )
                 ],
@@ -356,7 +356,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final isDesktop = constraints.maxWidth > 800;
-                        
+
                         final leftTile = GlassCard(
                           padding: const EdgeInsets.all(24.0),
                           child: Column(
@@ -368,7 +368,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
                               ),
                               const SizedBox(height: 24),
-                              
+
                               // Patient Name Autocomplete
                               Autocomplete<String>(
                                 optionsBuilder: (TextEditingValue textEditingValue) {
@@ -445,9 +445,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                   );
                                 },
                               ),
-                              
+
                               const SizedBox(height: 24),
-                              
+
                               if (_isProcessing)
                                 const Column(
                                   children: [
@@ -498,8 +498,8 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                         );
 
                         final searchQuery = _patientNameController.text.trim().toLowerCase();
-                        final filteredNotes = searchQuery.isEmpty 
-                          ? _savedNotes 
+                        final filteredNotes = searchQuery.isEmpty
+                          ? _savedNotes
                           : _savedNotes.where((note) {
                               final name = (note['patient_name'] as String? ?? '').toLowerCase();
                               return name.contains(searchQuery);
@@ -513,7 +513,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                               child: Text('Recent Patient Records', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
                             ),
                             Expanded(
-                              child: filteredNotes.isEmpty 
+                              child: filteredNotes.isEmpty
                                 ? Center(child: Text(searchQuery.isEmpty ? 'No patient records found. Start a consultation!' : 'No records found for this patient.', style: const TextStyle(color: Colors.black54, fontSize: 16)))
                                 : GridView.builder(
                                     padding: const EdgeInsets.only(bottom: 40, top: 8),

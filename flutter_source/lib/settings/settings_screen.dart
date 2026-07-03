@@ -8,7 +8,6 @@ import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import 'rbac_mapper_screen.dart';
-import 'camera_status_dot.dart';
 import 'camera_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {

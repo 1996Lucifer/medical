@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -115,9 +114,9 @@ class _CameraScreenState extends State<CameraScreen> {
       });
     } catch (_) {}
   }
-  
+
   final FlutterTts _flutterTts = FlutterTts();
-  
+
   Future<void> _speakWarning(String text) async {
     try {
       await _flutterTts.setLanguage("en-US");
@@ -252,8 +251,8 @@ class _CameraScreenState extends State<CameraScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   clipBehavior: Clip.hardEdge,
-                  child: _selectedCamera != null 
-                    ? CameraStreamView(cameraId: _selectedCamera!['id']) 
+                  child: _selectedCamera != null
+                    ? CameraStreamView(cameraId: _selectedCamera!['id'])
                     : const Center(child: Text('No camera selected', style: TextStyle(color: Colors.white54))),
                 ),
               )
@@ -266,8 +265,8 @@ class _CameraScreenState extends State<CameraScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   clipBehavior: Clip.hardEdge,
-                  child: _selectedCamera != null 
-                    ? CameraStreamView(cameraId: _selectedCamera!['id']) 
+                  child: _selectedCamera != null
+                    ? CameraStreamView(cameraId: _selectedCamera!['id'])
                     : const Center(child: Text('No camera selected', style: TextStyle(color: Colors.white54))),
                 ),
               ),

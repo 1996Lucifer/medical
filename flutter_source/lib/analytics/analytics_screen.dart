@@ -96,7 +96,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               children: sortedKeys.map((dateStr) {
                 double total = dailyTotals[dateStr]!;
                 double heightFactor = total / maxHours;
-                
+
                 String shortDate = "";
                 try {
                   final dt = DateTime.parse(dateStr);
@@ -199,12 +199,12 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                                       ],
                                     ),
                                   );
-                                }).toList(),
+                                }),
                               ],
                             ),
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
       ),

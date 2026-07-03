@@ -196,7 +196,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                   .any((edge) => edge.source == eId && edge.target == cId)) {
                 rulesEdges.add(_Edge(eId, cId));
               }
-              
+
               if (targetArea != null) {
                 final zId = 'zone_$targetArea';
                 if (rulesNodes.any((n) => n.id == zId)) {
@@ -331,7 +331,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
             .where((e) => e.source == cId)
             .map((e) => e.target)
             .toList();
-            
+
         if (connectedZones.isEmpty) {
           // If no zone is connected, default to Global (target_area = null)
           compiledRules.add({
@@ -563,7 +563,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                       child: const Icon(Icons.close,
                                           size: 14, color: Colors.white),
                                     )));
-                          }).toList(),
+                          }),
                           // Nodes
                           ...activeNodes.map((node) {
                             Color nodeColor;
@@ -710,7 +710,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                 ),
                               ),
                             );
-                          }).toList(),
+                          }),
 
                           // Floating Context Menu
                           if (selectedNodeMenu != null)

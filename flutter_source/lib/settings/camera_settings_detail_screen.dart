@@ -32,9 +32,9 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
 
   // ROIs
   List<Map<String, dynamic>> _savedRois = [];
-  List<Offset> _currentPolygon = [];
+  final List<Offset> _currentPolygon = [];
   String _selectedZone = 'ICU';
-  List<String> _zones = ['ICU', 'Operating Room', 'General Ward'];
+  final List<String> _zones = ['ICU', 'Operating Room', 'General Ward'];
   bool _isLoadingRois = false;
 
   // Rules
@@ -106,7 +106,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
         }),
       );
       if (resp.statusCode == 200 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('ROI saved!'), backgroundColor: Colors.teal));
         _fetchROIs();
       }
@@ -253,10 +253,10 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.black87,
               borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(12)),
+                  BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Row(
               children: [
@@ -270,7 +270,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
                     style: TextStyle(color: Colors.white70)),
                 Switch(
                   value: _isAiEnabled,
-                  activeColor: Colors.tealAccent,
+                  activeThumbColor: Colors.tealAccent,
                   onChanged: (val) {
                     setState(() => _isAiEnabled = val);
                   },
@@ -393,11 +393,12 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
                   .map((z) => DropdownMenuItem(value: z, child: Text(z)))
                   .toList(),
               onChanged: (val) {
-                if (val != null)
+                if (val != null) {
                   setState(() {
                     _selectedZone = val;
                     _currentPolygon.clear();
                   });
+                }
               },
             ),
             const Spacer(),
@@ -530,7 +531,7 @@ class _ROIPainter extends CustomPainter {
       try {
         final pointsJson = jsonDecode(roi['points'] as String) as List<dynamic>;
         if (pointsJson.isEmpty) continue;
-        
+
         final path = Path();
         for (int i = 0; i < pointsJson.length; i++) {
           final pt = pointsJson[i] as Map<String, dynamic>;
@@ -543,18 +544,18 @@ class _ROIPainter extends CustomPainter {
           }
         }
         path.close();
-        
+
         final fillPaint = Paint()
           ..color = Colors.orange.withOpacity(0.3)
           ..style = PaintingStyle.fill;
         canvas.drawPath(path, fillPaint);
-        
+
         final strokePaint = Paint()
           ..color = Colors.orangeAccent
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2;
         canvas.drawPath(path, strokePaint);
-        
+
         final tp = TextPainter(
           text: TextSpan(
               text: ' ${roi['zone_name']} ',

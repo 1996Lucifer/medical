@@ -173,7 +173,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final isWide = constraints.maxWidth > 800;
-                
+
                 final listWidget = GlassCard(
                   child: _savedCameras.isEmpty
                       ? const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('No cameras saved.')))
@@ -263,8 +263,8 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                             ],
                           ),
                         )
-                      : GlassCard(
-                        child: const Center(
+                      : const GlassCard(
+                        child: Center(
                           child: Text('Select a camera to view live feed', style: TextStyle(color: Colors.grey)),
                         ),
                       );
