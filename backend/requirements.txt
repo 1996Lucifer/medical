@@ -11,4 +11,3 @@ insightface
 onnxruntime
 pgvector
 ultralytics
-onvif-zeep

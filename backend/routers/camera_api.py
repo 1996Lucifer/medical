@@ -1,5 +1,7 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import urllib.parse
+from typing import List, Optional, Dict
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 
@@ -12,19 +14,32 @@ class CameraCreate(BaseModel):
     name: str
     location: Optional[str] = None
     rtsp_url: str
+    ha_entity_id: Optional[str] = None
 
 class CameraResponse(BaseModel):
     id: int
     name: str
     location: Optional[str]
     rtsp_url: str
+    ha_entity_id: Optional[str]
+    model_config = ConfigDict(from_attributes=True)
+
+class ROICreate(BaseModel):
+    zone_name: str
+    points: str
+
+class ROIResponse(BaseModel):
+    id: int
+    camera_id: int
+    zone_name: str
+    points: str
     model_config = ConfigDict(from_attributes=True)
 
 
 @router.post("", response_model=CameraResponse)
 def create_camera(body: CameraCreate, db: Session = Depends(get_db)):
     """Register a new camera with its RTSP URL and location."""
-    cam = models.Camera(name=body.name, location=body.location, rtsp_url=body.rtsp_url)
+    cam = models.Camera(name=body.name, location=body.location, rtsp_url=body.rtsp_url, ha_entity_id=body.ha_entity_id)
     db.add(cam)
     db.commit()
     db.refresh(cam)
@@ -36,6 +51,33 @@ def list_cameras(db: Session = Depends(get_db)):
     return db.query(models.Camera).all()
 
 
+async def _check_rtsp(cam_id: int, url: str) -> tuple[int, bool]:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or 554
+        if not host:
+            return cam_id, False
+            
+        fut = asyncio.open_connection(host, port)
+        reader, writer = await asyncio.wait_for(fut, timeout=2.0)
+        writer.close()
+        await writer.wait_closed()
+        return cam_id, True
+    except Exception:
+        return cam_id, False
+
+@router.get("/status", response_model=Dict[int, bool])
+async def get_cameras_status(db: Session = Depends(get_db)):
+    """Ping all camera RTSP streams to check if they are online."""
+    cameras = db.query(models.Camera).all()
+    tasks = [_check_rtsp(c.id, c.rtsp_url) for c in cameras]
+    results = await asyncio.gather(*tasks)
+    return {cam_id: status for cam_id, status in results}
+
+
+
+
 @router.put("/{camera_id}", response_model=CameraResponse)
 def update_camera(camera_id: int, body: CameraCreate, db: Session = Depends(get_db)):
     cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
@@ -44,6 +86,7 @@ def update_camera(camera_id: int, body: CameraCreate, db: Session = Depends(get_
     cam.name = body.name
     cam.location = body.location
     cam.rtsp_url = body.rtsp_url
+    cam.ha_entity_id = body.ha_entity_id
     db.commit()
     db.refresh(cam)
     return cam
@@ -69,3 +112,40 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
     db.delete(cam)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.get("/{camera_id}/rois", response_model=List[ROIResponse])
+def get_camera_rois(camera_id: int, db: Session = Depends(get_db)):
+    rois = db.query(models.CameraROI).filter(models.CameraROI.camera_id == camera_id).all()
+    return rois
+
+@router.post("/{camera_id}/rois", response_model=ROIResponse)
+def create_camera_roi(camera_id: int, body: ROICreate, db: Session = Depends(get_db)):
+    cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera not found")
+        
+    roi = models.CameraROI(
+        camera_id=camera_id,
+        zone_name=body.zone_name,
+        points=body.points
+    )
+    db.add(roi)
+    db.commit()
+    db.refresh(roi)
+    return roi
+
+@router.delete("/rois/{roi_id}")
+def delete_camera_roi(roi_id: int, db: Session = Depends(get_db)):
+    roi = db.query(models.CameraROI).filter(models.CameraROI.id == roi_id).first()
+    if not roi:
+        raise HTTPException(status_code=404, detail="ROI not found")
+        
+    db.delete(roi)
+    db.commit()
+    return {"status": "deleted"}
+
+@router.get("/rois/all/unique", response_model=List[str])
+def get_all_unique_rois(db: Session = Depends(get_db)):
+    zones = db.query(models.CameraROI.zone_name).distinct().all()
+    return [z[0] for z in zones]

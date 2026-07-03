@@ -19,6 +19,8 @@ import 'analytics/analytics_screen.dart';
 import 'auth/login_screen.dart';
 
 import 'consultation/consultation_screen.dart';
+import 'camera/camera_status_service.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EnvironmentConfig.init();
@@ -72,6 +74,18 @@ class _MainLayoutState extends State<MainLayout> {
     const SecurityDashboardScreen(),
     const SettingsScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    GlobalCameraStatus.startPolling();
+  }
+
+  @override
+  void dispose() {
+    GlobalCameraStatus.stopPolling();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

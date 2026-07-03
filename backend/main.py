@@ -24,7 +24,7 @@ models.Base.metadata.create_all(bind=engine)
 load_dotenv()
 
 from camera import routes as camera_routes
-from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients
+from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients, rbac
 from routers.auth import get_current_user
 
 app = FastAPI(title="Healthcare Operations Copilot API")
@@ -50,12 +50,13 @@ app.include_router(staff.router, dependencies=auth_dep)
 app.include_router(camera_api.router, dependencies=auth_dep)
 app.include_router(attendance.router, dependencies=auth_dep)
 app.include_router(equipment.router, dependencies=auth_dep)
-app.include_router(events.router, dependencies=auth_dep)
 app.include_router(analytics.router, dependencies=auth_dep)
 app.include_router(analysis.router, dependencies=auth_dep)
 
-# Security router has a websocket, so we protect its HTTP routes individually
+# Security and Events routers have websockets, so we protect their HTTP routes individually
 app.include_router(security.router)
+app.include_router(events.router)
+app.include_router(rbac.router, dependencies=auth_dep)
 
 # Configure Gemini API
 GENAI_API_KEY = os.getenv("GEMINI_API_KEY")

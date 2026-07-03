@@ -7,6 +7,9 @@ import 'package:http/http.dart' as http;
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import 'rbac_mapper_screen.dart';
+import 'camera_status_dot.dart';
+import 'camera_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -17,21 +20,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   List<Map<String, dynamic>> _staffList = [];
-  List<Map<String, dynamic>> _savedCameras = [];
-
-  // ── Camera API ────────────────────────────────────────────────────────────
-  Future<void> _fetchCameras() async {
-    try {
-      final resp = await NetworkManager.instance.get(ApiRoutes.cameras)
-          .timeout(const Duration(seconds: 5));
-      if (resp.statusCode == 200 && mounted) {
-        setState(() {
-          _savedCameras = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
-        });
-      }
-    } catch (_) {}
-  }
-
   // ── Staff API ─────────────────────────────────────────────────────────────
   Future<void> _fetchStaff() async {
     try {
@@ -105,7 +93,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       ),
                       subtitle: const Text('Add or remove registered RTSP camera sources'),
-                      onTap: _showCameraSourceDialog,
+                      onTap: () { Navigator.push(context, MaterialPageRoute(builder: (_) => const CameraManagementScreen())); },
+                    ),
+                    const Divider(height: 1, thickness: 1, indent: 20, endIndent: 20),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.shade50,
+                        child: Icon(Icons.schema_rounded, color: Colors.teal.shade700),
+                      ),
+                      title: const Text(
+                        'Access Node Mapper',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      subtitle: const Text('Visually map users and groups to permissions (RBAC)'),
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const RBACMapperScreen()));
+                      },
                     ),
                   ],
                 ),
@@ -117,226 +121,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ── Camera source management dialog ────────────────────────────────────────
-  Future<void> _showCameraSourceDialog() async {
-    await _fetchCameras();
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        final screenWidth = MediaQuery.of(ctx).size.width;
-        final dialogWidth = screenWidth > 500 ? 400.0 : screenWidth * 0.85;
-        return AlertDialog(
-          title: const Text('Camera Sources'),
-          content: SizedBox(
-            width: dialogWidth,
-            height: 400,
-            child: Column(children: [
-              Expanded(
-                child: _savedCameras.isEmpty
-                    ? const Center(child: Text('No cameras saved yet.'))
-                    : ListView.builder(
-                        itemCount: _savedCameras.length,
-                        itemBuilder: (_, i) {
-                          final c = _savedCameras[i];
-                          return ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.videocam),
-                            title: Text(c['name'] as String),
-                            subtitle: Text(c['location'] ?? c['rtsp_url']),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit, size: 18, color: Colors.grey),
-                                  onPressed: () async {
-                                    Navigator.pop(ctx);
-                                    await _showEditCameraDialog(c);
-                                    await _showCameraSourceDialog();
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      size: 18, color: Colors.red),
-                                  onPressed: () async {
-                                    final resp = await NetworkManager.instance.delete(
-                                        ApiRoutes.camera(c['id']));
-                                    
-                                    if (resp.statusCode != 200) {
-                                      if (ctx.mounted) {
-                                        String errorMsg = 'Failed to delete camera.';
-                                        try {
-                                          errorMsg = jsonDecode(resp.body)['detail'] ?? errorMsg;
-                                        } catch (_) {}
-                                        ScaffoldMessenger.of(ctx).showSnackBar(
-                                          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
-                                        );
-                                      }
-                                    } else {
-                                      await _fetchCameras();
-                                      setD(() {});
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-            ElevatedButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _showAddCameraDialog();
-              },
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('Add Camera'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  Future<void> _showAddCameraDialog() async {
-    final nameCtrl = TextEditingController();
-    final locationCtrl = TextEditingController();
-    final urlCtrl = TextEditingController();
-    bool isSaving = false;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        return AlertDialog(
-          title: const Text('Add Camera Source'),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Camera Name', hintText: 'e.g. Main Entrance'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: locationCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Location (optional)',
-                    hintText: 'e.g. Ground Floor, Block A'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: urlCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'RTSP URL', hintText: 'rtsp://user:pass@ip:554/stream1'),
-              ),
-              if (isSaving) ...[const SizedBox(height: 12), const CircularProgressIndicator()],
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: isSaving ? null : () async {
-                if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
-                setD(() => isSaving = true);
-                final resp = await NetworkManager.instance.post(
-                  ApiRoutes.cameras,
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({
-                    'name': nameCtrl.text,
-                    'location': locationCtrl.text.isEmpty ? null : locationCtrl.text,
-                    'rtsp_url': urlCtrl.text,
-                  }),
-                );
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  if (resp.statusCode == 200) {
-                    await _showCameraSourceDialog(); // Re-open management dialog
-                  }
-                }
-                if (ctx.mounted) {
-                  setD(() => isSaving = false);
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  Future<void> _showEditCameraDialog(Map<String, dynamic> camera) async {
-    final nameCtrl = TextEditingController(text: camera['name'] ?? '');
-    final locationCtrl = TextEditingController(text: camera['location'] ?? '');
-    final urlCtrl = TextEditingController(text: camera['rtsp_url'] ?? '');
-    bool isSaving = false;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        return AlertDialog(
-          title: const Text('Edit Camera Source'),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Camera Name', hintText: 'e.g. Main Entrance'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: locationCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Location (optional)',
-                    hintText: 'e.g. Ground Floor, Block A'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: urlCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'RTSP URL', hintText: 'rtsp://user:pass@ip:554/stream1'),
-              ),
-              if (isSaving) ...[const SizedBox(height: 12), const CircularProgressIndicator()],
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: isSaving ? null : () async {
-                if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
-                setD(() => isSaving = true);
-                final resp = await NetworkManager.instance.put(
-                  ApiRoutes.camera(camera['id']),
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({
-                    'name': nameCtrl.text,
-                    'location': locationCtrl.text.isEmpty ? null : locationCtrl.text,
-                    'rtsp_url': urlCtrl.text,
-                  }),
-                );
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  if (resp.statusCode == 200) {
-                    await _showCameraSourceDialog(); // Re-open management dialog
-                  }
-                }
-                if (ctx.mounted) {
-                  setD(() => isSaving = false);
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  // ── Staff management dialogs ───────────────────────────────────────────────
   Future<void> _showStaffManagementDialog() async {
     await _fetchStaff();
     if (!mounted) return;

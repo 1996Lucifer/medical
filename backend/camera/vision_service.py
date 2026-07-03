@@ -202,14 +202,15 @@ class VisionService:
                         track_id = int(box.id[0]) if box.id is not None else -1
                         label_map = {56: "Wheelchair", 59: "Hospital Bed"}
                         equip_class = label_map.get(cls_id, "Equipment")
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
                         
                         equipment_events.append({
                             "class": equip_class,
                             "track_id": track_id,
-                            "score": conf
+                            "score": conf,
+                            "bbox": [x1, y1, x2, y2]
                         })
                         
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 165, 0), 2)
                         
                         label = f"{equip_class} #{track_id}"

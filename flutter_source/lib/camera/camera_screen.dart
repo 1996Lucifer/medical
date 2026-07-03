@@ -5,10 +5,13 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import 'camera_stream_view.dart';
+import 'camera_status_service.dart';
 
 // ── Data models ───────────────────────────────────────────────────────────────
 
@@ -58,17 +61,10 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
 
-  // Camera
-  bool _isConnected = false;
-  bool _isConnecting = false;
-  Uint8List? _frameBytes;
-  WebSocketChannel? _channel;
-  StreamSubscription? _sub;
-  String? _errorMessage;
-
   // Attendance
   List<AttendanceRecord> _attendance = [];
-  Timer? _attendanceTimer;
+  WebSocketChannel? _eventsChannel;
+  StreamSubscription? _eventsSub;
 
   // Camera source state
   List<Map<String, dynamic>> _savedCameras = [];
@@ -80,60 +76,58 @@ class _CameraScreenState extends State<CameraScreen> {
   void initState() {
     super.initState();
     _fetchCameras();
+    // _connectEventsStream();
+
   }
 
-  // ── Stream ────────────────────────────────────────────────────────────────
-  Future<void> _connectStream() async {
-    setState(() { _isConnecting = true; _errorMessage = null; });
-
-    // Build WS URI: prefer saved camera_id
-    Uri wsUri;
-    if (_selectedCamera != null) {
-      wsUri = Uri.parse(ApiRoutes.cameraWs(_selectedCamera!['id']));
-    } else {
-      setState(() { _isConnecting = false; _errorMessage = 'No camera selected'; });
-      return;
-    }
-    try {
-      _channel = WebSocketChannel.connect(wsUri);
-      await _channel!.ready;
-      setState(() { _isConnected = true; _isConnecting = false; });
-      _sub = _channel!.stream.listen(
-        (data) {
-          if (mounted) {
-            setState(() {
-              _frameBytes = data is Uint8List ? data : Uint8List.fromList(data as List<int>);
-            });
-          }
-        },
-        onError: (e) {
-          if (mounted) setState(() { _errorMessage = 'Error: $e'; _isConnected = false; });
-        },
-        onDone: () {
-          if (mounted) setState(() => _isConnected = false);
-        },
-      );
-      _startAttendancePolling();
-    } catch (e) {
-      setState(() { _isConnecting = false; _errorMessage = 'Could not connect: $e'; });
-    }
-  }
-
-  Future<void> _disconnect() async {
-    _attendanceTimer?.cancel();
-    await _sub?.cancel();
-    await _channel?.sink.close();
-    _sub = null; _channel = null;
-    NetworkManager.instance.get(ApiRoutes.cameraStop)
-        .timeout(const Duration(seconds: 3))
-        .catchError((_) => http.Response('', 200));
-    if (mounted) setState(() { _isConnected = false; _frameBytes = null; _attendance = []; });
-  }
-
-  // ── Attendance ────────────────────────────────────────────────────────────
-  void _startAttendancePolling() {
+// ── Attendance ────────────────────────────────────────────────────────────
+  void _connectEventsStream() {
     _fetchAttendance();
-    _attendanceTimer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchAttendance());
+    try {
+      final wsUri = Uri.parse(ApiRoutes.eventsWs);
+      _eventsChannel = WebSocketChannel.connect(wsUri);
+      bool isReconnecting = false;
+      void scheduleReconnect() {
+        if (mounted && !isReconnecting) {
+          isReconnecting = true;
+          Future.delayed(const Duration(seconds: 5), _connectEventsStream);
+        }
+      }
+
+      _eventsSub = _eventsChannel!.stream.listen((message) {
+        if (mounted) {
+          final event = jsonDecode(message);
+          if (event['event_type'] == 'Attendance' || event['event_type'] == 'UnknownFaceDetected') {
+            _fetchAttendance();
+          }
+          if (event['event_type'] == 'SpokenWarning') {
+            final details = event['details'] as Map<String, dynamic>;
+            final warningText = details['warning'] as String?;
+            if (warningText != null && warningText.isNotEmpty) {
+              _speakWarning(warningText);
+            }
+          }
+        }
+      }, onError: (_) {
+        scheduleReconnect();
+      }, onDone: () {
+        scheduleReconnect();
+      });
+    } catch (_) {}
+  }
+  
+  final FlutterTts _flutterTts = FlutterTts();
+  
+  Future<void> _speakWarning(String text) async {
+    try {
+      await _flutterTts.setLanguage("en-US");
+      await _flutterTts.setSpeechRate(0.5);
+      await _flutterTts.setVolume(1.0);
+      await _flutterTts.setPitch(1.0);
+      await _flutterTts.speak(text);
+    } catch (e) {
+      debugPrint("TTS Error: $e");
+    }
   }
 
   Future<void> _fetchAttendance() async {
@@ -163,16 +157,19 @@ class _CameraScreenState extends State<CameraScreen> {
       if (resp.statusCode == 200 && mounted) {
         setState(() {
           _savedCameras = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
+          if (_savedCameras.isNotEmpty && _selectedCamera == null) {
+            // _selectedCamera = _savedCameras.first;
+          }
         });
       }
     } catch (_) {}
   }
 
+
   @override
   void dispose() {
-    _attendanceTimer?.cancel();
-    _sub?.cancel();
-    _channel?.sink.close();
+    _eventsSub?.cancel();
+    _eventsChannel?.sink.close();
     super.dispose();
   }
 
@@ -197,34 +194,50 @@ class _CameraScreenState extends State<CameraScreen> {
         else
           SizedBox(
             width: double.infinity,
-            child: Wrap(
-              spacing: 8.0,
-              runSpacing: 8.0,
-              children: _savedCameras.map((camera) {
-                final isSelected = _selectedCamera?['id'] == camera['id'];
-                return ChoiceChip(
-                  label: Text(camera['name']),
-                  selected: isSelected,
-                  onSelected: (selected) async {
-                    if (selected) {
-                      if (_isConnected || _isConnecting) {
-                        await _disconnect();
-                      }
-                      setState(() => _selectedCamera = camera);
-                      _connectStream();
-                    }
-                  },
-                  selectedColor: Colors.teal.shade50,
-                  checkmarkColor: Colors.teal.shade700,
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.teal.shade800 : Colors.black87,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  ),
-                  avatar: Icon(Icons.videocam,
-                      size: 16,
-                      color: isSelected ? Colors.teal.shade700 : Colors.grey.shade600),
+            child: ValueListenableBuilder<Map<int, bool>>(
+              valueListenable: GlobalCameraStatus.statuses,
+              builder: (context, statuses, _) {
+                return Wrap(
+                  spacing: 8.0,
+                  runSpacing: 8.0,
+                  children: _savedCameras.map((camera) {
+                    final isSelected = _selectedCamera?['id'] == camera['id'];
+                    final isOnline = statuses[camera['id']] ?? false;
+                    return ChoiceChip(
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(camera['name']),
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: isOnline ? Colors.green : Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                      ),
+                      selected: isSelected,
+                      onSelected: (selected) async {
+                        if (selected) {
+                          setState(() => _selectedCamera = camera);
+                        }
+                      },
+                      selectedColor: Colors.teal.shade50,
+                      checkmarkColor: Colors.teal.shade700,
+                      labelStyle: TextStyle(
+                        color: isSelected ? Colors.teal.shade800 : Colors.black87,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      avatar: Icon(Icons.videocam,
+                          size: 16,
+                          color: isSelected ? Colors.teal.shade700 : Colors.grey.shade600),
+                    );
+                  }).toList(),
                 );
-              }).toList(),
+              }
             ),
           ),
         const SizedBox(height: 12),
@@ -239,7 +252,9 @@ class _CameraScreenState extends State<CameraScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   clipBehavior: Clip.hardEdge,
-                  child: _buildVideoArea(),
+                  child: _selectedCamera != null 
+                    ? CameraStreamView(cameraId: _selectedCamera!['id']) 
+                    : const Center(child: Text('No camera selected', style: TextStyle(color: Colors.white54))),
                 ),
               )
             : Expanded(
@@ -251,7 +266,9 @@ class _CameraScreenState extends State<CameraScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   clipBehavior: Clip.hardEdge,
-                  child: _buildVideoArea(),
+                  child: _selectedCamera != null 
+                    ? CameraStreamView(cameraId: _selectedCamera!['id']) 
+                    : const Center(child: Text('No camera selected', style: TextStyle(color: Colors.white54))),
                 ),
               ),
       ],
@@ -293,11 +310,13 @@ class _CameraScreenState extends State<CameraScreen> {
           child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
         ),
         actions: [
-          if (_isConnected)
+          if (_selectedCamera != null)
             Padding(
               padding: const EdgeInsets.only(right: 8.0),
               child: TextButton.icon(
-                onPressed: _disconnect,
+                onPressed: () {
+                  setState(() => _selectedCamera = null);
+                },
                 icon: const Icon(Icons.stop_circle, color: Color(0xFFF43F5E), size: 20),
                 label: const Text('Disconnect', style: TextStyle(color: Color(0xFFF43F5E), fontWeight: FontWeight.bold)),
               ),
@@ -346,36 +365,6 @@ class _CameraScreenState extends State<CameraScreen> {
         ),
       ),
     );
-  }
-
-  Widget _buildVideoArea() {
-    if (_errorMessage != null) {
-      return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.error_outline, color: Colors.red, size: 48),
-        const SizedBox(height: 10),
-        Text(_errorMessage!, style: const TextStyle(color: Colors.red),
-            textAlign: TextAlign.center),
-      ]));
-    }
-    if (_isConnecting) {
-      return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        CircularProgressIndicator(),
-        SizedBox(height: 10),
-        Text('Connecting...', style: TextStyle(color: Colors.white70)),
-      ]));
-    }
-    if (_frameBytes != null) {
-      return Image.memory(_frameBytes!, fit: BoxFit.contain, gaplessPlayback: true);
-    }
-    if (_isConnected) {
-      return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        CircularProgressIndicator(),
-        SizedBox(height: 10),
-        Text('Waiting for first frame...', style: TextStyle(color: Colors.white70)),
-      ]));
-    }
-    return const Center(child: Text('Select a camera from the chips above to connect',
-        style: TextStyle(color: Colors.white54)));
   }
 
   Widget _attendanceHeader() {

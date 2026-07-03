@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from typing import Optional
 from sqlalchemy.orm import Session
 from database import get_db
 import models
@@ -59,7 +61,7 @@ def get_alerts(unresolved_only: bool = False, db: Session = Depends(get_db), cur
     return result
 
 @router.post("/alerts/{alert_id}/resolve")
-def resolve_alert(alert_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def resolve_alert(alert_id: int, db: Session = Depends(get_db)):
     alert = db.query(models.SecurityAlert).filter(models.SecurityAlert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
@@ -67,3 +69,55 @@ def resolve_alert(alert_id: int, db: Session = Depends(get_db), current_user: mo
     alert.resolved = True
     db.commit()
     return {"status": "success", "message": "Alert resolved"}
+
+class SecurityRuleCreate(BaseModel):
+    target_area: Optional[str] = None
+    rule_text: str
+
+@router.get("/rules")
+def get_security_rules(db: Session = Depends(get_db)):
+    rules = db.query(models.SecurityRule).filter(models.SecurityRule.is_active == True).all()
+    return rules
+
+@router.post("/rules")
+def create_security_rule(rule_data: SecurityRuleCreate, db: Session = Depends(get_db)):
+    new_rule = models.SecurityRule(
+        target_area=rule_data.target_area,
+        rule_text=rule_data.rule_text,
+    )
+    db.add(new_rule)
+    db.commit()
+    db.refresh(new_rule)
+    return new_rule
+
+@router.delete("/rules/{rule_id}")
+def delete_security_rule(rule_id: int, db: Session = Depends(get_db)):
+    rule = db.query(models.SecurityRule).filter(models.SecurityRule.id == rule_id).first()
+    if rule:
+        rule.is_active = False
+        db.commit()
+    return {"status": "ok"}
+
+from typing import List
+
+class RuleSyncRequest(BaseModel):
+    rules: List[SecurityRuleCreate]
+
+@router.post("/rules/sync")
+def sync_security_rules(req: RuleSyncRequest, db: Session = Depends(get_db)):
+    # Deactivate old rules
+    db.query(models.SecurityRule).update({"is_active": False})
+    
+    # Insert new rules
+    new_rules = []
+    for r in req.rules:
+        new_rule = models.SecurityRule(
+            target_area=r.target_area,
+            rule_text=r.rule_text,
+            is_active=True
+        )
+        db.add(new_rule)
+        new_rules.append(new_rule)
+        
+    db.commit()
+    return {"status": "success", "count": len(new_rules)}

@@ -5,6 +5,7 @@ class NetworkManager {
   static NetworkManager get instance => _instance;
   
   String? _token;
+  String? get token => _token;
   
   NetworkManager._internal();
 

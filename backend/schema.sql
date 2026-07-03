@@ -98,15 +98,35 @@ CREATE TABLE IF NOT EXISTS cameras (
 CREATE INDEX IF NOT EXISTS ix_cameras_id ON cameras (id);
 
 
+-- Camera ROIs
+CREATE TABLE IF NOT EXISTS camera_rois (
+    id SERIAL PRIMARY KEY,
+    camera_id INTEGER NOT NULL REFERENCES cameras (id) ON DELETE CASCADE,
+    zone_name VARCHAR(255) NOT NULL,
+    points TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_camera_rois_id ON camera_rois (id);
+CREATE INDEX IF NOT EXISTS ix_camera_rois_zone_name ON camera_rois (zone_name);
+
+
 -- Security Alerts
 CREATE TABLE IF NOT EXISTS security_alerts (
-    id          SERIAL PRIMARY KEY,
-    rule_name   VARCHAR(100) NOT NULL,
-    severity    VARCHAR(50)  NOT NULL DEFAULT 'high',
-    camera_id   INTEGER REFERENCES cameras (id) ON DELETE SET NULL,
-    details     TEXT,
-    timestamp   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    resolved    BOOLEAN NOT NULL DEFAULT FALSE
+    id SERIAL PRIMARY KEY,
+    rule_name VARCHAR NOT NULL,
+    severity VARCHAR DEFAULT 'medium',
+    camera_id INTEGER REFERENCES cameras(id),
+    details TEXT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    resolved BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS security_rules (
+    id SERIAL PRIMARY KEY,
+    target_area VARCHAR,
+    rule_text VARCHAR NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
 );
 
 CREATE INDEX IF NOT EXISTS ix_security_alerts_id ON security_alerts (id);
@@ -161,6 +181,42 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS ix_events_id         ON events (id);
 CREATE INDEX IF NOT EXISTS ix_events_event_type ON events (event_type);
+
+CREATE INDEX IF NOT EXISTS ix_inventory_alerts_timestamp ON inventory_alerts (timestamp);
+CREATE INDEX IF NOT EXISTS ix_inventory_alerts_resolved  ON inventory_alerts (resolved);
+
+-- ── RBAC System ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS rbac_groups (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_rbac_groups_name ON rbac_groups (name);
+
+CREATE TABLE IF NOT EXISTS rbac_permissions (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_rbac_permissions_name ON rbac_permissions (name);
+
+CREATE TABLE IF NOT EXISTS user_groups (
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    group_id INTEGER NOT NULL REFERENCES rbac_groups (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, group_id)
+);
+
+CREATE TABLE IF NOT EXISTS group_permissions (
+    group_id INTEGER NOT NULL REFERENCES rbac_groups (id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES rbac_permissions (id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, permission_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_permissions (
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES rbac_permissions (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, permission_id)
+);
 
 
 -- =============================================================================

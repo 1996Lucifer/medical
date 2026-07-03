@@ -1,13 +1,57 @@
 import datetime
 import json
 from typing import Optional
+from typing import Dict, Any, Callable
+import time
+import threading
+
+# ── Zone Alerts ─────────────────────────────────────────────────────────────
+global_zone_alerts: Dict[str, float] = {}
+zone_alerts_lock = threading.Lock()
+
+def set_zone_alert(camera_name: str, duration_sec: float = 5.0):
+    with zone_alerts_lock:
+        global_zone_alerts[camera_name] = time.monotonic() + duration_sec
+
+def is_zone_alerted(camera_name: str) -> bool:
+    with zone_alerts_lock:
+        exp = global_zone_alerts.get(camera_name, 0.0)
+        return time.monotonic() < exp
+
 from database import SessionLocal
 import models
 
 
+import asyncio
+
 class EventEngine:
     def __init__(self):
-        pass
+        self.active_websockets = set()
+
+    def connect(self, websocket):
+        self.active_websockets.add(websocket)
+        
+    def disconnect(self, websocket):
+        self.active_websockets.discard(websocket)
+
+    def _broadcast(self, event_data: dict):
+        if not self.active_websockets:
+            return
+            
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+            
+        if not loop:
+            return
+            
+        for ws in list(self.active_websockets):
+            try:
+                loop.create_task(ws.send_json(event_data))
+            except Exception:
+                pass
 
     def publish_event(
         self,
@@ -52,6 +96,19 @@ class EventEngine:
                 confidence=confidence,
                 details=details or {},
             )
+            
+            # Broadcast to WebSocket clients
+            event_payload = {
+                "id": event.id,
+                "event_type": event_type,
+                "camera_id": camera_id,
+                "camera_name": camera_name,
+                "confidence": confidence,
+                "snapshot_path": snapshot_path,
+                "timestamp": now.isoformat(),
+                "details": details
+            }
+            self._broadcast(event_payload)
 
         except Exception as e:
             print(f"[EventEngine] Failed to publish event: {e}")

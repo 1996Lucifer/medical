@@ -24,6 +24,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final AudioRecorder _audioRecorder = AudioRecorder();
   TextEditingController _patientNameController = TextEditingController();
+  bool _ownsPatientNameController = true;
+  String _transcription = "";
+  
   final ImagePicker _imagePicker = ImagePicker();
   
   bool _isRecording = false;
@@ -45,7 +48,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   @override
   void dispose() {
     _audioRecorder.dispose();
-    _patientNameController.dispose();
+    if (_ownsPatientNameController) {
+      _patientNameController.dispose();
+    }
     super.dispose();
   }
 
@@ -407,6 +412,10 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                 },
                                 fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
                                   if (_patientNameController != controller) {
+                                    if (_ownsPatientNameController) {
+                                      _patientNameController.dispose();
+                                      _ownsPatientNameController = false;
+                                    }
                                     _patientNameController = controller;
                                     _patientNameController.addListener(() {
                                       setState(() {}); // Rebuild to filter the grid

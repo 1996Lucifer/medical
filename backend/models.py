@@ -1,10 +1,51 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Date, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Date, ForeignKey, Boolean, Table
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from database import Base
 import datetime
 
+# ── RBAC Association Tables ────────────────────────────────────────
+user_groups = Table(
+    'user_groups',
+    Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('group_id', Integer, ForeignKey('rbac_groups.id'), primary_key=True)
+)
+
+group_permissions = Table(
+    'group_permissions',
+    Base.metadata,
+    Column('group_id', Integer, ForeignKey('rbac_groups.id'), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('rbac_permissions.id'), primary_key=True)
+)
+
+user_permissions = Table(
+    'user_permissions',
+    Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('rbac_permissions.id'), primary_key=True)
+)
+
+class RBACGroup(Base):
+    __tablename__ = "rbac_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    description = Column(String, nullable=True)
+
+    users = relationship("User", secondary=user_groups, back_populates="groups")
+    permissions = relationship("RBACPermission", secondary=group_permissions, back_populates="groups")
+
+class RBACPermission(Base):
+    __tablename__ = "rbac_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    description = Column(String, nullable=True)
+
+    groups = relationship("RBACGroup", secondary=group_permissions, back_populates="permissions")
+    users = relationship("User", secondary=user_permissions, back_populates="direct_permissions")
 
 class User(Base):
     """
@@ -17,6 +58,9 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, nullable=False, default="admin")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    groups = relationship("RBACGroup", secondary=user_groups, back_populates="users")
+    direct_permissions = relationship("RBACPermission", secondary=user_permissions, back_populates="users")
 
 
 class Patient(Base):
@@ -113,10 +157,27 @@ class Camera(Base):
     name       = Column(String, nullable=False)     # e.g. "Main Entrance"
     location   = Column(String, nullable=True)      # e.g. "Ground Floor, Block A"
     rtsp_url   = Column(String, nullable=False)
+    ha_entity_id = Column(String, nullable=True)    # e.g. "siren.tapo_camera_alarm"
     is_restricted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     security_alerts = relationship("SecurityAlert", back_populates="camera")
+    rois = relationship("CameraROI", back_populates="camera", cascade="all, delete-orphan")
+
+
+class CameraROI(Base):
+    """
+    Region of Interest (ROI) mapping for a specific camera.
+    points: JSON array of normalized coordinates, e.g., [{"x": 0.1, "y": 0.2}, ...]
+    """
+    __tablename__ = "camera_rois"
+
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False)
+    zone_name = Column(String, index=True, nullable=False) # e.g. 'ICU', 'Operating Room'
+    points = Column(Text, nullable=False) # JSON array
+
+    camera = relationship("Camera", back_populates="rois")
 
 
 class Attendance(Base):
@@ -196,15 +257,29 @@ class SystemEvent(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     details = Column(String, nullable=True) # JSON string for extra info
 
+
 class SecurityAlert(Base):
     __tablename__ = "security_alerts"
 
     id = Column(Integer, primary_key=True, index=True)
-    rule_name = Column(String(100), nullable=False)
-    severity = Column(String(50), nullable=False, default="high")
-    camera_id = Column(Integer, ForeignKey("cameras.id", ondelete="SET NULL"), nullable=True)
-    details = Column(String, nullable=True) # JSON string for extra info
-    timestamp = Column(DateTime(timezone=True), default=func.now())
-    resolved = Column(Boolean, default=False, nullable=False)
+    rule_name = Column(String, index=True)
+    severity = Column(String, default="medium")
+    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=True)
+    details = Column(Text, nullable=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    resolved = Column(Boolean, default=False)
 
     camera = relationship("Camera", back_populates="security_alerts")
+
+
+class SecurityRule(Base):
+    """
+    Dynamic natural language rules evaluated by Gemini.
+    """
+    __tablename__ = "security_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    target_area = Column(String, index=True, nullable=True) # e.g., "ICU", "Surgical Ward", or "Global"
+    rule_text = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=True, nullable=False)

@@ -9,10 +9,22 @@ class ApiRoutes {
   static String get setupAdmin => '$baseUrl/api/auth/setup-admin';
 
   // Camera
+  static String get equipmentLogs => '$baseUrl/api/equipment/logs';
+
+  // Events
+  static String get eventsWs => '$wsBaseUrl/api/events/ws';
+  static String get timeline => '$baseUrl/api/events/timeline';
   static String get cameraStop => '$baseUrl/api/camera/stop';
   static String get cameras => '$baseUrl/api/cameras';
+  static String get camerasStatus => '$baseUrl/api/cameras/status';
+  static String get camerasStatusWs => '$wsBaseUrl/api/cameras/ws/status';
   static String camera(int id) => '$baseUrl/api/cameras/$id';
-  static String cameraWs(int id) => '$wsBaseUrl/api/ws/camera?camera_id=$id';
+  static String cameraWs(int id, {String mode = 'ai'}) => '$wsBaseUrl/api/ws/camera?camera_id=$id&mode=$mode';
+  static String cameraRois(int id) => '$baseUrl/api/cameras/$id/rois';
+  static String deleteCameraRoi(int id) => '$baseUrl/api/cameras/rois/$id';
+  static String get allUniqueRois => '$baseUrl/api/cameras/rois/all/unique';
+  static String cameraStatus(int id) => '$baseUrl/api/cameras/$id/status';
+  static String cameraSnapshot(int id) => '$baseUrl/api/cameras/$id/snapshot';
   
   // Attendance
   static String get attendance => '$baseUrl/api/attendance';
@@ -23,6 +35,9 @@ class ApiRoutes {
   // Security
   static String securityAlerts(bool unresolvedOnly) => '$baseUrl/api/security/alerts?unresolved_only=$unresolvedOnly';
   static String resolveSecurityAlert(int id) => '$baseUrl/api/security/alerts/$id/resolve';
+  static String get securityRules => '$baseUrl/api/security/rules';
+  static String get securityRulesSync => '$baseUrl/api/security/rules/sync';
+  static String deleteSecurityRule(int id) => '$baseUrl/api/security/rules/$id';
 
   // Staff
   static String get staff => '$baseUrl/api/staff';
@@ -34,4 +49,11 @@ class ApiRoutes {
 
   // Consultations
   static String consultations(String patientName) => '$baseUrl/api/consultations?patient_name=${Uri.encodeComponent(patientName)}';
+
+  // RBAC
+  static String get rbacGraph => '$baseUrl/api/rbac/graph';
+  static String get rbacAssign => '$baseUrl/api/rbac/assign';
+  static String get rbacUnassign => '$baseUrl/api/rbac/unassign';
+  static String get rbacGroups => '$baseUrl/api/rbac/groups';
+  static String get rbacPermissions => '$baseUrl/api/rbac/permissions';
 }
