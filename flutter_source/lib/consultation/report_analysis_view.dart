@@ -8,8 +8,10 @@ class ReportAnalysisView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final keyFindings = reportData['key_findings'] ?? 'No findings available.';
-    final abnormalities = reportData['abnormalities'] ?? 'No abnormalities detected.';
-    final recommendations = reportData['recommendations'] ?? 'No recommendations available.';
+    final abnormalities =
+        reportData['abnormalities'] ?? 'No abnormalities detected.';
+    final recommendations =
+        reportData['recommendations'] ?? 'No recommendations available.';
     final patientName = reportData['patient_name'] ?? 'Unknown Patient';
     final date = reportData['date'] ?? DateTime.now().toIso8601String();
 
@@ -27,7 +29,10 @@ class ReportAnalysisView extends StatelessWidget {
               children: [
                 Text(
                   'Patient: $patientName',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                  style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueAccent),
                 ),
                 Text(
                   date.substring(0, 10), // just the date part
@@ -36,7 +41,6 @@ class ReportAnalysisView extends StatelessWidget {
               ],
             ),
             const Divider(height: 32),
-            
             const Row(
               children: [
                 Icon(Icons.search, color: Colors.blue),
@@ -62,7 +66,6 @@ class ReportAnalysisView extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            
             const Row(
               children: [
                 Icon(Icons.warning_amber_rounded, color: Colors.orange),
@@ -88,7 +91,6 @@ class ReportAnalysisView extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-
             const Row(
               children: [
                 Icon(Icons.medical_services, color: Colors.green),

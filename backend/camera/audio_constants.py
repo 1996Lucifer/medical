@@ -1,0 +1,11 @@
+# KittenTTS Configuration
+KITTEN_TTS_MODEL = "KittenML/kitten-tts-nano-0.8"
+DEFAULT_TTS_VOICE = "Luna"
+DEFAULT_TTS_SPEED = 1.5
+KITTEN_TTS_SAMPLE_RATE = 24000
+
+# ONVIF / Dahua Camera Push Configuration
+ONVIF_AUDIO_SAMPLE_RATE = "8000"
+ONVIF_AUDIO_CODEC = "pcm_mulaw"
+ONVIF_AUDIO_CHANNELS = "1"
+FFMPEG_TIMEOUT_SEC = 10

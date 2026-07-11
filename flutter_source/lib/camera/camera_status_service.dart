@@ -30,26 +30,23 @@ class GlobalCameraStatus {
     try {
       final wsUri = Uri.parse(ApiRoutes.camerasStatusWs);
       _channel = WebSocketChannel.connect(wsUri);
-      
-      _sub = _channel!.stream.listen(
-        (data) {
-          try {
-            final Map<String, dynamic> decoded = jsonDecode(data as String);
-            final newMap = decoded.map((key, value) => MapEntry(int.parse(key), value as bool));
-            if (!mapEquals(statuses.value, newMap)) {
-              statuses.value = newMap;
-            }
-          } catch (e) {
-            debugPrint("Error parsing camera status ws: $e");
+
+      _sub = _channel!.stream.listen((data) {
+        try {
+          final Map<String, dynamic> decoded = jsonDecode(data as String);
+          final newMap = decoded
+              .map((key, value) => MapEntry(int.parse(key), value as bool));
+          if (!mapEquals(statuses.value, newMap)) {
+            statuses.value = newMap;
           }
-        },
-        onError: (e) {
-          _scheduleReconnect();
-        },
-        onDone: () {
-          _scheduleReconnect();
+        } catch (e) {
+          debugPrint("Error parsing camera status ws: $e");
         }
-      );
+      }, onError: (e) {
+        _scheduleReconnect();
+      }, onDone: () {
+        _scheduleReconnect();
+      });
     } catch (e) {
       _scheduleReconnect();
     }

@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../main.dart' show GlassCard, GlassBackground;
@@ -14,7 +13,8 @@ class SecurityDashboardScreen extends StatefulWidget {
   const SecurityDashboardScreen({super.key});
 
   @override
-  State<SecurityDashboardScreen> createState() => _SecurityDashboardScreenState();
+  State<SecurityDashboardScreen> createState() =>
+      _SecurityDashboardScreenState();
 }
 
 class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
@@ -38,7 +38,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
       final resp = await NetworkManager.instance.get(ApiRoutes.securityRules);
       if (resp.statusCode == 200 && mounted) {
         setState(() {
-          _rules = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
+          _rules = (jsonDecode(resp.body) as List<dynamic>)
+              .cast<Map<String, dynamic>>();
         });
       }
     } catch (_) {}
@@ -66,10 +67,12 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
 
   Future<void> _fetchHistory() async {
     try {
-      final resp = await NetworkManager.instance.get(ApiRoutes.securityAlerts(false));
+      final resp =
+          await NetworkManager.instance.get(ApiRoutes.securityAlerts(false));
       if (resp.statusCode == 200 && mounted) {
         setState(() {
-          _alerts = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
+          _alerts = (jsonDecode(resp.body) as List<dynamic>)
+              .cast<Map<String, dynamic>>();
         });
       }
     } catch (_) {}
@@ -77,7 +80,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
 
   Future<void> _connectWebSocket() async {
     try {
-      _channel = WebSocketChannel.connect(Uri.parse('${ApiRoutes.wsBaseUrl}/api/security/ws/alerts'));
+      _channel = WebSocketChannel.connect(
+          Uri.parse('${ApiRoutes.wsBaseUrl}/api/security/ws/alerts'));
       await _channel!.ready;
       _sub = _channel!.stream.listen(
         (message) {
@@ -134,7 +138,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
         appBar: AppBar(
           title: const Text(
             'Security & Compliance',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+            style: TextStyle(
+                fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
           ),
           backgroundColor: Colors.white.withOpacity(0.6),
           elevation: 0,
@@ -149,7 +154,9 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             unselectedLabelColor: Colors.black54,
             indicatorColor: Colors.teal,
             tabs: [
-              Tab(text: 'Active Alerts', icon: Icon(Icons.warning_amber_rounded)),
+              Tab(
+                  text: 'Active Alerts',
+                  icon: Icon(Icons.warning_amber_rounded)),
               Tab(text: 'Dynamic Rules', icon: Icon(Icons.rule_folder_rounded)),
             ],
           ),
@@ -181,11 +188,15 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.shield_rounded, size: 56, color: Colors.teal.shade600),
+                  Icon(Icons.shield_rounded,
+                      size: 56, color: Colors.teal.shade600),
                   const SizedBox(height: 16),
                   const Text(
                     'All clear.',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0F172A)),
                   ),
                   const SizedBox(height: 6),
                   const Text(
@@ -201,7 +212,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 800),
               child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0, vertical: 12.0),
                 itemCount: _alerts.length,
                 itemBuilder: (ctx, i) {
                   final alert = _alerts[i];
@@ -241,41 +253,54 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                             ),
                           ),
                           child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
                             leading: CircleAvatar(
                               backgroundColor: isResolved
                                   ? Colors.grey.shade200
-                                  : (isCritical ? const Color(0xFFFFE4E6) : Colors.amber.shade100),
+                                  : (isCritical
+                                      ? const Color(0xFFFFE4E6)
+                                      : Colors.amber.shade100),
                               child: Icon(
-                                isCritical ? Icons.warning_rounded : Icons.info_outline_rounded,
+                                isCritical
+                                    ? Icons.warning_rounded
+                                    : Icons.info_outline_rounded,
                                 color: isResolved
                                     ? Colors.grey
-                                    : (isCritical ? const Color(0xFFBE123C) : Colors.amber.shade800),
+                                    : (isCritical
+                                        ? const Color(0xFFBE123C)
+                                        : Colors.amber.shade800),
                               ),
                             ),
                             title: Text(
                               '${alert['rule_name']} - ${alert['camera_name']}',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: isResolved ? Colors.grey.shade600 : const Color(0xFF0F172A),
+                                color: isResolved
+                                    ? Colors.grey.shade600
+                                    : const Color(0xFF0F172A),
                               ),
                             ),
                             subtitle: Text(
                               'Details: ${alert['details']}\nTime: ${alert['timestamp']}',
                               style: TextStyle(
-                                color: isResolved ? Colors.grey.shade500 : const Color(0xFF334155),
+                                color: isResolved
+                                    ? Colors.grey.shade500
+                                    : const Color(0xFF334155),
                                 height: 1.4,
                               ),
                             ),
                             trailing: isResolved
-                                ? const Icon(Icons.check_circle_rounded, color: Colors.teal)
+                                ? const Icon(Icons.check_circle_rounded,
+                                    color: Colors.teal)
                                 : ElevatedButton(
                                     onPressed: () => _resolveAlert(alert['id']),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.teal.shade700,
                                       foregroundColor: Colors.white,
                                       elevation: 0,
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 16, vertical: 8),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(10),
                                       ),
@@ -295,128 +320,146 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
 
   Widget _buildRulesTab() {
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 800),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: GlassCard(
-                child: Row(
-                  children: [
-                    const Icon(Icons.auto_awesome, color: Colors.teal),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Dynamic Rules Engine', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                          Text('Write rules in natural language. Gemini AI will evaluate camera feeds to enforce them!', style: TextStyle(color: Colors.black54, fontSize: 13)),
-                        ],
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _showAddRuleDialog,
-                      icon: const Icon(Icons.add),
-                      label: const Text('New Rule'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0F172A),
-                        foregroundColor: Colors.white,
-                      ),
-                    )
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                itemCount: _rules.length,
-                itemBuilder: (ctx, i) {
-                  final rule = _rules[i];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: GlassCard(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(rule['rule_text'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Row(
+        child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 800),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: GlassCard(
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, color: Colors.teal),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.teal.shade50,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.teal.shade200)
-                                ),
-                                child: Text(
-                                  rule['target_area'] ?? 'Global Area',
-                                  style: TextStyle(fontSize: 11, color: Colors.teal.shade700, fontWeight: FontWeight.w600)
-                                )
-                              ),
-                              const SizedBox(width: 12),
-                              Text('Added: ${rule['created_at'].toString().substring(0,10)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                              Text('Dynamic Rules Engine',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16)),
+                              Text(
+                                  'Write rules in natural language. Gemini AI will evaluate camera feeds to enforce them!',
+                                  style: TextStyle(
+                                      color: Colors.black54, fontSize: 13)),
                             ],
                           ),
                         ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                          onPressed: () => _deleteRule(rule['id']),
-                        ),
-                      ),
+                        ElevatedButton.icon(
+                          onPressed: _showAddRuleDialog,
+                          icon: const Icon(Icons.add),
+                          label: const Text('New Rule'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F172A),
+                            foregroundColor: Colors.white,
+                          ),
+                        )
+                      ],
                     ),
-                  );
-                }
-              ),
-            )
-          ],
-        )
-      )
-    );
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16.0, vertical: 8.0),
+                      itemCount: _rules.length,
+                      itemBuilder: (ctx, i) {
+                        final rule = _rules[i];
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: GlassCard(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(rule['rule_text'],
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15)),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                            color: Colors.teal.shade50,
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                            border: Border.all(
+                                                color: Colors.teal.shade200)),
+                                        child: Text(
+                                            rule['target_area'] ??
+                                                'Global Area',
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.teal.shade700,
+                                                fontWeight: FontWeight.w600))),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                        'Added: ${rule['created_at'].toString().substring(0, 10)}',
+                                        style: const TextStyle(
+                                            fontSize: 12, color: Colors.grey)),
+                                  ],
+                                ),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline,
+                                    color: Colors.red),
+                                onPressed: () => _deleteRule(rule['id']),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                )
+              ],
+            )));
   }
 
   void _showAddRuleDialog() {
     final textCtrl = TextEditingController();
     final areaCtrl = TextEditingController(text: 'ICU');
     showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Dynamic AI Rule'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: areaCtrl,
-              decoration: const InputDecoration(labelText: 'Target Area (e.g. ICU, Global)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: textCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Rule (e.g. All staff must wear gloves)',
-                border: OutlineInputBorder(),
-                alignLabelWithHint: true,
+        context: context,
+        builder: (ctx) => AlertDialog(
+              title: const Text('Add Dynamic AI Rule'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: areaCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'Target Area (e.g. ICU, Global)',
+                        border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: textCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Rule (e.g. All staff must wear gloves)',
+                      border: OutlineInputBorder(),
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              if (textCtrl.text.isNotEmpty) {
-                _addRule(areaCtrl.text, textCtrl.text);
-                Navigator.pop(ctx);
-              }
-            },
-            child: const Text('Add Rule')
-          )
-        ],
-      )
-    );
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel')),
+                ElevatedButton(
+                    onPressed: () {
+                      if (textCtrl.text.isNotEmpty) {
+                        _addRule(areaCtrl.text, textCtrl.text);
+                        Navigator.pop(ctx);
+                      }
+                    },
+                    child: const Text('Add Rule'))
+              ],
+            ));
   }
 }

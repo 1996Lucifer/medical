@@ -10,7 +10,11 @@ class CameraStreamView extends StatefulWidget {
   final BoxFit fit;
   final String mode;
 
-  const CameraStreamView({super.key, required this.cameraId, this.fit = BoxFit.contain, this.mode = 'ai'});
+  const CameraStreamView(
+      {super.key,
+      required this.cameraId,
+      this.fit = BoxFit.contain,
+      this.mode = 'ai'});
 
   @override
   State<CameraStreamView> createState() => _CameraStreamViewState();
@@ -36,7 +40,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   @override
   void didUpdateWidget(CameraStreamView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraId != widget.cameraId || oldWidget.mode != widget.mode) {
+    if (oldWidget.cameraId != widget.cameraId ||
+        oldWidget.mode != widget.mode) {
       _disconnect();
       _connectStream();
     }
@@ -49,7 +54,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       _lastDisconnectReason = null;
     });
 
-    final wsUri = Uri.parse(ApiRoutes.cameraWs(widget.cameraId, mode: widget.mode));
+    final wsUri =
+        Uri.parse(ApiRoutes.cameraWs(widget.cameraId, mode: widget.mode));
     try {
       _channel = WebSocketChannel.connect(wsUri);
       await _channel!.ready;
@@ -63,7 +69,9 @@ class _CameraStreamViewState extends State<CameraStreamView> {
             setState(() {
               _isConnecting = false;
               try {
-                _frameBytes = data is Uint8List ? data : Uint8List.fromList(data as List<int>);
+                _frameBytes = data is Uint8List
+                    ? data
+                    : Uint8List.fromList(data as List<int>);
               } catch (e) {
                 _lastDisconnectReason = "Data cast error: $e";
               }
@@ -84,7 +92,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
         onDone: () {
           if (mounted) {
             setState(() {
-              _lastDisconnectReason = 'onDone called. Close code: ${_channel?.closeCode}, reason: ${_channel?.closeReason}';
+              _lastDisconnectReason =
+                  'onDone called. Close code: ${_channel?.closeCode}, reason: ${_channel?.closeReason}';
               _isConnected = false;
               _isConnecting = false;
             });
@@ -142,7 +151,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+          child:
+              Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
         ),
       );
     }
@@ -160,7 +170,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Connecting to stream...', style: TextStyle(color: Colors.white70)),
+            Text('Connecting to stream...',
+                style: TextStyle(color: Colors.white70)),
           ],
         ),
       );
@@ -169,7 +180,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Text(
-          'Stream offline\nReason: ${_lastDisconnectReason ?? "Unknown"}', 
+          'Stream offline\nReason: ${_lastDisconnectReason ?? "Unknown"}',
           style: const TextStyle(color: Colors.white70),
           textAlign: TextAlign.center,
         ),

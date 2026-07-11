@@ -32,7 +32,8 @@ class _LoginScreenState extends State<LoginScreen> {
         final data = jsonDecode(res.body);
         if (data['msg'] == 'Admin created') {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Default admin account created (admin/admin)')),
+            const SnackBar(
+                content: Text('Default admin account created (admin/admin)')),
           );
         }
       }
@@ -42,7 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (_usernameController.text.trim().isEmpty || _passwordController.text.isEmpty) {
+    if (_usernameController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty) {
       return;
     }
 
@@ -64,7 +66,9 @@ class _LoginScreenState extends State<LoginScreen> {
         widget.onLoginSuccess();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: ${response.statusCode} - ${response.body}')),
+          SnackBar(
+              content: Text(
+                  'Login failed: ${response.statusCode} - ${response.body}')),
         );
       }
     } catch (e) {
@@ -90,11 +94,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.local_hospital, size: 64, color: Colors.teal),
+                    const Icon(Icons.local_hospital,
+                        size: 64, color: Colors.teal),
                     const SizedBox(height: 16),
                     const Text(
                       'Copilot Login',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 32),
                     TextField(
@@ -114,9 +120,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
-                          icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
+                          icon: Icon(_obscurePassword
+                              ? Icons.visibility
+                              : Icons.visibility_off),
                           onPressed: () {
-                            setState(() => _obscurePassword = !_obscurePassword);
+                            setState(
+                                () => _obscurePassword = !_obscurePassword);
                           },
                         ),
                       ),
@@ -132,9 +141,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           foregroundColor: Colors.white,
                         ),
                         onPressed: _isLoading ? null : _login,
-                        child: _isLoading 
-                            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Text('Sign In', style: TextStyle(fontSize: 16)),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2))
+                            : const Text('Sign In',
+                                style: TextStyle(fontSize: 16)),
                       ),
                     ),
                   ],

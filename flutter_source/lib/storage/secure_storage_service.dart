@@ -2,7 +2,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 
 class SecureStorageService {
-  static final SecureStorageService _instance = SecureStorageService._internal();
+  static final SecureStorageService _instance =
+      SecureStorageService._internal();
   static SecureStorageService get instance => _instance;
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
@@ -10,13 +11,15 @@ class SecureStorageService {
   SecureStorageService._internal();
 
   /// Save a patient SOAP note securely on the device
-  Future<void> savePatientNote(String patientName, Map<String, dynamic> noteData) async {
+  Future<void> savePatientNote(
+      String patientName, Map<String, dynamic> noteData) async {
     final String jsonString = jsonEncode(noteData);
-    final String key = 'note_${patientName}_${DateTime.now().millisecondsSinceEpoch}';
-    
+    final String key =
+        'note_${patientName}_${DateTime.now().millisecondsSinceEpoch}';
+
     // We store an index of keys so we can retrieve them later
     await _addKeyToIndex(key);
-    
+
     await _storage.write(key: key, value: jsonString);
   }
 
@@ -34,19 +37,19 @@ class SecureStorageService {
         notes.add(jsonDecode(noteString));
       }
     }
-    
+
     return notes;
   }
 
   Future<void> _addKeyToIndex(String key) async {
     final String? indexString = await _storage.read(key: 'note_keys_index');
     List<String> keys = [];
-    
+
     if (indexString != null) {
       final List<dynamic> decoded = jsonDecode(indexString);
       keys = decoded.cast<String>();
     }
-    
+
     keys.add(key);
     await _storage.write(key: 'note_keys_index', value: jsonEncode(keys));
   }
@@ -54,7 +57,7 @@ class SecureStorageService {
   /// Delete a specific note
   Future<void> deleteNote(String key) async {
     await _storage.delete(key: key);
-    
+
     // Remove from index
     final String? indexString = await _storage.read(key: 'note_keys_index');
     if (indexString != null) {

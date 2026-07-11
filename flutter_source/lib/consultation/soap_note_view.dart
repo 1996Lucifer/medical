@@ -26,7 +26,10 @@ class SoapNoteView extends StatelessWidget {
               children: [
                 Text(
                   'Patient: $patientName',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.teal),
+                  style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal),
                 ),
                 Text(
                   date.substring(0, 10), // just the date part
@@ -69,7 +72,8 @@ class SoapNoteView extends StatelessWidget {
               ),
               child: Text(
                 transcript,
-                style: const TextStyle(fontSize: 14, height: 1.5, fontStyle: FontStyle.italic),
+                style: const TextStyle(
+                    fontSize: 14, height: 1.5, fontStyle: FontStyle.italic),
               ),
             ),
           ],

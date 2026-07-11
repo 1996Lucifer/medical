@@ -122,6 +122,8 @@ class Staff(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     embedding = Column(Vector(512))  # Primary (first) photo embedding
+    upper_embedding = Column(Vector(512), nullable=True) # Upper 45% mask tracking embedding
+    photo_path = Column(String, nullable=True) # Path to the saved photo file
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Additional photos for multi-angle recognition
@@ -140,7 +142,9 @@ class StaffPhoto(Base):
     id = Column(Integer, primary_key=True, index=True)
     staff_id = Column(Integer, ForeignKey("staff.id"), nullable=False)
     embedding = Column(Vector(512), nullable=False)
+    upper_embedding = Column(Vector(512), nullable=True)
     label = Column(String, nullable=True)   # e.g. "front", "left", "right", "angled"
+    photo_path = Column(String, nullable=True) # Path to the saved photo file
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     staff = relationship("Staff", back_populates="photos")
@@ -195,7 +199,7 @@ class Attendance(Base):
     __tablename__ = "attendance"
 
     id          = Column(Integer, primary_key=True, index=True)
-    staff_id    = Column(Integer, ForeignKey("staff.id"), nullable=True)
+    staff_id    = Column(Integer, ForeignKey("staff.id", ondelete="SET NULL"), nullable=True)
     staff_name  = Column(String, index=True, nullable=False)
     confidence  = Column(Float, nullable=False)          # best score at entry
     date        = Column(Date, nullable=False, default=datetime.date.today)
@@ -283,3 +287,79 @@ class SecurityRule(Base):
     rule_text = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True, nullable=False)
+
+# ── AI / RAG Tables ────────────────────────────────────────
+
+class KnowledgeDocument(Base):
+    """
+    Stores metadata for RAG documents (WHO Guidelines, SOPs).
+    """
+    __tablename__ = "knowledge_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    document_type = Column(String, nullable=False) # e.g. 'SOP', 'GUIDELINE', 'MANUAL'
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+
+
+class DocumentChunk(Base):
+    """
+    Stores semantic chunks with pgvector embeddings for RAG.
+    """
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("knowledge_documents.id"), nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(512), nullable=True) # Dimension matching our embedding model
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    document = relationship("KnowledgeDocument", back_populates="chunks")
+
+
+class MedicalFAQ(Base):
+    """
+    Stores verified frequently asked questions.
+    """
+    __tablename__ = "medical_faq"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question = Column(String, nullable=False)
+    answer = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConversationHistory(Base):
+    """
+    Stores user conversations for history, not used directly as LLM memory.
+    """
+    __tablename__ = "conversation_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True) # Optional link to user
+    session_id = Column(String, index=True, nullable=False)
+    role = Column(String, nullable=False) # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class LLMAuditLog(Base):
+    """
+    Logging of LLM prompts and responses for debugging and auditing.
+    """
+    __tablename__ = "llm_audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True, nullable=True)
+    prompt = Column(Text, nullable=True)
+    context_used = Column(Text, nullable=True)
+    retrieved_rows = Column(Integer, nullable=True)
+    model_used = Column(String, nullable=True)
+    response = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    latency_ms = Column(Float, nullable=True)
+    token_usage = Column(Integer, nullable=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+

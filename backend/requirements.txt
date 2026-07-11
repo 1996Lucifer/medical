@@ -8,6 +8,15 @@ google-genai
 pydantic
 opencv-python
 insightface
-onnxruntime
+onnxruntime==1.26.0
+aiortc>=1.8.0
+av>=12.0.0
 pgvector
 ultralytics
+einops
+deepface
+mediapipe
+tf-keras
+faster-whisper
+easyocr
+pymupdf

@@ -40,3 +40,16 @@ def get_attendance_summary(days: int = 7, db: Session = Depends(get_db)):
         })
         
     return summary
+
+@router.get("/events")
+def get_recent_events(limit: int = 50, db: Session = Depends(get_db)):
+    """
+    Fetch the most recent system events, including Unknown Faces and Offline Alerts.
+    """
+    events = (
+        db.query(models.SystemEvent)
+        .order_by(models.SystemEvent.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+    return events

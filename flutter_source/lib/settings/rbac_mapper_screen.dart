@@ -131,7 +131,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
     try {
       final resp = await NetworkManager.instance.get(ApiRoutes.allUniqueRois);
       if (resp.statusCode == 200) {
-        final dynamicZones = (jsonDecode(resp.body) as List<dynamic>).cast<String>();
+        final dynamicZones =
+            (jsonDecode(resp.body) as List<dynamic>).cast<String>();
         for (var z in dynamicZones) {
           if (!zones.contains(z)) {
             zones.add(z);
@@ -200,8 +201,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
               if (targetArea != null) {
                 final zId = 'zone_$targetArea';
                 if (rulesNodes.any((n) => n.id == zId)) {
-                  if (!rulesEdges
-                      .any((edge) => edge.source == cId && edge.target == zId)) {
+                  if (!rulesEdges.any(
+                      (edge) => edge.source == cId && edge.target == zId)) {
                     rulesEdges.add(_Edge(cId, zId));
                   }
                 }
@@ -221,7 +222,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
     for (var n in activeNodes) {
       if (n.id == source.id) continue;
       // Expanded hitbox to make dropping connections much easier
-      final rect = Rect.fromLTWH(n.position.dx - 40, n.position.dy - 20, 260, 100);
+      final rect =
+          Rect.fromLTWH(n.position.dx - 40, n.position.dy - 20, 260, 100);
       if (rect.contains(dropPos)) {
         targetNode = n;
         break;
@@ -243,18 +245,25 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
         } else if (srcType == 'zone' && tgtType == 'condition') {
           sourceId = targetNode.id;
           targetId = source.id;
-        } else if ((srcType == 'entity' && tgtType == 'condition') || (srcType == 'condition' && tgtType == 'zone')) {
+        } else if ((srcType == 'entity' && tgtType == 'condition') ||
+            (srcType == 'condition' && tgtType == 'zone')) {
           // Valid
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid connection. Entities -> Conditions -> Zones.')));
-          setState(() { draggingSource = null; draggingEndPos = null; });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Invalid connection. Entities -> Conditions -> Zones.')));
+          setState(() {
+            draggingSource = null;
+            draggingEndPos = null;
+          });
           return;
         }
       } else {
         final srcType = source.type;
         final tgtType = targetNode.type;
         // Swap for RBAC if backwards
-        if ((tgtType == 'user' && srcType == 'group') || (tgtType == 'group' && srcType == 'permission')) {
+        if ((tgtType == 'user' && srcType == 'group') ||
+            (tgtType == 'group' && srcType == 'permission')) {
           sourceId = targetNode.id;
           targetId = source.id;
         }

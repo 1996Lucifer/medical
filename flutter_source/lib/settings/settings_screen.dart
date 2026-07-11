@@ -9,6 +9,8 @@ import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import 'rbac_mapper_screen.dart';
 import 'camera_management_screen.dart';
+import 'analytics_screen.dart';
+import 'manage_staff_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,20 +20,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  List<Map<String, dynamic>> _staffList = [];
-  // ── Staff API ─────────────────────────────────────────────────────────────
-  Future<void> _fetchStaff() async {
-    try {
-      final resp = await NetworkManager.instance.get(ApiRoutes.staff)
-          .timeout(const Duration(seconds: 5));
-      if (resp.statusCode == 200 && mounted) {
-        setState(() {
-          _staffList = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
-        });
-      }
-    } catch (_) {}
-  }
-
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -40,7 +28,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const Text(
           'Settings',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          style:
+              TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
         ),
         backgroundColor: Colors.white.withOpacity(0.6),
         elevation: 0,
@@ -68,46 +57,102 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
                     ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
                       leading: CircleAvatar(
                         backgroundColor: Colors.teal.shade50,
-                        child: Icon(Icons.manage_accounts_rounded, color: Colors.teal.shade700),
+                        child: Icon(Icons.manage_accounts_rounded,
+                            color: Colors.teal.shade700),
                       ),
                       title: const Text(
                         'Manage Staff',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0F172A)),
                       ),
-                      subtitle: const Text('Add, remove, or update staff photos for AI recognition'),
-                      onTap: _showStaffManagementDialog,
+                      subtitle: const Text(
+                          'Add, remove, or update staff photos for AI recognition'),
+                      onTap: () {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const ManageStaffScreen()));
+                      },
                     ),
-                    const Divider(height: 1, thickness: 1, indent: 20, endIndent: 20),
+                    const Divider(
+                        height: 1, thickness: 1, indent: 20, endIndent: 20),
                     ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
                       leading: CircleAvatar(
                         backgroundColor: Colors.teal.shade50,
-                        child: Icon(Icons.videocam_rounded, color: Colors.teal.shade700),
+                        child: Icon(Icons.videocam_rounded,
+                            color: Colors.teal.shade700),
                       ),
                       title: const Text(
                         'Manage Cameras',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0F172A)),
                       ),
-                      subtitle: const Text('Add or remove registered RTSP camera sources'),
-                      onTap: () { Navigator.push(context, MaterialPageRoute(builder: (_) => const CameraManagementScreen())); },
+                      subtitle: const Text(
+                          'Add or remove registered RTSP camera sources'),
+                      onTap: () {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    const CameraManagementScreen()));
+                      },
                     ),
-                    const Divider(height: 1, thickness: 1, indent: 20, endIndent: 20),
+                    const Divider(
+                        height: 1, thickness: 1, indent: 20, endIndent: 20),
                     ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
                       leading: CircleAvatar(
                         backgroundColor: Colors.teal.shade50,
-                        child: Icon(Icons.schema_rounded, color: Colors.teal.shade700),
+                        child: Icon(Icons.schema_rounded,
+                            color: Colors.teal.shade700),
                       ),
                       title: const Text(
                         'Access Node Mapper',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0F172A)),
                       ),
-                      subtitle: const Text('Visually map users and groups to permissions (RBAC)'),
+                      subtitle: const Text(
+                          'Visually map users and groups to permissions (RBAC)'),
                       onTap: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const RBACMapperScreen()));
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const RBACMapperScreen()));
+                      },
+                    ),
+                    const Divider(
+                        height: 1, thickness: 1, indent: 20, endIndent: 20),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 8),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.shade50,
+                        child: Icon(Icons.analytics_rounded,
+                            color: Colors.teal.shade700),
+                      ),
+                      title: const Text(
+                        'Analytics Dashboard',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0F172A)),
+                      ),
+                      subtitle: const Text(
+                          'View daily attendance, total hours, and system events'),
+                      onTap: () {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const AnalyticsScreen()));
                       },
                     ),
                   ],
@@ -117,340 +162,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Future<void> _showStaffManagementDialog() async {
-    await _fetchStaff();
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        final screenWidth = MediaQuery.of(ctx).size.width;
-        final dialogWidth = screenWidth > 500 ? 400.0 : screenWidth * 0.85;
-        return AlertDialog(
-          title: const Text('Staff Management'),
-          content: SizedBox(
-            width: dialogWidth,
-            height: 420,
-            child: Column(children: [
-              Expanded(
-                child: _staffList.isEmpty
-                    ? const Center(child: Text('No staff registered yet.'))
-                    : ListView.builder(
-                        itemCount: _staffList.length,
-                        itemBuilder: (_, i) {
-                          final s = _staffList[i];
-                          final photoCount = s['photo_count'] ?? 1;
-                          return ListTile(
-                            dense: true,
-                            leading: CircleAvatar(
-                              child: Text((s['name'] as String)[0].toUpperCase()),
-                            ),
-                            title: Text(s['name'] as String),
-                            subtitle: Text('$photoCount photo${photoCount == 1 ? '' : 's'}'),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit, size: 20, color: Colors.grey),
-                                  tooltip: 'Edit staff name',
-                                  onPressed: () async {
-                                    Navigator.pop(ctx);
-                                    await _showEditStaffDialog(s);
-                                    await _showStaffManagementDialog();
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.photo_library, size: 20, color: Colors.blue),
-                                  tooltip: 'Manage photos',
-                                  onPressed: () async {
-                                    Navigator.pop(ctx);
-                                    await _showManagePhotosDialog(s['id'] as int, s['name'] as String);
-                                    await _showStaffManagementDialog();
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                                  tooltip: 'Remove staff',
-                                  onPressed: () async {
-                                    await NetworkManager.instance.delete(ApiRoutes.staffMember(s['id']));
-                                    await _fetchStaff();
-                                    setD(() {});
-                                  },
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-            ElevatedButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _showRegisterNewStaffDialog();
-                await _showStaffManagementDialog();
-              },
-              icon: const Icon(Icons.person_add, size: 16),
-              label: const Text('Register New'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  Future<void> _showRegisterNewStaffDialog() async {
-    final nameController = TextEditingController();
-    FilePickerResult? pickedFile;
-    bool isUploading = false;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        return AlertDialog(
-          title: const Text('Register New Staff'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: 'Full Name'),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () async {
-                pickedFile = await FilePicker.platform.pickFiles(
-                    type: FileType.image, withData: true);
-                setD(() {});
-              },
-              icon: const Icon(Icons.face),
-              label: Text(pickedFile != null ? 'Photo Selected ✓' : 'Select Front-Face Photo'),
-            ),
-            if (isUploading) ...[const SizedBox(height: 12), const CircularProgressIndicator()],
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: isUploading ? null : () async {
-                if (nameController.text.isEmpty || pickedFile == null) return;
-                setD(() => isUploading = true);
-                try {
-                  final request = NetworkManager.instance.multipartRequest(
-                      'POST', ApiRoutes.staffSearch(nameController.text));
-                  if (kIsWeb) {
-                    request.files.add(http.MultipartFile.fromBytes('file',
-                        pickedFile!.files.single.bytes!,
-                        filename: pickedFile!.files.single.name));
-                  } else {
-                    request.files.add(await http.MultipartFile.fromPath(
-                        'file', pickedFile!.files.single.path!));
-                  }
-                  final resp = await request.send();
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                      content: Text(resp.statusCode == 200
-                          ? '✓ ${nameController.text} registered!'
-                          : 'Error ${resp.statusCode}'),
-                    ));
-                  }
-                } finally {
-                  if (ctx.mounted) {
-                    setD(() => isUploading = false);
-                  }
-                }
-              },
-              child: const Text('Register'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  Future<void> _showEditStaffDialog(Map<String, dynamic> staff) async {
-    final nameController = TextEditingController(text: staff['name'] ?? '');
-    bool isSaving = false;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        return AlertDialog(
-          title: const Text('Edit Staff Name'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: 'Full Name'),
-            ),
-            if (isSaving) ...[const SizedBox(height: 12), const CircularProgressIndicator()],
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: isSaving ? null : () async {
-                if (nameController.text.isEmpty) return;
-                setD(() => isSaving = true);
-                final resp = await NetworkManager.instance.put(
-                  ApiRoutes.staffMember(staff['id']),
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({'name': nameController.text}),
-                );
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                }
-                if (ctx.mounted) {
-                  setD(() => isSaving = false);
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  Future<void> _showManagePhotosDialog(int staffId, String staffName) async {
-    List<Map<String, dynamic>> photos = [];
-    bool isLoading = true;
-
-    Future<void> fetchPhotos() async {
-      try {
-        final resp = await NetworkManager.instance.get(ApiRoutes.staffPhotos(staffId));
-        if (resp.statusCode == 200) {
-          photos = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
-        }
-      } catch (_) {}
-    }
-
-    await fetchPhotos();
-    isLoading = false;
-
-    if (!mounted) return;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        final screenWidth = MediaQuery.of(ctx).size.width;
-        final dialogWidth = screenWidth > 500 ? 400.0 : screenWidth * 0.85;
-        return AlertDialog(
-          title: Text('Manage Photos for $staffName'),
-          content: SizedBox(
-            width: dialogWidth,
-            height: 400,
-            child: isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : photos.isEmpty
-                    ? const Center(child: Text('No photos found.'))
-                    : ListView.builder(
-                        itemCount: photos.length,
-                        itemBuilder: (_, i) {
-                          final p = photos[i];
-                          return ListTile(
-                            leading: const Icon(Icons.image),
-                            title: Text(p['label'] ?? 'photo'),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.red),
-                              onPressed: () async {
-                                await NetworkManager.instance.delete(ApiRoutes.staffPhotoDelete(staffId, p['id']));
-                                setD(() => isLoading = true);
-                                await fetchPhotos();
-                                setD(() => isLoading = false);
-                              },
-                            ),
-                          );
-                        },
-                      ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-            ElevatedButton.icon(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _showAddPhotoDialog(staffId, staffName);
-                await _showManagePhotosDialog(staffId, staffName);
-              },
-              icon: const Icon(Icons.add_a_photo, size: 16),
-              label: const Text('Add Photo'),
-            ),
-          ],
-        );
-      }),
-    );
-  }
-
-  Future<void> _showAddPhotoDialog(int staffId, String staffName) async {
-    FilePickerResult? pickedFile;
-    bool isUploading = false;
-    String selectedLabel = 'side_left';
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
-        return AlertDialog(
-          title: Text('Add Photo for $staffName'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Select angle:'),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              children: ['side_left', 'side_right', 'angled_down', 'other'].map((label) => ChoiceChip(
-                label: Text(label.replaceAll('_', ' ')),
-                selected: selectedLabel == label,
-                onSelected: (sel) { if (sel) setD(() => selectedLabel = label); },
-              )).toList(),
-            ),
-            const SizedBox(height: 14),
-            ElevatedButton.icon(
-              onPressed: () async {
-                pickedFile = await FilePicker.platform.pickFiles(
-                    type: FileType.image, withData: true);
-                setD(() {});
-              },
-              icon: const Icon(Icons.add_a_photo),
-              label: Text(pickedFile != null ? 'Photo Selected ✓' : 'Select Photo'),
-            ),
-            if (isUploading) ...[const SizedBox(height: 12), const CircularProgressIndicator()],
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: (isUploading || pickedFile == null) ? null : () async {
-                setD(() => isUploading = true);
-                try {
-                  final request = NetworkManager.instance.multipartRequest(
-                      'POST', ApiRoutes.staffPhotoUpload(staffId, selectedLabel));
-                  if (kIsWeb) {
-                    request.files.add(http.MultipartFile.fromBytes('file',
-                        pickedFile!.files.single.bytes!,
-                        filename: pickedFile!.files.single.name));
-                  } else {
-                    request.files.add(await http.MultipartFile.fromPath(
-                        'file', pickedFile!.files.single.path!));
-                  }
-                  final resp = await request.send();
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-                      content: Text(resp.statusCode == 200
-                          ? '✓ "$selectedLabel" photo added for $staffName'
-                          : 'Error ${resp.statusCode}'),
-                    ));
-                  }
-                } finally {
-                  if (ctx.mounted) {
-                    setD(() => isUploading = false);
-                  }
-                }
-              },
-              child: const Text('Upload Photo'),
-            ),
-          ],
-        );
-      }),
     );
   }
 }

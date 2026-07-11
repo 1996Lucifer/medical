@@ -4,7 +4,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
@@ -42,8 +41,10 @@ class AttendanceRecord {
         staffName: j['staff_name'],
         confidence: (j['confidence'] as num).toDouble(),
         entryTime: DateTime.parse(j['entry_time']),
-        lastSeen: j['last_seen'] != null ? DateTime.parse(j['last_seen']) : null,
-        exitTime: j['exit_time'] != null ? DateTime.parse(j['exit_time']) : null,
+        lastSeen:
+            j['last_seen'] != null ? DateTime.parse(j['last_seen']) : null,
+        exitTime:
+            j['exit_time'] != null ? DateTime.parse(j['exit_time']) : null,
         cameraId: j['camera_id'],
         cameraName: j['camera_name'],
       );
@@ -59,7 +60,6 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-
   // Attendance
   List<AttendanceRecord> _attendance = [];
   WebSocketChannel? _eventsChannel;
@@ -67,7 +67,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
   // Camera source state
   List<Map<String, dynamic>> _savedCameras = [];
-  Map<String, dynamic>? _selectedCamera;   // picked from saved list
+  Map<String, dynamic>? _selectedCamera; // picked from saved list
 
   // Staff list is now handled in SettingsScreen
 
@@ -75,8 +75,7 @@ class _CameraScreenState extends State<CameraScreen> {
   void initState() {
     super.initState();
     _fetchCameras();
-    // _connectEventsStream();
-
+    _connectEventsStream();
   }
 
 // ── Attendance ────────────────────────────────────────────────────────────
@@ -96,14 +95,16 @@ class _CameraScreenState extends State<CameraScreen> {
       _eventsSub = _eventsChannel!.stream.listen((message) {
         if (mounted) {
           final event = jsonDecode(message);
-          if (event['event_type'] == 'Attendance' || event['event_type'] == 'UnknownFaceDetected') {
+          if (event['event_type'] == 'Attendance' ||
+              event['event_type'] == 'UnknownFaceDetected') {
             _fetchAttendance();
           }
           if (event['event_type'] == 'SpokenWarning') {
             final details = event['details'] as Map<String, dynamic>;
             final warningText = details['warning'] as String?;
             if (warningText != null && warningText.isNotEmpty) {
-              _speakWarning(warningText);
+              // TTS is handled purely by the backend now.
+              debugPrint("Warning received: \$warningText");
             }
           }
         }
@@ -115,47 +116,37 @@ class _CameraScreenState extends State<CameraScreen> {
     } catch (_) {}
   }
 
-  final FlutterTts _flutterTts = FlutterTts();
-
-  Future<void> _speakWarning(String text) async {
-    try {
-      await _flutterTts.setLanguage("en-US");
-      await _flutterTts.setSpeechRate(0.5);
-      await _flutterTts.setVolume(1.0);
-      await _flutterTts.setPitch(1.0);
-      await _flutterTts.speak(text);
-    } catch (e) {
-      debugPrint("TTS Error: $e");
-    }
-  }
-
   Future<void> _fetchAttendance() async {
     try {
-      final resp = await NetworkManager.instance.get(ApiRoutes.attendance)
+      final resp = await NetworkManager.instance
+          .get(ApiRoutes.attendance)
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200 && mounted) {
         final data = jsonDecode(resp.body) as List<dynamic>;
-        setState(() { _attendance = data.map((j) => AttendanceRecord.fromJson(j)).toList(); });
+        setState(() {
+          _attendance = data.map((j) => AttendanceRecord.fromJson(j)).toList();
+        });
       }
     } catch (_) {}
   }
 
   Future<void> _deleteAttendance(int id) async {
-    await NetworkManager.instance.delete(ApiRoutes.attendanceDelete(id))
+    await NetworkManager.instance
+        .delete(ApiRoutes.attendanceDelete(id))
         .timeout(const Duration(seconds: 5))
         .catchError((_) => http.Response('', 500));
     _fetchAttendance();
   }
 
-
-
   Future<void> _fetchCameras() async {
     try {
-      final resp = await NetworkManager.instance.get(ApiRoutes.cameras)
+      final resp = await NetworkManager.instance
+          .get(ApiRoutes.cameras)
           .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200 && mounted) {
         setState(() {
-          _savedCameras = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
+          _savedCameras = (jsonDecode(resp.body) as List<dynamic>)
+              .cast<Map<String, dynamic>>();
           if (_savedCameras.isNotEmpty && _selectedCamera == null) {
             // _selectedCamera = _savedCameras.first;
           }
@@ -163,7 +154,6 @@ class _CameraScreenState extends State<CameraScreen> {
       }
     } catch (_) {}
   }
-
 
   @override
   void dispose() {
@@ -194,50 +184,54 @@ class _CameraScreenState extends State<CameraScreen> {
           SizedBox(
             width: double.infinity,
             child: ValueListenableBuilder<Map<int, bool>>(
-              valueListenable: GlobalCameraStatus.statuses,
-              builder: (context, statuses, _) {
-                return Wrap(
-                  spacing: 8.0,
-                  runSpacing: 8.0,
-                  children: _savedCameras.map((camera) {
-                    final isSelected = _selectedCamera?['id'] == camera['id'];
-                    final isOnline = statuses[camera['id']] ?? false;
-                    return ChoiceChip(
-                      label: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(camera['name']),
-                          const SizedBox(width: 6),
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: isOnline ? Colors.green : Colors.red,
-                              shape: BoxShape.circle,
+                valueListenable: GlobalCameraStatus.statuses,
+                builder: (context, statuses, _) {
+                  return Wrap(
+                    spacing: 8.0,
+                    runSpacing: 8.0,
+                    children: _savedCameras.map((camera) {
+                      final isSelected = _selectedCamera?['id'] == camera['id'];
+                      final isOnline = statuses[camera['id']] ?? false;
+                      return ChoiceChip(
+                        label: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(camera['name']),
+                            const SizedBox(width: 6),
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isOnline ? Colors.green : Colors.red,
+                                shape: BoxShape.circle,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      selected: isSelected,
-                      onSelected: (selected) async {
-                        if (selected) {
-                          setState(() => _selectedCamera = camera);
-                        }
-                      },
-                      selectedColor: Colors.teal.shade50,
-                      checkmarkColor: Colors.teal.shade700,
-                      labelStyle: TextStyle(
-                        color: isSelected ? Colors.teal.shade800 : Colors.black87,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      ),
-                      avatar: Icon(Icons.videocam,
-                          size: 16,
-                          color: isSelected ? Colors.teal.shade700 : Colors.grey.shade600),
-                    );
-                  }).toList(),
-                );
-              }
-            ),
+                          ],
+                        ),
+                        selected: isSelected,
+                        onSelected: (selected) async {
+                          if (selected) {
+                            setState(() => _selectedCamera = camera);
+                          }
+                        },
+                        selectedColor: Colors.teal.shade50,
+                        checkmarkColor: Colors.teal.shade700,
+                        labelStyle: TextStyle(
+                          color: isSelected
+                              ? Colors.teal.shade800
+                              : Colors.black87,
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        avatar: Icon(Icons.videocam,
+                            size: 16,
+                            color: isSelected
+                                ? Colors.teal.shade700
+                                : Colors.grey.shade600),
+                      );
+                    }).toList(),
+                  );
+                }),
           ),
         const SizedBox(height: 12),
         // Video box
@@ -252,8 +246,10 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
                   clipBehavior: Clip.hardEdge,
                   child: _selectedCamera != null
-                    ? CameraStreamView(cameraId: _selectedCamera!['id'])
-                    : const Center(child: Text('No camera selected', style: TextStyle(color: Colors.white54))),
+                      ? CameraStreamView(cameraId: _selectedCamera!['id'])
+                      : const Center(
+                          child: Text('No camera selected',
+                              style: TextStyle(color: Colors.white54))),
                 ),
               )
             : Expanded(
@@ -266,8 +262,10 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
                   clipBehavior: Clip.hardEdge,
                   child: _selectedCamera != null
-                    ? CameraStreamView(cameraId: _selectedCamera!['id'])
-                    : const Center(child: Text('No camera selected', style: TextStyle(color: Colors.white54))),
+                      ? CameraStreamView(cameraId: _selectedCamera!['id'])
+                      : const Center(
+                          child: Text('No camera selected',
+                              style: TextStyle(color: Colors.white54))),
                 ),
               ),
       ],
@@ -294,7 +292,8 @@ class _CameraScreenState extends State<CameraScreen> {
       appBar: AppBar(
         title: const Text(
           'AI Camera Stream',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          style:
+              TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
         ),
         backgroundColor: Colors.white.withOpacity(0.6),
         elevation: 0,
@@ -316,8 +315,11 @@ class _CameraScreenState extends State<CameraScreen> {
                 onPressed: () {
                   setState(() => _selectedCamera = null);
                 },
-                icon: const Icon(Icons.stop_circle, color: Color(0xFFF43F5E), size: 20),
-                label: const Text('Disconnect', style: TextStyle(color: Color(0xFFF43F5E), fontWeight: FontWeight.bold)),
+                icon: const Icon(Icons.stop_circle,
+                    color: Color(0xFFF43F5E), size: 20),
+                label: const Text('Disconnect',
+                    style: TextStyle(
+                        color: Color(0xFFF43F5E), fontWeight: FontWeight.bold)),
               ),
             ),
         ],
@@ -393,7 +395,8 @@ class _CameraScreenState extends State<CameraScreen> {
           borderRadius: BorderRadius.circular(8),
         ),
         child: const Center(
-          child: Text('No attendance records yet.\nFace detected = auto marked.',
+          child: Text(
+              'No attendance records yet.\nFace detected = auto marked.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey, fontSize: 12)),
         ),
@@ -430,7 +433,8 @@ class _CameraScreenState extends State<CameraScreen> {
 
           return ListTile(
             dense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             leading: CircleAvatar(
               radius: 18,
               backgroundColor:
@@ -467,7 +471,8 @@ class _CameraScreenState extends State<CameraScreen> {
                     const Icon(Icons.logout, size: 11, color: Colors.red),
                     const SizedBox(width: 3),
                     Text('Out: $exitStr',
-                        style: const TextStyle(fontSize: 10, color: Colors.red)),
+                        style:
+                            const TextStyle(fontSize: 10, color: Colors.red)),
                   ] else if (lastSeenStr != null) ...[
                     const SizedBox(width: 8),
                     const Icon(Icons.visibility, size: 11, color: Colors.grey),
@@ -483,8 +488,8 @@ class _CameraScreenState extends State<CameraScreen> {
                     const SizedBox(width: 3),
                     Expanded(
                       child: Text(r.cameraName!,
-                          style: const TextStyle(
-                              fontSize: 10, color: Colors.blue),
+                          style:
+                              const TextStyle(fontSize: 10, color: Colors.blue),
                           overflow: TextOverflow.ellipsis),
                     ),
                   ]),
@@ -495,11 +500,12 @@ class _CameraScreenState extends State<CameraScreen> {
               children: [
                 if (!r.isCheckedOut)
                   IconButton(
-                    icon: const Icon(Icons.logout, size: 16,
-                        color: Colors.orange),
+                    icon: const Icon(Icons.logout,
+                        size: 16, color: Colors.orange),
                     tooltip: 'Checkout',
                     onPressed: () async {
-                      await NetworkManager.instance.post(ApiRoutes.attendanceCheckout(r.id));
+                      await NetworkManager.instance
+                          .post(ApiRoutes.attendanceCheckout(r.id));
                       _fetchAttendance();
                     },
                     padding: EdgeInsets.zero,
@@ -517,7 +523,6 @@ class _CameraScreenState extends State<CameraScreen> {
             isThreeLine: r.cameraName != null,
           );
         },
-
       ),
     );
   }

@@ -27,25 +27,31 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
 
   Future<void> _fetchCameras() async {
     try {
-      final resp = await NetworkManager.instance.get(ApiRoutes.cameras).timeout(const Duration(seconds: 5));
+      final resp = await NetworkManager.instance
+          .get(ApiRoutes.cameras)
+          .timeout(const Duration(seconds: 5));
       if (resp.statusCode == 200 && mounted) {
         setState(() {
-          _savedCameras = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
+          _savedCameras = (jsonDecode(resp.body) as List<dynamic>)
+              .cast<Map<String, dynamic>>();
         });
       }
     } catch (_) {}
   }
 
   Future<void> _deleteCamera(Map<String, dynamic> c) async {
-    final resp = await NetworkManager.instance.delete(ApiRoutes.camera(c['id']));
+    final resp =
+        await NetworkManager.instance.delete(ApiRoutes.camera(c['id']));
     if (resp.statusCode != 200 && mounted) {
       String errorMsg = 'Failed to delete camera.';
       try {
         errorMsg = jsonDecode(resp.body)['detail'] ?? errorMsg;
       } catch (_) {}
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
     } else {
-      if (_previewCamera?['id'] == c['id']) setState(() => _previewCamera = null);
+      if (_previewCamera?['id'] == c['id'])
+        setState(() => _previewCamera = null);
       await _fetchCameras();
     }
   }
@@ -63,34 +69,50 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
           title: const Text('Add Camera Source'),
           content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Camera Name')),
+              TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Camera Name')),
               const SizedBox(height: 10),
-              TextField(controller: locationCtrl, decoration: const InputDecoration(labelText: 'Location (optional)')),
+              TextField(
+                  controller: locationCtrl,
+                  decoration:
+                      const InputDecoration(labelText: 'Location (optional)')),
               const SizedBox(height: 10),
-              TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: 'RTSP URL')),
-              if (isSaving) ...[const SizedBox(height: 12), const CircularProgressIndicator()],
+              TextField(
+                  controller: urlCtrl,
+                  decoration: const InputDecoration(labelText: 'RTSP URL')),
+              if (isSaving) ...[
+                const SizedBox(height: 12),
+                const CircularProgressIndicator()
+              ],
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: isSaving ? null : () async {
-                if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
-                setD(() => isSaving = true);
-                final resp = await NetworkManager.instance.post(
-                  ApiRoutes.cameras,
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({
-                    'name': nameCtrl.text,
-                    'location': locationCtrl.text.isEmpty ? null : locationCtrl.text,
-                    'rtsp_url': urlCtrl.text,
-                  }),
-                );
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  if (resp.statusCode == 200) await _fetchCameras();
-                }
-              },
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
+                      setD(() => isSaving = true);
+                      final resp = await NetworkManager.instance.post(
+                        ApiRoutes.cameras,
+                        headers: {'Content-Type': 'application/json'},
+                        body: jsonEncode({
+                          'name': nameCtrl.text,
+                          'location': locationCtrl.text.isEmpty
+                              ? null
+                              : locationCtrl.text,
+                          'rtsp_url': urlCtrl.text,
+                        }),
+                      );
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        if (resp.statusCode == 200) await _fetchCameras();
+                      }
+                    },
               child: const Text('Save'),
             ),
           ],
@@ -112,35 +134,51 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
           title: const Text('Edit Camera Source'),
           content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Camera Name')),
+              TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Camera Name')),
               const SizedBox(height: 10),
-              TextField(controller: locationCtrl, decoration: const InputDecoration(labelText: 'Location (optional)')),
+              TextField(
+                  controller: locationCtrl,
+                  decoration:
+                      const InputDecoration(labelText: 'Location (optional)')),
               const SizedBox(height: 10),
-              TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: 'RTSP URL')),
-              if (isSaving) ...[const SizedBox(height: 12), const CircularProgressIndicator()],
+              TextField(
+                  controller: urlCtrl,
+                  decoration: const InputDecoration(labelText: 'RTSP URL')),
+              if (isSaving) ...[
+                const SizedBox(height: 12),
+                const CircularProgressIndicator()
+              ],
             ]),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: isSaving ? null : () async {
-                if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
-                setD(() => isSaving = true);
-                final resp = await NetworkManager.instance.put(
-                  ApiRoutes.camera(c['id']),
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({
-                    'name': nameCtrl.text,
-                    'location': locationCtrl.text.isEmpty ? null : locationCtrl.text,
-                    'rtsp_url': urlCtrl.text,
-                    'ha_entity_id': c['ha_entity_id'],
-                  }),
-                );
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  if (resp.statusCode == 200) await _fetchCameras();
-                }
-              },
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (nameCtrl.text.isEmpty || urlCtrl.text.isEmpty) return;
+                      setD(() => isSaving = true);
+                      final resp = await NetworkManager.instance.put(
+                        ApiRoutes.camera(c['id']),
+                        headers: {'Content-Type': 'application/json'},
+                        body: jsonEncode({
+                          'name': nameCtrl.text,
+                          'location': locationCtrl.text.isEmpty
+                              ? null
+                              : locationCtrl.text,
+                          'rtsp_url': urlCtrl.text,
+                          'ha_entity_id': c['ha_entity_id'],
+                        }),
+                      );
+                      if (ctx.mounted) {
+                        Navigator.pop(ctx);
+                        if (resp.statusCode == 200) await _fetchCameras();
+                      }
+                    },
               child: const Text('Update'),
             ),
           ],
@@ -154,11 +192,15 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Manage Cameras', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+        title: const Text('Manage Cameras',
+            style: TextStyle(
+                fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
         backgroundColor: Colors.white.withOpacity(0.6),
         elevation: 0,
         flexibleSpace: ClipRRect(
-          child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12), child: Container(color: Colors.transparent)),
+          child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(color: Colors.transparent)),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -176,7 +218,10 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
 
                 final listWidget = GlassCard(
                   child: _savedCameras.isEmpty
-                      ? const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('No cameras saved.')))
+                      ? const Center(
+                          child: Padding(
+                              padding: EdgeInsets.all(32),
+                              child: Text('No cameras saved.')))
                       : ListView.separated(
                           itemCount: _savedCameras.length,
                           separatorBuilder: (c, i) => const Divider(),
@@ -189,8 +234,11 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                               leading: Stack(
                                 alignment: Alignment.topRight,
                                 children: [
-                                  const Padding(padding: EdgeInsets.all(4.0), child: Icon(Icons.videocam)),
-                                  CameraStatusDot(cameraId: c['id'] as int, size: 10),
+                                  const Padding(
+                                      padding: EdgeInsets.all(4.0),
+                                      child: Icon(Icons.videocam)),
+                                  CameraStatusDot(
+                                      cameraId: c['id'] as int, size: 10),
                                 ],
                               ),
                               title: Text(c['name']),
@@ -204,11 +252,13 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.edit, color: Colors.grey),
+                                    icon: const Icon(Icons.edit,
+                                        color: Colors.grey),
                                     onPressed: () => _showEditCameraDialog(c),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    icon: const Icon(Icons.delete_outline,
+                                        color: Colors.red),
                                     onPressed: () => _deleteCamera(c),
                                   ),
                                 ],
@@ -218,54 +268,62 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                         ),
                 );
 
-                  final previewWidget = _previewCamera != null
-                      ? GlassCard(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Live Preview: ${_previewCamera!['name']}',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                    ),
+                final previewWidget = _previewCamera != null
+                    ? GlassCard(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Live Preview: ${_previewCamera!['name']}',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16),
                                   ),
-                                  ElevatedButton.icon(
-                                    icon: const Icon(Icons.settings, size: 16),
-                                    label: const Text('Manage this Camera'),
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (_) => CameraSettingsDetailScreen(camera: _previewCamera!))
-                                      );
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.teal,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  clipBehavior: Clip.hardEdge,
-                                  child: CameraStreamView(cameraId: _previewCamera!['id'], mode: 'manage'),
                                 ),
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.settings, size: 16),
+                                  label: const Text('Manage this Camera'),
+                                  onPressed: () {
+                                    Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) =>
+                                                CameraSettingsDetailScreen(
+                                                    camera: _previewCamera!)));
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.teal,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                clipBehavior: Clip.hardEdge,
+                                child: CameraStreamView(
+                                    cameraId: _previewCamera!['id'],
+                                    mode: 'manage'),
                               ),
-                            ],
-                          ),
-                        )
-                      : const GlassCard(
+                            ),
+                          ],
+                        ),
+                      )
+                    : const GlassCard(
                         child: Center(
-                          child: Text('Select a camera to view live feed', style: TextStyle(color: Colors.grey)),
+                          child: Text('Select a camera to view live feed',
+                              style: TextStyle(color: Colors.grey)),
                         ),
                       );
 

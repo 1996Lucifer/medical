@@ -5,7 +5,8 @@ import tempfile
 import time
 from urllib.parse import urlparse
 import abc
-
+import camera.audio_constants as audio_const
+from camera.audio_worker import audio_process_manager
 class CameraAudioProvider(abc.ABC):
     @abc.abstractmethod
     def push_audio(self, camera_url: str, wav_file: str) -> bool:
@@ -28,8 +29,8 @@ class CPPlusAudioProvider(CameraAudioProvider):
         
         try:
             result = subprocess.run(
-                ["ffmpeg", "-re", "-i", wav_file, "-vn", "-acodec", "copy", "-f", "rtsp", backchannel_url],
-                capture_output=True, text=True, timeout=10
+                ["ffmpeg", "-re", "-i", wav_file, "-vn", "-ar", audio_const.ONVIF_AUDIO_SAMPLE_RATE, "-ac", audio_const.ONVIF_AUDIO_CHANNELS, "-acodec", audio_const.ONVIF_AUDIO_CODEC, "-f", "rtsp", backchannel_url],
+                capture_output=True, text=True, timeout=audio_const.FFMPEG_TIMEOUT_SEC
             )
             return result.returncode == 0
         except Exception:
@@ -49,8 +50,8 @@ class GenericONVIFAudioProvider(CameraAudioProvider):
         backchannel_url = f"{parsed.scheme}://{parsed.netloc}/backchannel"
         try:
             result = subprocess.run(
-                ["ffmpeg", "-re", "-i", wav_file, "-vn", "-acodec", "copy", "-f", "rtsp", backchannel_url],
-                capture_output=True, text=True, timeout=5
+                ["ffmpeg", "-re", "-i", wav_file, "-vn", "-ar", audio_const.ONVIF_AUDIO_SAMPLE_RATE, "-ac", audio_const.ONVIF_AUDIO_CHANNELS, "-acodec", audio_const.ONVIF_AUDIO_CODEC, "-f", "rtsp", backchannel_url],
+                capture_output=True, text=True, timeout=audio_const.FFMPEG_TIMEOUT_SEC
             )
             return result.returncode == 0
         except Exception:
@@ -66,49 +67,68 @@ class AudioService:
             "generic": GenericONVIFAudioProvider()
         }
         self._disabled_urls = set()
+        self.tts_voice = audio_const.DEFAULT_TTS_VOICE
+        self.audio_cache = {}
 
     def speak(self, camera_url: str, text: str, vendor: str = "generic"):
-        threading.Thread(target=self._speak_sync, args=(camera_url, text, vendor), daemon=True).start()
+        if text in self.audio_cache:
+            wav_bytes = self.audio_cache[text]
+            threading.Thread(target=self._on_audio_generated, args=(camera_url, text, vendor, wav_bytes), daemon=True).start()
+        else:
+            audio_process_manager.generate_async(text, lambda wav_bytes, txt: self._on_audio_generated(camera_url, txt, vendor, wav_bytes))
 
-    def _speak_sync(self, camera_url: str, text: str, vendor: str):
+    def _on_audio_generated(self, camera_url: str, text: str, vendor: str, wav_bytes: bytes):
+        if not wav_bytes:
+            print(f"[AudioService] Failed to generate audio for: {text}")
+            return
+            
+        if text not in self.audio_cache:
+            self.audio_cache[text] = wav_bytes
+
         if camera_url in self._disabled_urls:
-            self._local_fallback(text)
+            self._local_fallback(text, wav_bytes)
             return
 
         try:
-            print(f"[AudioService] Generating TTS for {vendor} camera: {text}")
-            
-            temp_aiff = tempfile.mktemp(suffix=".aiff")
-            temp_wav = tempfile.mktemp(suffix=".wav")
-            os.system(f'say -o "{temp_aiff}" "{text}"')
-            
-            # Convert to 8000Hz PCM
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", temp_aiff, "-ar", "8000", "-ac", "1", "-acodec", "pcm_mulaw", temp_wav],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
-            )
-
+            wav_path = tempfile.mktemp(suffix=".wav")
+            with open(wav_path, "wb") as f:
+                f.write(wav_bytes)
+                
             provider = self.providers.get(vendor.lower(), self.providers["generic"])
-            success = provider.push_audio(camera_url, temp_wav)
+            success = provider.push_audio(camera_url, wav_path)
+            
+            try:
+                os.remove(wav_path)
+            except:
+                pass
 
             if not success:
                 print(f"[AudioService] {vendor} provider failed. Disabling direct audio for this URL and falling back.")
                 self._disabled_urls.add(camera_url)
-                self._local_fallback(text)
-            else:
-                print(f"[AudioService] Successfully played audio on {vendor} camera speaker.")
+                self._local_fallback(text, wav_bytes)
 
         except Exception as e:
-            print(f"[AudioService] Error: {e}")
-            self._local_fallback(text)
-        finally:
-            if 'temp_aiff' in locals() and os.path.exists(temp_aiff):
-                os.remove(temp_aiff)
-            if 'temp_wav' in locals() and os.path.exists(temp_wav):
-                os.remove(temp_wav)
+            print(f"[AudioService] Error generating offline TTS: {e}")
+            self._local_fallback(text, wav_bytes)
 
-    def _local_fallback(self, text: str):
+    def _local_fallback(self, text: str, wav_bytes: bytes):
         print(f"[AudioService] Local Speaker Fallback: {text}")
-        os.system(f'say "{text}"')
+        try:
+            wav_path = tempfile.mktemp(suffix=".wav")
+            with open(wav_path, "wb") as f:
+                f.write(wav_bytes)
+            
+            import sys
+            if sys.platform == "darwin":
+                subprocess.run(["afplay", wav_path])
+            else:
+                subprocess.run(["ffplay", "-nodisp", "-autoexit", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+            try:
+                os.remove(wav_path)
+            except:
+                pass
+        except Exception as e:
+            print(f"[AudioService] Local fallback failed: {e}")
 
 audio_service = AudioService()

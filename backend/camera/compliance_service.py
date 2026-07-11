@@ -3,78 +3,95 @@ import numpy as np
 import os
 import json
 import asyncio
-from google import genai
-from google.genai import types
-from PIL import Image
+import camera.compliance_constants as comp_const
 
 class ComplianceService:
     """
-    Dynamic Rules Engine using Gemini Multimodal Vision and macOS TTS.
+    Dynamic Rules Engine using local Vision AI (YOLO-PPE) instead of VLM.
     """
     def __init__(self):
-        self.api_key = os.getenv("GEMINI_API_KEY")
-        if self.api_key:
-            self.client = genai.Client(api_key=self.api_key)
+        self._last_warning_time = {}
+
+    async def evaluate_dynamic_rules(self, frame: np.ndarray, rules: list, staff_name: str, camera_name: str, has_mask: bool = False, has_gloves: bool = False) -> dict:
+        """
+        Evaluates rules natively based on mask and staff information.
+        Maps staff names (e.g. 'Dr. Deepak') to roles and checks mapped rules.
+        """
+        is_violation = False
+        reason = "No violation."
+        warning = ""
+
+        # 1. Unknown / Unauthorized Person Detection
+        if staff_name == "Unknown":
+            is_violation = True
+            reason = "Unauthorized person detected."
+            warning = "Warning, unauthorized person detected. Please identify yourself."
         else:
-            self.client = None
+            # 2. Known Staff - Evaluate mapped rules based on role
+            name_lower = staff_name.lower()
+            roles = ["all staff"]
+            if name_lower.startswith("dr") or name_lower.startswith("doc"):
+                roles.append("doctors")
+            elif name_lower.startswith("nurse"):
+                roles.append("nurses")
+            elif name_lower.startswith("compounder"):
+                roles.append("compounders")
 
-    async def evaluate_dynamic_rules(self, frame: np.ndarray, rules: list, staff_name: str, camera_name: str) -> dict:
-        """
-        Sends the live camera frame to Gemini 1.5 Flash to evaluate natural language rules.
-        """
-        if not self.client or not rules:
-            return {"violation": False, "reason": "No rules or no API key"}
-
-        # Combine rules into a numbered string
-        rules_text = "\n".join([f"{i+1}. {r.rule_text}" for i, r in enumerate(rules)])
-
-        prompt = f"""
-You are an AI Security and Compliance Monitor for a hospital camera feed.
-Camera Location: {camera_name}
-Person Identified: {staff_name}
-
-Here are the strict compliance rules for this area:
-{rules_text}
-
-Analyze the provided camera frame. Is the person in the frame violating ANY of the rules above?
-Pay special attention to medical gloves (blue, white, or nitrile) if a rule mentions them.
-Respond strictly in JSON format matching this schema:
-{{
-    "violation": boolean,
-    "reason": "String explaining the violation if true, or empty if false",
-    "spoken_warning": "A short 1-sentence verbal warning to be spoken out loud by the camera speaker. Personalize it with the person's name if they are violating."
-}}
-"""
-        try:
-            # Convert OpenCV BGR to RGB PIL Image
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(rgb_frame)
-
-            response = await self.client.aio.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=[prompt, pil_image],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                )
-            )
-
-            result = json.loads(response.text)
+            applied_rules = []
+            for r in rules:
+                rule_text = r.rule_text.lower()
+                for role in roles:
+                    if rule_text.startswith(role):
+                        applied_rules.append(rule_text)
+                        break
             
-            # Play audio alert if violation detected
-            if result.get("violation") and result.get("spoken_warning"):
-                warning = result["spoken_warning"].replace('"', '')
-                print(f"[ComplianceService] 🚨 VIOLATION DETECTED: {warning}")
+            if not applied_rules:
+                print(f"[ComplianceService] No mapped rules for {staff_name} (Roles: {roles}). Skipping compliance check.")
+            else:
+                # Evaluate the specific rules mapped to them
+                for r_text in applied_rules:
+                    if "mask" in r_text:
+                        if not has_mask:
+                            is_violation = True
+                            reason = f"Safety rule violation: Mask not detected for {staff_name}."
+                            warning = "Warning, please ensure you are wearing a mask."
+                            break
+                    if "glove" in r_text:
+                        if has_gloves is not None and not has_gloves:
+                            is_violation = True
+                            reason = f"Safety rule violation: Gloves not detected for {staff_name}."
+                            warning = "Warning, please ensure you are wearing gloves."
+                            break
+                    # Add future rule checks here (e.g., hairnets) as needed.
+
+        result = {
+            "violation": is_violation,
+            "reason": reason,
+            "spoken_warning": warning
+        }
+
+        # Play audio alert if violation detected
+        if result.get("violation") and result.get("spoken_warning"):
+            from events import set_zone_alert
+            set_zone_alert(camera_name, duration_sec=comp_const.DEFAULT_ALERT_DURATION_SEC)
+            
+            import time
+            from camera.vision_constants import WARNING_ALERT_COOLDOWN_SEC
+            now = time.time()
+            last_time = self._last_warning_time.get(camera_name, 0)
+            
+            if now - last_time > WARNING_ALERT_COOLDOWN_SEC:
+                self._last_warning_time[camera_name] = now
                 
-                from events import set_zone_alert
-                set_zone_alert(camera_name, duration_sec=10.0)
+                print(f"[ComplianceService] 🚨 VIOLATION DETECTED: {warning}")
                 
                 # Publish event for the frontend to speak
                 from events import event_engine
                 event_engine.publish_event(
-                    event_type="SpokenWarning",
+                    event_type=comp_const.EVENT_TYPE_SPOKEN_WARNING,
                     camera_id=None,
                     camera_name=camera_name,
-                    confidence=1.0,
+                    confidence=comp_const.DEFAULT_SPOKEN_CONFIDENCE,
                     details={"warning": warning}
                 )
 
@@ -82,10 +99,7 @@ Respond strictly in JSON format matching this schema:
                 from camera.audio_service import audio_service
                 audio_service.speak(camera_name, warning)
 
-            return result
-        except Exception as e:
-            print(f"[ComplianceService] Gemini evaluation failed: {e}")
-            return {"violation": False, "reason": str(e)}
+        return result
 
 # Global singleton for compliance
 compliance_service = ComplianceService()

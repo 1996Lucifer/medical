@@ -255,8 +255,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: const BoxDecoration(
               color: Colors.black87,
-              borderRadius:
-                  BorderRadius.vertical(top: Radius.circular(12)),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Row(
               children: [
@@ -412,16 +411,22 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
         ),
         const SizedBox(height: 16),
         if (_savedRois.isNotEmpty) ...[
-          const Text('Saved Zones (Visible on Feed):', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('Saved Zones (Visible on Feed):',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
-            children: _savedRois.map((r) => Chip(
-              label: Text(r['zone_name'], style: const TextStyle(color: Colors.white, fontSize: 12)),
-              backgroundColor: Colors.teal.withOpacity(0.8),
-              deleteIcon: const Icon(Icons.close, color: Colors.white, size: 14),
-              onDeleted: () => _deleteROI(r['id']),
-            )).toList(),
+            children: _savedRois
+                .map((r) => Chip(
+                      label: Text(r['zone_name'],
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 12)),
+                      backgroundColor: Colors.teal.withOpacity(0.8),
+                      deleteIcon: const Icon(Icons.close,
+                          color: Colors.white, size: 14),
+                      onDeleted: () => _deleteROI(r['id']),
+                    ))
+                .toList(),
           ),
         ]
       ],
@@ -465,7 +470,11 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const RBACMapperScreen(initialRulesMode: true)));
+              await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) =>
+                          const RBACMapperScreen(initialRulesMode: true)));
               _fetchRules();
             },
             icon: const Icon(Icons.schema_rounded),
@@ -568,7 +577,10 @@ class _ROIPainter extends CustomPainter {
         );
         tp.layout();
         final firstPt = pointsJson[0] as Map<String, dynamic>;
-        tp.paint(canvas, Offset((firstPt['x'] as num).toDouble() * size.width, (firstPt['y'] as num).toDouble() * size.height - 15));
+        tp.paint(
+            canvas,
+            Offset((firstPt['x'] as num).toDouble() * size.width,
+                (firstPt['y'] as num).toDouble() * size.height - 15));
       } catch (e) {
         print('Error drawing ROI $roi: $e');
       }

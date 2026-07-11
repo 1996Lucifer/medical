@@ -33,7 +33,8 @@ class _CameraStatusDotState extends State<CameraStatusDot> {
   Future<void> _checkStatus() async {
     setState(() => _status = 'loading');
     try {
-      final resp = await NetworkManager.instance.get(ApiRoutes.cameraStatus(widget.cameraId));
+      final resp = await NetworkManager.instance
+          .get(ApiRoutes.cameraStatus(widget.cameraId));
       if (resp.statusCode == 200 && mounted) {
         final data = jsonDecode(resp.body);
         setState(() {
@@ -62,7 +63,11 @@ class _CameraStatusDotState extends State<CameraStatusDot> {
     }
 
     return Tooltip(
-      message: _status == 'online' ? 'Stream Live' : (_status == 'loading' ? 'Checking stream...' : 'Stream Offline/Unreachable'),
+      message: _status == 'online'
+          ? 'Stream Live'
+          : (_status == 'loading'
+              ? 'Checking stream...'
+              : 'Stream Offline/Unreachable'),
       child: Container(
         width: widget.size,
         height: widget.size,
@@ -70,7 +75,8 @@ class _CameraStatusDotState extends State<CameraStatusDot> {
           color: color,
           shape: BoxShape.circle,
           boxShadow: [
-            BoxShadow(color: color.withOpacity(0.4), blurRadius: 4, spreadRadius: 1),
+            BoxShadow(
+                color: color.withOpacity(0.4), blurRadius: 4, spreadRadius: 1),
           ],
         ),
       ),

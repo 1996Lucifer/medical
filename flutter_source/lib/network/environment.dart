@@ -8,7 +8,7 @@ abstract class Environment {
 
 class DevEnvironment implements Environment {
   final String ipAddress;
-  
+
   DevEnvironment({this.ipAddress = '192.168.1.10'});
 
   @override
@@ -66,7 +66,7 @@ class EnvironmentConfig {
             ipAddress = ip;
           }
         } catch (_) {}
-        
+
         setEnvironment(DevEnvironment(ipAddress: ipAddress));
         break;
     }

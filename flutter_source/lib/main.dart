@@ -1,16 +1,14 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
+import 'agent/agent_screen.dart';
+import 'analytics/analytics_screen.dart';
+import 'auth/login_screen.dart';
 import 'camera/camera_screen.dart';
+import 'camera/camera_status_service.dart';
+import 'consultation/consultation_screen.dart';
 import 'network/environment.dart';
 import 'security/security_dashboard.dart';
 import 'settings/settings_screen.dart';
-import 'analytics/analytics_screen.dart';
-import 'auth/login_screen.dart';
-
-import 'consultation/consultation_screen.dart';
-import 'camera/camera_status_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,7 +32,11 @@ class _MyAppState extends State<MyApp> {
       title: 'Healthcare Operations Copilot',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1E3A8A), // Deep medical blue
+          primary: const Color(0xFF1E3A8A),
+          secondary: Colors.teal.shade600,
+        ),
         useMaterial3: true,
       ),
       home: _isAuthenticated
@@ -57,12 +59,12 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
-
   final List<Widget> _screens = [
     const ConsultationScreen(),
     const CameraScreen(),
     const AnalyticsDashboardScreen(),
     const SecurityDashboardScreen(),
+    const AgentScreen(),
     const SettingsScreen(),
   ];
 
@@ -111,6 +113,11 @@ class _MainLayoutState extends State<MainLayout> {
             label: 'Security',
           ),
           NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            selectedIcon: Icon(Icons.chat_bubble),
+            label: 'Agent',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),
             label: 'Settings',
@@ -157,23 +164,17 @@ class GlassCard extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
-          child: Container(
-            padding: padding ?? const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.70),
-              borderRadius: BorderRadius.circular(borderRadius),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.45),
-                width: 1.5,
-              ),
-            ),
-            child: child,
+      child: Container(
+        padding: padding ?? const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.85),
+          borderRadius: BorderRadius.circular(borderRadius),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.6),
+            width: 1.5,
           ),
         ),
+        child: child,
       ),
     );
   }
@@ -189,7 +190,8 @@ class GlassBackground extends StatelessWidget {
     return Stack(
       children: [
         Container(
-          color: const Color(0xFFF1F5F9), // Slate 100 base
+          color:
+              const Color(0xFFF8FAFC), // Lighter slate for cleaner medical look
         ),
         Positioned(
           top: -80,
@@ -199,7 +201,7 @@ class GlassBackground extends StatelessWidget {
             height: 320,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.teal.shade200.withOpacity(0.35),
+              color: Colors.teal.shade100.withOpacity(0.45),
             ),
           ),
         ),
@@ -211,7 +213,16 @@ class GlassBackground extends StatelessWidget {
             height: 380,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.blue.shade200.withOpacity(0.3),
+              color: const Color(0xFF1E3A8A).withOpacity(0.12), // Medical Blue
+            ),
+          ),
+        ),
+        const Positioned.fill(
+          child: Center(
+            child: Opacity(
+              opacity: 0.04,
+              child: Icon(Icons.local_hospital,
+                  size: 350, color: Color(0xFF1E3A8A)),
             ),
           ),
         ),

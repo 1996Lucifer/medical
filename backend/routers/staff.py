@@ -1,8 +1,11 @@
 import os
 import shutil
 import datetime
+import uuid
+import cv2
+import numpy as np
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 
@@ -11,11 +14,13 @@ import models
 from camera.vision_service import vision_service
 
 router = APIRouter(prefix="/api/staff", tags=["staff"])
+ws_router = APIRouter(prefix="/api/staff", tags=["staff_ws"])
 
 class StaffResponse(BaseModel):
     id: int
     name: str
     photo_count: int = 0
+    photo_url: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -23,6 +28,7 @@ class StaffPhotoResponse(BaseModel):
     id: int
     staff_id: int
     label: Optional[str]
+    photo_url: Optional[str] = None
     created_at: datetime.datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -39,40 +45,67 @@ def load_staff_list(db: Session) -> list:
     staff_records = db.query(models.Staff).all()
     staff_list = []
     for s in staff_records:
-        if s.embedding is not None:
-            staff_list.append({"name": s.name, "embedding": s.embedding})
+        if s.embedding:
+            staff_list.append({"name": s.name, "embedding": s.embedding, "upper_embedding": s.upper_embedding})
         for photo in s.photos:
-            staff_list.append({"name": s.name, "embedding": photo.embedding})
+            staff_list.append({"name": s.name, "embedding": photo.embedding, "upper_embedding": photo.upper_embedding})
     return staff_list
+
+def update_global_embeddings(db: Session):
+    staff_list = load_staff_list(db)
+    vision_service.update_staff_embeddings(staff_list)
 
 
 @router.post("", response_model=StaffResponse)
 async def register_staff(
-    name: str, file: UploadFile = File(...), db: Session = Depends(get_db)
+    name: str, file: Optional[UploadFile] = None, db: Session = Depends(get_db)
 ):
-    """Register a new staff member with their first face photo."""
-    temp_file_path = f"temp_staff_{file.filename}"
-    try:
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+    """Register a new staff member with an optional first face photo."""
+    db_staff = models.Staff(name=name)
+    filename = None
+    
+    if file is not None:
+        upload_dir = "uploads/staff"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        filename = f"{uuid.uuid4().hex}_{file.filename}"
+        file_path = os.path.join(upload_dir, filename)
+        
+        try:
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
 
-        embedding = vision_service.extract_embedding(temp_file_path)
-        if embedding is None:
-            raise HTTPException(status_code=400, detail="No face detected in the image.")
+            embedding = vision_service.extract_embedding(file_path)
+            upper_embedding = vision_service.extract_upper_embedding(image_path=file_path)
+            if embedding is None:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                raise HTTPException(status_code=400, detail="No face detected in the image.")
 
-        db_staff = models.Staff(name=name, embedding=embedding.tolist())
-        db.add(db_staff)
-        db.commit()
-        db.refresh(db_staff)
+            db_staff.embedding = embedding.tolist()
+            if upper_embedding is not None:
+                db_staff.upper_embedding = upper_embedding.tolist()
+            db_staff.photo_path = file_path
+        except Exception as e:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=str(e))
 
-        return StaffResponse(id=db_staff.id, name=db_staff.name, photo_count=1)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
+    db.add(db_staff)
+    db.commit()
+    db.refresh(db_staff)
+    
+    if file is not None:
+        update_global_embeddings(db)
+
+    return StaffResponse(
+        id=db_staff.id, 
+        name=db_staff.name, 
+        photo_count=1 if file is not None else 0, 
+        photo_url=f"/{db_staff.photo_path}" if db_staff.photo_path else None
+    )
 
 
 @router.post("/{staff_id}/photo", response_model=StaffPhotoResponse)
@@ -87,37 +120,67 @@ async def add_staff_photo(
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found.")
 
-    temp_file_path = f"temp_extra_{staff_id}_{file.filename}"
+    upload_dir = "uploads/staff"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    filename = f"{uuid.uuid4().hex}_{file.filename}"
+    file_path = os.path.join(upload_dir, filename)
+
     try:
-        with open(temp_file_path, "wb") as buffer:
+        with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        embedding = vision_service.extract_embedding(temp_file_path)
+        embedding = vision_service.extract_embedding(file_path)
         if embedding is None:
+            if os.path.exists(file_path):
+                os.remove(file_path)
             raise HTTPException(status_code=400, detail="No face detected in the image.")
 
         photo = models.StaffPhoto(
             staff_id=staff_id,
             embedding=embedding.tolist(),
             label=label,
+            photo_path=file_path
         )
         db.add(photo)
         db.commit()
         db.refresh(photo)
-        return photo
+        
+        update_global_embeddings(db)
+        
+        photo_url = f"/uploads/staff/{filename}" if photo.photo_path else None
+        
+        return StaffPhotoResponse(
+            id=photo.id,
+            staff_id=photo.staff_id,
+            label=photo.label,
+            photo_url=photo_url,
+            created_at=photo.created_at
+        )
     except Exception as e:
+        if os.path.exists(file_path):
+            os.remove(file_path)
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
 
 
 @router.get("/{staff_id}/photos", response_model=List[StaffPhotoResponse])
 def get_staff_photos(staff_id: int, db: Session = Depends(get_db)):
     """List all extra photos registered for a staff member."""
-    return db.query(models.StaffPhoto).filter(models.StaffPhoto.staff_id == staff_id).all()
+    photos = db.query(models.StaffPhoto).filter(models.StaffPhoto.staff_id == staff_id).all()
+    
+    result = []
+    for p in photos:
+        photo_url = f"/{p.photo_path}" if p.photo_path else None
+        result.append(StaffPhotoResponse(
+            id=p.id,
+            staff_id=p.staff_id,
+            label=p.label,
+            photo_url=photo_url,
+            created_at=p.created_at
+        ))
+    return result
 
 
 @router.delete("/{staff_id}/photo/{photo_id}")
@@ -129,8 +192,15 @@ def delete_staff_photo(staff_id: int, photo_id: int, db: Session = Depends(get_d
     ).first()
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found.")
+    
+    # Delete from filesystem
+    if photo.photo_path and os.path.exists(photo.photo_path):
+        os.remove(photo.photo_path)
+        
     db.delete(photo)
     db.commit()
+    
+    update_global_embeddings(db)
     return {"status": "deleted"}
 
 
@@ -143,7 +213,15 @@ def update_staff(staff_id: int, body: StaffUpdate, db: Session = Depends(get_db)
     staff.name = body.name
     db.commit()
     db.refresh(staff)
-    return StaffResponse(id=staff.id, name=staff.name, photo_count=len(staff.photos) + (1 if staff.embedding is not None else 0))
+    
+    photo_url = f"/{staff.photo_path}" if staff.photo_path else None
+    
+    return StaffResponse(
+        id=staff.id, 
+        name=staff.name, 
+        photo_count=len(staff.photos) + (1 if staff.embedding is not None else 0),
+        photo_url=photo_url
+    )
 
 
 @router.delete("/{staff_id}")
@@ -152,8 +230,23 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db)):
     staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found.")
+        
+    # Clear attendance foreign keys before deleting staff
+    db.query(models.Attendance).filter(models.Attendance.staff_id == staff_id).update({"staff_id": None})
+    
+    # Delete primary photo from filesystem
+    if staff.photo_path and os.path.exists(staff.photo_path):
+        os.remove(staff.photo_path)
+        
+    # Delete additional photos from filesystem
+    for p in staff.photos:
+        if p.photo_path and os.path.exists(p.photo_path):
+            os.remove(p.photo_path)
+            
     db.delete(staff)
     db.commit()
+    
+    update_global_embeddings(db)
     return {"status": "deleted"}
 
 
@@ -164,5 +257,287 @@ def get_staff(db: Session = Depends(get_db)):
     for s in staff_records:
         count = 1 if s.embedding is not None else 0
         count += len(s.photos)
-        result.append(StaffResponse(id=s.id, name=s.name, photo_count=count))
+        photo_url = f"/{s.photo_path}" if s.photo_path else None
+        result.append(StaffResponse(
+            id=s.id, 
+            name=s.name, 
+            photo_count=count,
+            photo_url=photo_url
+        ))
     return result
+
+
+@router.post("/{staff_id}/video_setup")
+async def setup_staff_video(
+    staff_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """Process a short video to auto-extract multiple facial angles (Apple Face ID style)."""
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found.")
+
+    upload_dir = "uploads/staff"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    temp_filename = f"temp_vid_{uuid.uuid4().hex}_{file.filename}"
+    temp_path = os.path.join(upload_dir, temp_filename)
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        cap = cv2.VideoCapture(temp_path)
+        if not cap.isOpened():
+            raise Exception("Failed to open video file")
+
+        best_faces = {
+            "front": {"score": -1, "frame": None, "embedding": None},
+            "side_left": {"score": -1, "frame": None, "embedding": None},
+            "side_right": {"score": -1, "frame": None, "embedding": None},
+            "angled_down": {"score": -1, "frame": None, "embedding": None},
+            "angled_up": {"score": -1, "frame": None, "embedding": None},
+        }
+
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            # Process every 5th frame to save CPU while catching fast movements
+            if frame_idx % 5 == 0:
+                faces = vision_service.app.get(frame)
+                if faces:
+                    # Pick largest face
+                    face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
+                    pitch, yaw, roll = face.pose
+                    score = float(face.det_score)
+                    
+                    bucket = None
+                    if abs(yaw) < 15 and abs(pitch) < 15:
+                        bucket = "front"
+                    elif yaw < -25 and abs(pitch) < 20:
+                        bucket = "side_left"
+                    elif yaw > 25 and abs(pitch) < 20:
+                        bucket = "side_right"
+                    elif pitch > 20 and abs(yaw) < 20:
+                        bucket = "angled_up"
+                    elif pitch < -20 and abs(yaw) < 20:
+                        bucket = "angled_down"
+                        
+                    if bucket and score > best_faces[bucket]["score"]:
+                        best_faces[bucket]["score"] = score
+                        best_faces[bucket]["frame"] = frame.copy()
+                        best_faces[bucket]["embedding"] = face.embedding
+
+            frame_idx += 1
+
+        cap.release()
+        os.remove(temp_path)
+        
+        extracted_count = 0
+        for bucket, data in best_faces.items():
+            if data["frame"] is not None:
+                filename = f"{uuid.uuid4().hex}_{bucket}.jpg"
+                file_path = os.path.join(upload_dir, filename)
+                cv2.imwrite(file_path, data["frame"])
+                
+                # Create StaffPhoto entry
+                photo = models.StaffPhoto(
+                    staff_id=staff_id,
+                    embedding=data["embedding"].tolist(),
+                    label=bucket,
+                    photo_path=file_path
+                )
+                db.add(photo)
+                extracted_count += 1
+                
+        db.commit()
+        
+        return {"status": "success", "extracted_count": extracted_count}
+
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@ws_router.websocket("/{staff_id}/live_setup/ws")
+async def live_setup_ws(websocket: WebSocket, staff_id: int, db: Session = Depends(get_db)):
+    """Live interactive 3D face registration endpoint."""
+    await websocket.accept()
+    
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        await websocket.close(code=1008)
+        return
+
+    upload_dir = "uploads/staff"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    # State tracking
+    angles = ["front", "side_left", "side_right", "angled_up", "angled_down"]
+    instructions = {
+        "front": "Look straight at the camera.",
+        "side_left": "Turn your head slowly to the left.",
+        "side_right": "Turn your head slowly to the right.",
+        "angled_up": "Tilt your head slightly upward.",
+        "angled_down": "Tilt your head slightly downward.",
+    }
+    
+    completed = []
+    captured_data = []
+    current_idx = 0
+    
+    def get_current_angle():
+        if current_idx < len(angles):
+            return angles[current_idx]
+        return None
+        
+    try:
+        # Send initial state
+        current = get_current_angle()
+        await websocket.send_json({
+            "status": "capturing",
+            "instruction": instructions[current],
+            "completed": completed
+        })
+        
+        while current_idx < len(angles):
+            # Receive JPEG frame bytes from Flutter
+            data = await websocket.receive_bytes()
+            
+            # Decode JPEG
+            np_arr = np.frombuffer(data, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                continue
+                
+            current_target = angles[current_idx]
+            base_instruction = instructions[current_target]
+                
+            # Process face
+            faces = vision_service.app.get(frame)
+            if not faces:
+                await websocket.send_json({
+                    "status": "capturing",
+                    "instruction": "No face detected.",
+                    "completed": completed
+                })
+                continue
+                
+            # Find largest face
+            face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
+            
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = face.bbox
+            face_w = x2 - x1
+            
+            # Require the face box to be entirely inside a central "safe zone"
+            # 10% margin on sides, 15% margin on top/bottom
+            valid_x1 = w * 0.10
+            valid_x2 = w * 0.90
+            valid_y1 = h * 0.15
+            valid_y2 = h * 0.85
+            
+            if x1 < valid_x1 or x2 > valid_x2 or y1 < valid_y1 or y2 > valid_y2:
+                await websocket.send_json({
+                    "status": "capturing", 
+                    "instruction": "Please keep your face completely inside the circle.", 
+                    "completed": completed
+                })
+                continue
+                
+            # Check if face is large enough (at least 12% of width)
+            if face_w < w * 0.12:
+                await websocket.send_json({
+                    "status": "capturing", 
+                    "instruction": "Please move closer.", 
+                    "completed": completed
+                })
+                continue
+                
+            pitch, yaw, roll = face.pose
+            
+            match = False
+            
+            # Check if pose matches target
+            if current_target == "front" and abs(yaw) < 15 and abs(pitch) < 15:
+                match = True
+            elif current_target == "side_left" and yaw < -25 and abs(pitch) < 20:
+                match = True
+            elif current_target == "side_right" and yaw > 25 and abs(pitch) < 20:
+                match = True
+            elif current_target == "angled_up" and pitch > 20 and abs(yaw) < 20:
+                match = True
+            elif current_target == "angled_down" and pitch < -20 and abs(yaw) < 20:
+                match = True
+                
+            if not match:
+                await websocket.send_json({
+                    "status": "capturing", 
+                    "instruction": base_instruction, 
+                    "completed": completed
+                })
+                
+            if match:
+                # Store it in memory
+                # Extract upper embedding for this angle
+                upper_emb = vision_service.extract_upper_embedding(img=frame, bbox=face.bbox)
+                captured_data.append({
+                    "target": current_target,
+                    "frame": frame,
+                    "embedding": face.embedding.tolist(),
+                    "upper_embedding": upper_emb.tolist() if upper_emb is not None else None
+                })
+                
+                completed.append(current_target)
+                current_idx += 1
+                
+                next_angle = get_current_angle()
+                if next_angle:
+                    await websocket.send_json({
+                        "status": "capturing",
+                        "instruction": instructions[next_angle],
+                        "completed": completed
+                    })
+                else:
+                    break
+        
+        # All done, now save to DB
+        for item in captured_data:
+            filename = f"{uuid.uuid4().hex}_{item['target']}.jpg"
+            file_path = os.path.join(upload_dir, filename)
+            cv2.imwrite(file_path, item['frame'])
+            
+            photo = models.StaffPhoto(
+                staff_id=staff_id,
+                embedding=item['embedding'],
+                upper_embedding=item['upper_embedding'],
+                label=item['target'],
+                photo_path=file_path
+            )
+            db.add(photo)
+        db.commit()
+        
+        update_global_embeddings(db)
+        
+        await websocket.send_json({
+            "status": "complete",
+            "instruction": "All angles captured successfully!",
+            "completed": completed
+        })
+        await websocket.close()
+        
+    except WebSocketDisconnect:
+        print("[LiveSetup] Client disconnected")
+    except Exception as e:
+        print(f"[LiveSetup] Error: {e}")
+        try:
+            await websocket.close(code=1011)
+        except:
+            pass

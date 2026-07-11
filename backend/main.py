@@ -8,11 +8,16 @@ from database import engine, get_db
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from google import genai
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from sqlalchemy import text
+from faster_whisper import WhisperModel
+from services.llm_manager import llm_manager
+
+whisper_model = None
 
 # Create database tables and vector extension
 with engine.connect() as conn:
@@ -24,7 +29,7 @@ models.Base.metadata.create_all(bind=engine)
 load_dotenv()
 
 from camera import routes as camera_routes
-from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients, rbac
+from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients, rbac, agent
 from routers.auth import get_current_user
 
 app = FastAPI(title="Healthcare Operations Copilot API")
@@ -44,14 +49,20 @@ app.include_router(auth.router)
 app.include_router(analysis.router)
 app.include_router(patients.router)
 
+# Mount static files
+os.makedirs("uploads/staff", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 # Protect these endpoints with JWT
 auth_dep = [Depends(get_current_user)]
 app.include_router(staff.router, dependencies=auth_dep)
+app.include_router(staff.ws_router)
 app.include_router(camera_api.router, dependencies=auth_dep)
 app.include_router(attendance.router, dependencies=auth_dep)
 app.include_router(equipment.router, dependencies=auth_dep)
 app.include_router(analytics.router, dependencies=auth_dep)
 app.include_router(analysis.router, dependencies=auth_dep)
+app.include_router(agent.router)  # TODO: add auth_dep for production
 
 # Security and Events routers have websockets, so we protect their HTTP routes individually
 app.include_router(security.router)
@@ -79,8 +90,7 @@ class ConsultationResponse(BaseModel):
 async def upload_audio(
     patient_name: str, file: UploadFile = File(...), db: Session = Depends(get_db)
 ):
-    if not GENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key is not configured")
+    global whisper_model
 
     # Save the uploaded audio file temporarily
     temp_file_path = f"temp_{file.filename}"
@@ -88,40 +98,30 @@ async def upload_audio(
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Upload the audio file to Gemini
-        gemini_file = client.files.upload(file=temp_file_path)
+        # Load whisper model lazily
+        if whisper_model is None:
+            # CPU with int8 is highly optimized in faster-whisper (CTranslate2) and works great on Apple Silicon too
+            whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
 
-        # Prompt for the model
-        prompt = """
-        You are a highly skilled medical AI assistant.
-        Listen to the following doctor-patient consultation audio.
-        First, provide a full transcript of the conversation.
-        Then, generate a structured Medical Discharge Summary based on the consultation.
+        # Transcribe audio using faster-whisper model
+        print(f"Transcribing audio from {temp_file_path} using Faster-Whisper...")
+        segments, info = whisper_model.transcribe(temp_file_path, beam_size=5)
+        transcript_part = " ".join([segment.text for segment in segments]).strip()
 
-        Output format:
+        # Prompt for the MedGemma model
+        prompt = f"""
+        Based on the following doctor-patient consultation transcript, generate a structured Medical Discharge Summary.
+        Include sections for Chief Complaint, History of Present Illness, Assessment, and Plan.
+
         TRANSCRIPT:
-        [full transcript here]
+        {transcript_part}
 
         DISCHARGE SUMMARY:
-        [structured summary including Chief Complaint, History of Present Illness, Assessment, and Plan]
         """
 
-        # We use gemini-2.5-flash as it is free-tier eligible, fast, and supports multimodal (audio) input
-        response = client.models.generate_content(
-            model="gemini-2.5-flash", contents=[prompt, gemini_file]
-        )
-
-        # Parse the response (basic parsing based on the prompt structure)
-        text_response = response.text
-        transcript_part = ""
-        summary_part = ""
-
-        if "DISCHARGE SUMMARY:" in text_response:
-            parts = text_response.split("DISCHARGE SUMMARY:")
-            transcript_part = parts[0].replace("TRANSCRIPT:", "").strip()
-            summary_part = parts[1].strip()
-        else:
-            summary_part = text_response.strip()
+        # Generate summary using local MedGemma
+        print("Generating structured discharge summary using MedGemma...")
+        summary_part = llm_manager.generate(prompt, is_clinical=True)
 
         # Get or create patient
         patient = db.query(models.Patient).filter(models.Patient.name == patient_name).first()

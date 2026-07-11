@@ -8,7 +8,8 @@ class AnalyticsDashboardScreen extends StatefulWidget {
   const AnalyticsDashboardScreen({super.key});
 
   @override
-  State<AnalyticsDashboardScreen> createState() => _AnalyticsDashboardScreenState();
+  State<AnalyticsDashboardScreen> createState() =>
+      _AnalyticsDashboardScreenState();
 }
 
 class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
@@ -43,7 +44,20 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
   String _formatDate(String dateStr) {
     try {
       final dt = DateTime.parse(dateStr);
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ];
       return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
     } catch (e) {
       return dateStr;
@@ -82,50 +96,52 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
     if (maxHours == 0) maxHours = 1;
 
     return GlassCard(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("Total Hours (All Staff)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 150,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: sortedKeys.map((dateStr) {
-                double total = dailyTotals[dateStr]!;
-                double heightFactor = total / maxHours;
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Total Hours (All Staff)",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 150,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: sortedKeys.map((dateStr) {
+                  double total = dailyTotals[dateStr]!;
+                  double heightFactor = total / maxHours;
 
-                String shortDate = "";
-                try {
-                  final dt = DateTime.parse(dateStr);
-                  shortDate = '${dt.month}/${dt.day}';
-                } catch (_) {}
+                  String shortDate = "";
+                  try {
+                    final dt = DateTime.parse(dateStr);
+                    shortDate = '${dt.month}/${dt.day}';
+                  } catch (_) {}
 
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Text(total.toStringAsFixed(1), style: const TextStyle(fontSize: 10)),
-                    const SizedBox(height: 4),
-                    Container(
-                      width: 24,
-                      height: 100 * heightFactor,
-                      decoration: BoxDecoration(
-                        color: Colors.teal.shade400,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(total.toStringAsFixed(1),
+                          style: const TextStyle(fontSize: 10)),
+                      const SizedBox(height: 4),
+                      Container(
+                        width: 24,
+                        height: 100 * heightFactor,
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade400,
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(4)),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(shortDate, style: const TextStyle(fontSize: 10)),
-                  ],
-                );
-              }).toList(),
+                      const SizedBox(height: 4),
+                      Text(shortDate, style: const TextStyle(fontSize: 10)),
+                    ],
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-        ],
-      )
-    );
+          ],
+        ));
   }
 
   @override
@@ -135,7 +151,8 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       appBar: AppBar(
         title: const Text(
           'Attendance Analytics',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          style:
+              TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
         ),
         backgroundColor: Colors.white.withOpacity(0.6),
         elevation: 0,
@@ -165,11 +182,14 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
             : _summaryData.isEmpty
                 ? const Center(child: Text("No attendance data available."))
                 : ListView(
-                    padding: const EdgeInsets.only(top: kToolbarHeight + 40, left: 16, right: 16),
+                    padding: const EdgeInsets.only(
+                        top: kToolbarHeight + 40, left: 16, right: 16),
                     children: [
                       _buildGraph(),
                       const SizedBox(height: 24),
-                      ...(_summaryData.keys.toList()..sort((a, b) => b.compareTo(a))).map((dateStr) {
+                      ...(_summaryData.keys.toList()
+                            ..sort((a, b) => b.compareTo(a)))
+                          .map((dateStr) {
                         List records = _summaryData[dateStr];
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 16.0),
@@ -189,13 +209,15 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                                   return ListTile(
                                     title: Text(r['staff_name'] ?? 'Unknown'),
                                     subtitle: Text(
-                                      'Camera: ${r['camera_name'] ?? 'Unknown'}\n'
-                                      'Entry: ${_formatTime(r['entry_time'])}, Exit: ${_formatTime(r['exit_time'])}'
-                                    ),
+                                        'Camera: ${r['camera_name'] ?? 'Unknown'}\n'
+                                        'Entry: ${_formatTime(r['entry_time'])}, Exit: ${_formatTime(r['exit_time'])}'),
                                     trailing: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
-                                        Text('${r['duration_hours']} hrs', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                        Text('${r['duration_hours']} hrs',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.bold)),
                                       ],
                                     ),
                                   );

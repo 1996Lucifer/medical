@@ -30,6 +30,8 @@ class EventEngine:
 
     def connect(self, websocket):
         self.active_websockets.add(websocket)
+        if getattr(self, '_loop', None) is None:
+            self._loop = asyncio.get_running_loop()
         
     def disconnect(self, websocket):
         self.active_websockets.discard(websocket)
@@ -38,18 +40,13 @@ class EventEngine:
         if not self.active_websockets:
             return
             
-        loop = None
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-            
+        loop = getattr(self, '_loop', None)
         if not loop:
             return
             
         for ws in list(self.active_websockets):
             try:
-                loop.create_task(ws.send_json(event_data))
+                asyncio.run_coroutine_threadsafe(ws.send_json(event_data), loop)
             except Exception:
                 pass
 
