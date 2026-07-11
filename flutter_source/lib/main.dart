@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'admin/super_admin_dashboard.dart';
 import 'agent/agent_screen.dart';
 import 'analytics/analytics_screen.dart';
 import 'auth/login_screen.dart';
@@ -72,14 +73,6 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
-  final List<Widget> _screens = [
-    const ConsultationScreen(),
-    const CameraScreen(),
-    const AnalyticsDashboardScreen(),
-    const SecurityDashboardScreen(),
-    const AgentScreen(),
-    const SettingsScreen(),
-  ];
 
   @override
   void initState() {
@@ -95,8 +88,88 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    
+    final List<Widget> screens = [];
+    final List<NavigationDestination> destinations = [];
+
+    if (auth.hasPermission('view_admin')) {
+      screens.add(const SuperAdminDashboardScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.admin_panel_settings_outlined),
+        selectedIcon: Icon(Icons.admin_panel_settings),
+        label: 'Admin',
+      ));
+    }
+
+    if (auth.hasPermission('view_consultation')) {
+      screens.add(const ConsultationScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.medical_services_outlined),
+        selectedIcon: Icon(Icons.medical_services),
+        label: 'Consultation',
+      ));
+    }
+
+    if (auth.hasPermission('view_camera')) {
+      screens.add(const CameraScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.videocam_outlined),
+        selectedIcon: Icon(Icons.videocam),
+        label: 'AI Camera',
+      ));
+    }
+
+    if (auth.hasPermission('view_analytics')) {
+      screens.add(const AnalyticsDashboardScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.bar_chart_outlined),
+        selectedIcon: Icon(Icons.bar_chart),
+        label: 'Analytics',
+      ));
+    }
+
+    if (auth.hasPermission('view_security')) {
+      screens.add(const SecurityDashboardScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.security_outlined),
+        selectedIcon: Icon(Icons.security),
+        label: 'Security',
+      ));
+    }
+
+    if (auth.hasPermission('view_agent')) {
+      screens.add(const AgentScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.chat_bubble_outline),
+        selectedIcon: Icon(Icons.chat_bubble),
+        label: 'Agent',
+      ));
+    }
+
+    if (auth.hasPermission('view_settings')) {
+      screens.add(const SettingsScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.settings_outlined),
+        selectedIcon: Icon(Icons.settings),
+        label: 'Settings',
+      ));
+    }
+
+    if (screens.isEmpty) {
+      screens.add(const Center(child: Text("No permissions assigned.")));
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.error),
+        label: 'No Access',
+      ));
+    }
+
+    if (_currentIndex >= screens.length) {
+      _currentIndex = 0;
+    }
+
     return Scaffold(
-      body: _screens[_currentIndex],
+      body: screens[_currentIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -104,38 +177,7 @@ class _MainLayoutState extends State<MainLayout> {
             _currentIndex = index;
           });
         },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.medical_services_outlined),
-            selectedIcon: Icon(Icons.medical_services),
-            label: 'Consultation',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.videocam_outlined),
-            selectedIcon: Icon(Icons.videocam),
-            label: 'AI Camera',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart),
-            label: 'Analytics',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.security_outlined),
-            selectedIcon: Icon(Icons.security),
-            label: 'Security',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            selectedIcon: Icon(Icons.chat_bubble),
-            label: 'Agent',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
+        destinations: destinations,
       ),
     );
   }

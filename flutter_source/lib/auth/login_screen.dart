@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../main.dart';
@@ -133,6 +134,26 @@ class _LoginScreenState extends State<LoginScreen> {
                                 style: TextStyle(fontSize: 16)),
                       ),
                     ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 24),
+                      const Divider(color: Colors.black12),
+                      const SizedBox(height: 8),
+                      const Text('Quick Login (Debug)', style: TextStyle(color: Colors.black54, fontSize: 12)),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          _buildRoleChip('Doctor', 'doctor'),
+                          _buildRoleChip('Nurse', 'nurse'),
+                          _buildRoleChip('Security', 'security'),
+                          _buildRoleChip('Analyst', 'analyst'),
+                          _buildRoleChip('Admin', 'admin'),
+                          _buildRoleChip('SuperAdmin', 'superadmin'),
+                        ],
+                      ),
+                    ]
                   ],
                 ),
               ),
@@ -140,6 +161,17 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRoleChip(String label, String username) {
+    return ActionChip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      onPressed: () {
+        _usernameController.text = username;
+        _passwordController.text = username;
+        _login();
+      },
     );
   }
 }

@@ -6,6 +6,7 @@ class ApiRoutes {
 
   // Auth
   static String get login => '$baseUrl/api/auth/login';
+  static String get authMe => '$baseUrl/api/auth/me';
   static String get setupAdmin => '$baseUrl/api/auth/setup-admin';
 
   // Camera

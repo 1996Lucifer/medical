@@ -88,4 +88,25 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     access_token = create_access_token(
         data={"sub": user.username, "role": user.role}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "username": user.username,
+        "role": user.role
+    }
+
+@router.get("/me")
+def get_current_user_info(current_user: models.User = Depends(get_current_user)):
+    permissions = set()
+    for p in current_user.direct_permissions:
+        permissions.add(p.name)
+    for g in current_user.groups:
+        for p in g.permissions:
+            permissions.add(p.name)
+            
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "role": current_user.role,
+        "permissions": list(permissions)
+    }
