@@ -483,7 +483,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
             )
           ],
         ),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         iconTheme: const IconThemeData(color: Colors.teal),
         elevation: 0,
         actions: [
@@ -642,7 +642,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                                   if (selectedNodeMenu == node)
                                                     BoxShadow(
                                                         color: nodeColor
-                                                            .withOpacity(0.4),
+                                                            .withValues(
+                                                                alpha: 0.4),
                                                         blurRadius: 15,
                                                         spreadRadius: 2)
                                                 ]),

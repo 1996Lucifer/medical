@@ -77,4 +77,6 @@ class ApiRoutes {
   static String get agentChat => '$baseUrl/api/agent/chat';
   static String get agentHistory => '$baseUrl/api/agent/history';
   static String get agentUsage => '$baseUrl/api/agent/usage';
+  static String get agentSessions => '$baseUrl/api/agent/sessions';
+  static String agentSession(String id) => '$baseUrl/api/agent/session/$id';
 }

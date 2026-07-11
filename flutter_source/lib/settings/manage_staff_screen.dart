@@ -56,7 +56,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
           style:
               TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
         ),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
         flexibleSpace: ClipRRect(
@@ -582,7 +582,7 @@ class _StaffDetailsViewState extends State<_StaffDetailsView> {
                         padding: const EdgeInsets.symmetric(
                             vertical: 4, horizontal: 8),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
+                          color: Colors.black.withValues(alpha: 0.6),
                           borderRadius: const BorderRadius.only(
                               bottomLeft: Radius.circular(8),
                               bottomRight: Radius.circular(8)),

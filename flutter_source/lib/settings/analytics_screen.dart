@@ -62,7 +62,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           style:
               TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
         ),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         elevation: 0,
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -72,7 +72,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
+          child: Container(
+              color: Colors.black.withValues(alpha: 0.05), height: 1.0),
         ),
         actions: [
           IconButton(
@@ -130,7 +131,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
-                        color: Colors.white.withOpacity(0.7),
+                        color: Colors.white.withValues(alpha: 0.7),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),

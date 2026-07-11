@@ -76,7 +76,9 @@ class _CameraStatusDotState extends State<CameraStatusDot> {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-                color: color.withOpacity(0.4), blurRadius: 4, spreadRadius: 1),
+                color: color.withValues(alpha: 0.4),
+                blurRadius: 4,
+                spreadRadius: 1),
           ],
         ),
       ),

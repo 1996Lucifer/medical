@@ -345,6 +345,19 @@ class ConversationHistory(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AgentMemory(Base):
+    """
+    Long-term ChatGPT-style memory for learning facts about the user or session.
+    """
+    __tablename__ = "agent_memory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, index=True, nullable=False)
+    fact = Column(Text, nullable=False)
+    embedding = Column(Vector(512), nullable=True) # Assuming 512 for our embedding model
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class LLMAuditLog(Base):
     """
     Logging of LLM prompts and responses for debugging and auditing.

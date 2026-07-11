@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:http/http.dart' as http;
 
+import '../main.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 
@@ -27,7 +27,7 @@ class AgentMessage {
 }
 
 class AgentScreen extends StatefulWidget {
-  const AgentScreen({Key? key}) : super(key: key);
+  const AgentScreen({super.key});
 
   @override
   State<AgentScreen> createState() => _AgentScreenState();
@@ -35,7 +35,7 @@ class AgentScreen extends StatefulWidget {
 
 class _AgentScreenState extends State<AgentScreen> {
   final TextEditingController _controller = TextEditingController();
-  final List<AgentMessage> _messages = [
+  List<AgentMessage> _messages = [
     AgentMessage(
       text:
           "Hello! I am Aura, your AI Medical Assistant. How can I help you today?",
@@ -48,11 +48,90 @@ class _AgentScreenState extends State<AgentScreen> {
   bool _showScrollToBottom = false;
   PlatformFile? _attachedFile;
 
+  String _currentSessionId = DateTime.now().millisecondsSinceEpoch.toString();
+  List<Map<String, dynamic>> _sessions = [];
+
   @override
   void initState() {
     super.initState();
+    _fetchSessions();
     _fetchHistory();
     _scrollController.addListener(_scrollListener);
+  }
+
+  Future<void> _fetchSessions() async {
+    try {
+      final response = await http.get(Uri.parse(ApiRoutes.agentSessions));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _sessions = List<Map<String, dynamic>>.from(data['sessions'] ?? []);
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching sessions: $e");
+    }
+  }
+
+  Future<void> _loadSession(String sessionId) async {
+    setState(() {
+      _currentSessionId = sessionId;
+      _isLoading = true;
+      _messages = [];
+    });
+
+    try {
+      final response =
+          await http.get(Uri.parse(ApiRoutes.agentSession(sessionId)));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final history = data['messages'] ?? [];
+
+        setState(() {
+          _messages = history.map<AgentMessage>((msg) {
+            return AgentMessage(
+              text: msg['content'],
+              isUser: msg['role'] == 'user',
+            );
+          }).toList();
+        });
+        _scrollToBottomDelayed();
+      }
+    } catch (e) {
+      _addError("Error loading session: $e");
+    } finally {
+      setState(() => _isLoading = false);
+      _fetchHistory();
+    }
+  }
+
+  Future<void> _deleteSession(String sessionId) async {
+    try {
+      final response = await http.delete(Uri.parse(ApiRoutes.agentSession(sessionId)));
+      if (response.statusCode == 200) {
+        if (_currentSessionId == sessionId) {
+          _startNewChat();
+        } else {
+          _fetchSessions();
+        }
+      }
+    } catch (e) {
+      debugPrint("Error deleting session: $e");
+    }
+  }
+
+  void _startNewChat() {
+    setState(() {
+      _currentSessionId = DateTime.now().millisecondsSinceEpoch.toString();
+      _messages = [
+        AgentMessage(
+          text:
+              "Hello! I am Aura, your AI Medical Assistant. How can I help you today?",
+          isUser: false,
+        )
+      ];
+    });
+    _fetchHistory();
   }
 
   void _scrollListener() {
@@ -100,7 +179,8 @@ class _AgentScreenState extends State<AgentScreen> {
 
   Future<void> _fetchHistory() async {
     try {
-      final response = await http.get(Uri.parse(ApiRoutes.agentHistory));
+      final response = await http.get(
+          Uri.parse("${ApiRoutes.agentHistory}?session_id=$_currentSessionId"));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
@@ -139,7 +219,8 @@ class _AgentScreenState extends State<AgentScreen> {
       _isLoading = true;
     });
 
-    final currentText = text.isEmpty ? "Please analyze this attached file." : text;
+    final currentText =
+        text.isEmpty ? "Please analyze this attached file." : text;
     final currentFile = _attachedFile;
 
     _controller.clear();
@@ -152,7 +233,7 @@ class _AgentScreenState extends State<AgentScreen> {
       final request =
           NetworkManager.instance.multipartRequest('POST', ApiRoutes.agentChat);
       request.fields['message'] = currentText;
-      request.fields['session_id'] = 'default';
+      request.fields['session_id'] = _currentSessionId;
 
       if (currentFile != null) {
         request.files.add(http.MultipartFile.fromBytes(
@@ -174,8 +255,9 @@ class _AgentScreenState extends State<AgentScreen> {
           ));
         });
         _scrollToBottomDelayed();
-        // Refresh history after a successful message
+        // Refresh history and sessions after a successful message
         _fetchHistory();
+        _fetchSessions();
       } else {
         _addError("Error connecting to Agent. Code: ${response.statusCode}");
       }
@@ -272,90 +354,203 @@ class _AgentScreenState extends State<AgentScreen> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF0F4F8),
-      appBar: AppBar(
-        title: const Text("Aura AI", style: TextStyle(color: Colors.black87)),
-        backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.black87),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            onPressed: _showUsageMetrics,
-            tooltip: "View Usage Metrics",
-          )
-        ],
-      ),
-      body: Row(
+  Widget _buildSessionSidebar() {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text("Chat History",
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey)),
+          ),
           Expanded(
-            flex: 8,
-            child: Stack(
-              children: [
-                ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _messages.length + (_isLoading ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index == _messages.length && _isLoading) {
-                      return const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Padding(
-                          padding: EdgeInsets.only(bottom: 12, left: 16),
-                          child: Text("Aura is typing...",
-                              style: TextStyle(
-                                  color: Colors.grey,
-                                  fontStyle: FontStyle.italic)),
-                        ),
-                      );
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              itemCount: _sessions.length,
+              itemBuilder: (context, index) {
+                final session = _sessions[index];
+                final isSelected = session['id'] == _currentSessionId;
+                final themeColor = Colors.teal;
+                return ListTile(
+                  dense: true,
+                  leading: Icon(Icons.chat_bubble_outline,
+                      size: 18, color: isSelected ? themeColor : Colors.grey),
+                  title: Text(
+                    "Chat ${session['id']}",
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isSelected ? themeColor : Colors.black87,
+                      fontWeight:
+                          isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  selected: isSelected,
+                  selectedTileColor: themeColor.withValues(alpha: 0.08),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
+                    onPressed: () => _deleteSession(session['id']),
+                    splashRadius: 20,
+                    tooltip: "Delete Chat",
+                  ),
+                  onTap: () {
+                    if (!isSelected) {
+                      _loadSession(session['id']);
                     }
-                    return _MessageBubble(msg: _messages[index]);
                   },
-                ),
-                if (_showScrollToBottom)
-                  Positioned(
-                    bottom: 16,
-                    right: 16,
-                    child: FloatingActionButton.small(
-                      onPressed: _scrollToBottom,
-                      backgroundColor: Colors.teal,
-                      child:
-                          const Icon(Icons.arrow_downward, color: Colors.white),
-                    ),
-                  ),
-                if (_scrollController.hasClients &&
-                    _scrollController.offset > 200)
-                  Positioned(
-                    top: 16,
-                    right: 16,
-                    child: FloatingActionButton.small(
-                      onPressed: _scrollToTop,
-                      backgroundColor: Colors.teal,
-                      child:
-                          const Icon(Icons.arrow_upward, color: Colors.white),
-                    ),
-                  ),
-              ],
+                );
+              },
             ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 2,
-            child: Container(
-              color: Colors.white,
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text("Aura AI",
+              style: TextStyle(
+                  color: Colors.black87, fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.white.withValues(alpha: 0.5),
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.black87),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.analytics_outlined),
+              onPressed: _showUsageMetrics,
+              tooltip: "View Usage Metrics",
+            )
+          ],
+        ),
+        body: Row(
+          children: [
+            Expanded(
+              flex: 8,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  _buildInputArea(),
-                  _buildSuggestionChips(),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _messages.length + (_isLoading ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index == _messages.length && _isLoading) {
+                              return const Align(
+                                alignment: Alignment.centerLeft,
+                                child: Padding(
+                                  padding:
+                                      EdgeInsets.only(bottom: 12, left: 16),
+                                  child: Text("Aura is typing...",
+                                      style: TextStyle(
+                                          color: Colors.grey,
+                                          fontStyle: FontStyle.italic)),
+                                ),
+                              );
+                            }
+                            return _MessageBubble(msg: _messages[index]);
+                          },
+                        ),
+                        if (_showScrollToBottom)
+                          Positioned(
+                            bottom: 16,
+                            right: 16,
+                            child: FloatingActionButton.small(
+                              onPressed: _scrollToBottom,
+                              backgroundColor: Colors.teal,
+                              child: const Icon(Icons.arrow_downward,
+                                  color: Colors.white),
+                            ),
+                          ),
+                        if (_scrollController.hasClients &&
+                            _scrollController.offset > 200)
+                          Positioned(
+                            top: 16,
+                            right: 16,
+                            child: FloatingActionButton.small(
+                              onPressed: _scrollToTop,
+                              backgroundColor:
+                                  Theme.of(context).colorScheme.secondary,
+                              child: const Icon(Icons.arrow_upward,
+                                  color: Colors.white),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
+                    child: GlassCard(
+                      padding: EdgeInsets.zero,
+                      child: _buildInputArea(),
+                    ),
+                  ),
                 ],
               ),
             ),
+            const SizedBox(width: 16),
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding:
+                    const EdgeInsets.only(right: 16.0, top: 16.0, bottom: 16.0),
+                child: GlassCard(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 16.0),
+                      ),
+                      _buildSessionSidebar(),
+                      const Divider(height: 1, color: Colors.black12),
+                      _buildSuggestionChips(),
+                      const Divider(height: 1, color: Colors.black12),
+                      _buildNewChatButton(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNewChatButton() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: SizedBox(
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: () {
+            _startNewChat();
+          },
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text("New Chat",
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -379,34 +574,63 @@ class _AgentScreenState extends State<AgentScreen> {
     }
 
     return Expanded(
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        children: combined.map((text) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: ActionChip(
-                label: Text(text,
-                    style: const TextStyle(fontSize: 12, color: Colors.teal)),
-                backgroundColor: Colors.teal.shade50,
-                side: BorderSide(color: Colors.teal.shade200),
-                onPressed: () {
-                  _controller.text = text;
-                  _sendMessage();
-                },
-              ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text("Quick Options",
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey)),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              children: combined.map((text) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: ActionChip(
+                      label: Text(text,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.secondary)),
+                      backgroundColor: Theme.of(context)
+                          .colorScheme
+                          .secondary
+                          .withValues(alpha: 0.1),
+                      side: BorderSide(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .secondary
+                              .withValues(alpha: 0.3)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20)),
+                      onPressed: () {
+                        _controller.text = text;
+                        _sendMessage();
+                      },
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
-          );
-        }).toList(),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildInputArea() {
     return Container(
-      padding: const EdgeInsets.all(12),
-      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -424,7 +648,9 @@ class _AgentScreenState extends State<AgentScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: ['png', 'jpg', 'jpeg'].contains(_attachedFile!.extension?.toLowerCase()) && _attachedFile!.bytes != null
+                      child: ['png', 'jpg', 'jpeg'].contains(
+                                  _attachedFile!.extension?.toLowerCase()) &&
+                              _attachedFile!.bytes != null
                           ? Image.memory(
                               _attachedFile!.bytes!,
                               width: 80,
@@ -435,7 +661,8 @@ class _AgentScreenState extends State<AgentScreen> {
                               width: 80,
                               height: 80,
                               color: Colors.grey[200],
-                              child: const Icon(Icons.picture_as_pdf, size: 40, color: Colors.redAccent),
+                              child: const Icon(Icons.picture_as_pdf,
+                                  size: 40, color: Colors.redAccent),
                             ),
                     ),
                   ),
@@ -454,7 +681,8 @@ class _AgentScreenState extends State<AgentScreen> {
                           color: Colors.red,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.close, size: 16, color: Colors.white),
+                        child: const Icon(Icons.close,
+                            size: 16, color: Colors.white),
                       ),
                     ),
                   ),
@@ -527,7 +755,7 @@ class _MessageBubble extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 5,
               offset: const Offset(0, 2),
             )
@@ -559,26 +787,27 @@ class _MessageBubble extends StatelessWidget {
                 ),
               ),
             if (msg.text.isNotEmpty)
-            MarkdownBody(
-              data: msg.text,
-              styleSheet: MarkdownStyleSheet(
-                p: TextStyle(
-                  color: msg.isUser ? Colors.white : Colors.black87,
-                  fontSize: 15,
+              MarkdownBody(
+                data: msg.text,
+                styleSheet: MarkdownStyleSheet(
+                  p: TextStyle(
+                    color: msg.isUser ? Colors.white : Colors.black87,
+                    fontSize: 15,
+                  ),
+                  tableBody:
+                      const TextStyle(fontSize: 14, color: Colors.black87),
+                  tableHead: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                  tableBorder: TableBorder.all(
+                    color: Colors.grey.shade300,
+                    width: 1,
+                  ),
+                  tableCellsPadding: const EdgeInsets.all(8),
                 ),
-                tableBody: const TextStyle(fontSize: 14, color: Colors.black87),
-                tableHead: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-                tableBorder: TableBorder.all(
-                  color: Colors.grey.shade300,
-                  width: 1,
-                ),
-                tableCellsPadding: const EdgeInsets.all(8),
               ),
-            ),
             if (msg.intent != null || msg.engine != null) ...[
               const SizedBox(height: 8),
               Text(

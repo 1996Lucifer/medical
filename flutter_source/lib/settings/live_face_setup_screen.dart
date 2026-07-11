@@ -157,10 +157,12 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: isDone
-            ? Colors.green.withOpacity(0.2)
-            : Colors.white.withOpacity(0.1),
+            ? Colors.green.withValues(alpha: 0.2)
+            : Colors.white.withValues(alpha: 0.1),
         border: Border.all(
-            color: isDone ? Colors.green.withOpacity(0.5) : Colors.transparent),
+            color: isDone
+                ? Colors.green.withValues(alpha: 0.5)
+                : Colors.transparent),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -249,9 +251,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: Colors.white.withOpacity(0.2)),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.2)),
                     ),
                     child: Text(
                       _currentInstruction,
@@ -280,9 +283,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.4),
+                    color: Colors.black.withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.1)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -315,7 +319,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
 
           if (_isComplete)
             Container(
-              color: Colors.black.withOpacity(0.85),
+              color: Colors.black.withValues(alpha: 0.85),
               child: const Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -346,7 +350,7 @@ class _FaceHolePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     // Dim the background lightly so the face cutout is visible but surroundings can be seen
-    final paint = Paint()..color = Colors.black.withOpacity(0.45);
+    final paint = Paint()..color = Colors.black.withValues(alpha: 0.45);
 
     // Create a circular/oval cutout that scales correctly but isn't too huge on tablets
     final shortestSide = size.width < size.height ? size.width : size.height;
@@ -374,7 +378,8 @@ class _FaceHolePainter extends CustomPainter {
 
     // Draw an elegant Apple-style border around the hole
     final borderPaint = Paint()
-      ..color = isComplete ? Colors.green : Colors.blueAccent.withOpacity(0.8)
+      ..color =
+          isComplete ? Colors.green : Colors.blueAccent.withValues(alpha: 0.8)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3;
     canvas.drawOval(rect, borderPaint);

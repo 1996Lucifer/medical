@@ -1,5 +1,7 @@
 import time
+import threading
 from sqlalchemy.orm import Session
+from models import AgentMemory
 from services.routing.intent_router import intent_router
 from services.routing.llm_router import llm_router
 from services.entities.entity_extractor import entity_extractor
@@ -11,6 +13,7 @@ from services.llm.response_formatter import response_formatter
 from services.llm_manager import llm_manager
 from services.metrics.metrics import metrics_tracker
 from services.memory.memory_manager import memory_manager
+from services.memory.memory_extractor import memory_extractor
 
 class WorkflowEngine:
     """
@@ -30,7 +33,7 @@ class WorkflowEngine:
         # 3. Query Planning
         strategy, tool_name = query_planner.plan_query(intent, entities, message)
 
-        # 4. Retrieval
+        # 4. Retrieval (Tools / Vectors)
         rows = []
         vector_chunks = []
         
@@ -39,12 +42,26 @@ class WorkflowEngine:
         elif strategy == "VECTOR":
             vector_chunks = vector_retriever.search(message)
 
-        # 5. LLM Formatting
-        # Only invoke LLM if we retrieved rows, or if it's a general intent.
+        # 5. Fetch Memory & History
+        history = memory_manager.get_history(db, session_id, limit=5)
+        
+        memory_facts = []
+        if not base64_img:
+            # Retrieve relevant long-term memory facts via vector similarity
+            try:
+                query_embedding = vector_retriever.embedding_model.encode(message).tolist()
+                memory_records = db.query(AgentMemory).filter(
+                    AgentMemory.session_id == session_id
+                ).order_by(AgentMemory.embedding.l2_distance(query_embedding)).limit(3).all()
+                memory_facts = [m.fact for m in memory_records]
+            except Exception as e:
+                print(f"[WorkflowEngine] Failed to retrieve memory facts: {e}")
+
+        # 6. LLM Formatting & Generation
         if strategy == "SQL" and not rows:
             response = "No matching records found."
         else:
-            context = context_builder.build_context(rows, vector_chunks)
+            context = context_builder.build_context(rows, vector_chunks, history, memory_facts)
             final_prompt = f"{context}\nUSER QUESTION:\n{message}"
             
             # Pass to LLM
@@ -62,9 +79,16 @@ class WorkflowEngine:
             "latency": time.time() - start_time
         })
         
-        # Save to memory
-        memory_manager.add_message(session_id, "user", message)
-        memory_manager.add_message(session_id, "assistant", response)
+        # 7. Save to short-term memory
+        memory_manager.add_message(db, session_id, "user", message)
+        memory_manager.add_message(db, session_id, "assistant", response)
+        
+        # 8. Background Long-Term Memory Extraction
+        threading.Thread(
+            target=memory_extractor.extract_and_save_background,
+            args=(session_id, message, response),
+            daemon=True
+        ).start()
 
         return response
 

@@ -20,3 +20,4 @@ tf-keras
 faster-whisper
 easyocr
 pymupdf
+sentence-transformers

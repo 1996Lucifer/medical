@@ -72,12 +72,46 @@ async def chat_with_agent(
         engine=engine
     )
 
+from sqlalchemy import func
+
+@router.get("/sessions")
+async def get_all_sessions(db: Session = Depends(get_db)):
+    """
+    Returns a list of all distinct chat sessions ordered by most recent activity.
+    """
+    # Fetch distinct session_ids and their max timestamp
+    sessions = db.query(
+        models.ConversationHistory.session_id,
+        func.max(models.ConversationHistory.timestamp).label('last_activity')
+    ).group_by(models.ConversationHistory.session_id)\
+     .order_by(func.max(models.ConversationHistory.timestamp).desc())\
+     .all()
+     
+    # Return as list of strings or objects, let's return a list of dicts
+    return {"sessions": [{"id": s.session_id, "last_activity": s.last_activity} for s in sessions]}
+
+@router.get("/session/{session_id}")
+async def get_session_details(session_id: str, db: Session = Depends(get_db)):
+    """
+    Returns the full chronological history for a specific session.
+    """
+    history = memory_manager.get_history(db, session_id, limit=50) # fetch up to 50 for the UI
+    return {"messages": history}
+
+@router.delete("/session/{session_id}")
+async def delete_session(session_id: str, db: Session = Depends(get_db)):
+    """
+    Deletes a specific chat session and its history.
+    """
+    memory_manager.delete_session(db, session_id)
+    return {"status": "success", "message": f"Session {session_id} deleted."}
+
 @router.get("/history")
-async def get_chat_history(session_id: str = "default"):
+async def get_chat_history(session_id: str = "default", db: Session = Depends(get_db)):
     """
     Returns unique past user queries to populate UI suggestion chips dynamically.
     """
-    history = memory_manager.get_history(session_id)
+    history = memory_manager.get_history(db, session_id, limit=20)
     # Extract only unique user messages
     user_queries = []
     for msg in reversed(history): # Get most recent first

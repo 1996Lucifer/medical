@@ -158,7 +158,7 @@ class GlassCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 20,
             offset: const Offset(0, 6),
           ),
@@ -167,10 +167,10 @@ class GlassCard extends StatelessWidget {
       child: Container(
         padding: padding ?? const EdgeInsets.all(16.0),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.85),
+          color: Colors.white.withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(borderRadius),
           border: Border.all(
-            color: Colors.white.withOpacity(0.6),
+            color: Colors.white.withValues(alpha: 0.6),
             width: 1.5,
           ),
         ),
@@ -201,7 +201,7 @@ class GlassBackground extends StatelessWidget {
             height: 320,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.teal.shade100.withOpacity(0.45),
+              color: Colors.teal.shade100.withValues(alpha: 0.45),
             ),
           ),
         ),
@@ -213,7 +213,8 @@ class GlassBackground extends StatelessWidget {
             height: 380,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF1E3A8A).withOpacity(0.12), // Medical Blue
+              color: const Color(0xFF1E3A8A)
+                  .withValues(alpha: 0.12), // Medical Blue
             ),
           ),
         ),

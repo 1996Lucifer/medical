@@ -193,7 +193,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
       final request = NetworkManager.instance
           .multipartRequest('POST', '${ApiRoutes.baseUrl}/api/analysis/report');
-      
+
       if (_patientNameController.text.trim().isNotEmpty) {
         request.fields['patient_name'] = _patientNameController.text.trim();
       }
@@ -207,7 +207,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
-        
+
         bool requiresName = responseData['requires_name'] ?? false;
         Map<String, dynamic> reportData = responseData['data'] ?? responseData;
 
@@ -217,15 +217,16 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
             context: context,
             barrierDismissible: false,
             builder: (BuildContext context) {
-              final TextEditingController nameController = TextEditingController();
+              final TextEditingController nameController =
+                  TextEditingController();
               return AlertDialog(
                 title: const Text('Patient Name Required'),
                 content: TextField(
                   controller: nameController,
                   decoration: const InputDecoration(
-                    hintText: "Enter Patient Name",
-                    helperText: "The AI could not confidently extract the name from the image."
-                  ),
+                      hintText: "Enter Patient Name",
+                      helperText:
+                          "The AI could not confidently extract the name from the image."),
                   autofocus: true,
                 ),
                 actions: <Widget>[
@@ -260,11 +261,12 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(reportData),
           );
-          
+
           if (saveResponse.statusCode == 200) {
             final savedData = jsonDecode(saveResponse.body);
             reportData = savedData;
-            _patientNameController.text = enteredName; // Fill the main textfield for convenience
+            _patientNameController.text =
+                enteredName; // Fill the main textfield for convenience
           } else {
             throw Exception('Failed to save report: ${saveResponse.body}');
           }
@@ -274,7 +276,8 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         }
 
         final finalName = reportData['patient_name'] ?? 'Unknown';
-        await SecureStorageService.instance.savePatientNote(finalName, reportData);
+        await SecureStorageService.instance
+            .savePatientNote(finalName, reportData);
         _loadSavedNotes();
         _openDrawerWithReport(reportData);
       } else {
@@ -388,7 +391,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               color: Color(0xFF0F172A),
               fontSize: 24),
         ),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         elevation: 0,
         actions: const [
           SizedBox
@@ -402,14 +405,15 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
+          child: Container(
+              color: Colors.black.withValues(alpha: 0.05), height: 1.0),
         ),
       ),
       endDrawer: Drawer(
         width: MediaQuery.of(context).size.width > 800
             ? 600
             : MediaQuery.of(context).size.width * 0.85,
-        backgroundColor: const Color(0xFFF8FAFC).withOpacity(0.95),
+        backgroundColor: const Color(0xFFF8FAFC).withValues(alpha: 0.95),
         elevation: 24,
         shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.horizontal(left: Radius.circular(32))),
@@ -561,7 +565,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                         boxShadow: [
                                           BoxShadow(
                                               color: Colors.black
-                                                  .withOpacity(0.05),
+                                                  .withValues(alpha: 0.05),
                                               blurRadius: 10,
                                               offset: const Offset(0, 4))
                                         ]),
@@ -642,7 +646,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                                 color: (_isRecording
                                                         ? Colors.red
                                                         : Colors.teal)
-                                                    .withOpacity(0.4),
+                                                    .withValues(alpha: 0.4),
                                                 blurRadius:
                                                     _isRecording ? 24 : 16,
                                                 spreadRadius:
@@ -680,8 +684,8 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                             Colors.blueAccent.shade700,
                                         foregroundColor: Colors.white,
                                         elevation: 8,
-                                        shadowColor:
-                                            Colors.blueAccent.withOpacity(0.5),
+                                        shadowColor: Colors.blueAccent
+                                            .withValues(alpha: 0.5),
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 24, vertical: 16),
                                         shape: RoundedRectangleBorder(

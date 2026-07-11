@@ -154,7 +154,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
           style:
               TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
         ),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         elevation: 0,
         actions: [
           DropdownButton<int>(

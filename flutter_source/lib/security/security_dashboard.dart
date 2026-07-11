@@ -141,7 +141,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             style: TextStyle(
                 fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
           ),
-          backgroundColor: Colors.white.withOpacity(0.6),
+          backgroundColor: Colors.white.withValues(alpha: 0.6),
           elevation: 0,
           flexibleSpace: ClipRRect(
             child: BackdropFilter(
@@ -225,7 +225,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                     decoration: BoxDecoration(
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
+                          color: Colors.black.withValues(alpha: 0.02),
                           blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
@@ -238,17 +238,21 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: isResolved
-                                ? Colors.white.withOpacity(0.50)
+                                ? Colors.white.withValues(alpha: 0.50)
                                 : (isCritical
-                                    ? const Color(0xFFFFF1F2).withOpacity(0.75)
-                                    : Colors.amber.shade50.withOpacity(0.75)),
+                                    ? const Color(0xFFFFF1F2)
+                                        .withValues(alpha: 0.75)
+                                    : Colors.amber.shade50
+                                        .withValues(alpha: 0.75)),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: isResolved
-                                  ? Colors.white.withOpacity(0.3)
+                                  ? Colors.white.withValues(alpha: 0.3)
                                   : (isCritical
-                                      ? const Color(0xFFFECDD3).withOpacity(0.4)
-                                      : Colors.amber.shade200.withOpacity(0.4)),
+                                      ? const Color(0xFFFECDD3)
+                                          .withValues(alpha: 0.4)
+                                      : Colors.amber.shade200
+                                          .withValues(alpha: 0.4)),
                               width: 1.5,
                             ),
                           ),

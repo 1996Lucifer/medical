@@ -190,7 +190,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
         title: Text('Manage: ${_nameCtrl.text}',
             style: const TextStyle(
                 fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.teal),
         flexibleSpace: ClipRRect(
@@ -421,7 +421,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
                       label: Text(r['zone_name'],
                           style: const TextStyle(
                               color: Colors.white, fontSize: 12)),
-                      backgroundColor: Colors.teal.withOpacity(0.8),
+                      backgroundColor: Colors.teal.withValues(alpha: 0.8),
                       deleteIcon: const Icon(Icons.close,
                           color: Colors.white, size: 14),
                       onDeleted: () => _deleteROI(r['id']),
@@ -555,7 +555,7 @@ class _ROIPainter extends CustomPainter {
         path.close();
 
         final fillPaint = Paint()
-          ..color = Colors.orange.withOpacity(0.3)
+          ..color = Colors.orange.withValues(alpha: 0.3)
           ..style = PaintingStyle.fill;
         canvas.drawPath(path, fillPaint);
 
@@ -597,7 +597,7 @@ class _ROIPainter extends CustomPainter {
       if (currentPolygon.length >= 3) {
         path.close();
         final fillPaint = Paint()
-          ..color = Colors.teal.withOpacity(0.4)
+          ..color = Colors.teal.withValues(alpha: 0.4)
           ..style = PaintingStyle.fill;
         canvas.drawPath(path, fillPaint);
       }

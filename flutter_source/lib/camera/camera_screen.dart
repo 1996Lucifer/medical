@@ -295,7 +295,7 @@ class _CameraScreenState extends State<CameraScreen> {
           style:
               TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
         ),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         elevation: 0,
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -305,7 +305,8 @@ class _CameraScreenState extends State<CameraScreen> {
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(color: Colors.black.withOpacity(0.05), height: 1.0),
+          child: Container(
+              color: Colors.black.withValues(alpha: 0.05), height: 1.0),
         ),
         actions: [
           if (_selectedCamera != null)

@@ -195,7 +195,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
         title: const Text('Manage Cameras',
             style: TextStyle(
                 fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-        backgroundColor: Colors.white.withOpacity(0.6),
+        backgroundColor: Colors.white.withValues(alpha: 0.6),
         elevation: 0,
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
