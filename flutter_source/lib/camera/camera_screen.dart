@@ -10,6 +10,8 @@ import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import 'camera_stream_view.dart';
 import 'camera_status_service.dart';
+import 'package:provider/provider.dart';
+import '../providers/camera_provider.dart';
 
 // ── Data models ───────────────────────────────────────────────────────────────
 
@@ -165,6 +167,7 @@ class _CameraScreenState extends State<CameraScreen> {
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final cameraProvider = context.watch<CameraProvider>();
     final width = MediaQuery.of(context).size.width;
     final isMobile = width < 768;
 

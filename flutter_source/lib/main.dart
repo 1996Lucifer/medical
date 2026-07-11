@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'agent/agent_screen.dart';
 import 'analytics/analytics_screen.dart';
@@ -10,21 +11,33 @@ import 'network/environment.dart';
 import 'security/security_dashboard.dart';
 import 'settings/settings_screen.dart';
 
+import 'providers/auth_provider.dart';
+import 'providers/agent_provider.dart';
+import 'providers/consultation_provider.dart';
+import 'providers/camera_provider.dart';
+import 'providers/analytics_provider.dart';
+import 'providers/security_provider.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EnvironmentConfig.init();
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AgentProvider()),
+        ChangeNotifierProvider(create: (_) => ConsultationProvider()),
+        ChangeNotifierProvider(create: (_) => CameraProvider()),
+        ChangeNotifierProvider(create: (_) => AnalyticsProvider()),
+        ChangeNotifierProvider(create: (_) => SecurityProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  bool _isAuthenticated = false;
 
   @override
   Widget build(BuildContext context) {
@@ -39,13 +52,13 @@ class _MyAppState extends State<MyApp> {
         ),
         useMaterial3: true,
       ),
-      home: _isAuthenticated
-          ? const MainLayout()
-          : LoginScreen(onLoginSuccess: () {
-              setState(() {
-                _isAuthenticated = true;
-              });
-            }),
+      home: Consumer<AuthProvider>(
+        builder: (context, auth, _) {
+          return auth.isAuthenticated
+              ? const MainLayout()
+              : const LoginScreen();
+        },
+      ),
     );
   }
 }

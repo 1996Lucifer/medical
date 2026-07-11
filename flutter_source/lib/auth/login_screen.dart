@@ -1,13 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../main.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import '../providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
-  final VoidCallback onLoginSuccess;
-
-  const LoginScreen({super.key, required this.onLoginSuccess});
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -16,7 +16,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _isLoading = false;
   bool _obscurePassword = true;
 
   @override
@@ -48,40 +47,23 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
-    try {
-      final response = await NetworkManager.instance.post(
-        ApiRoutes.login,
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'username': _usernameController.text.trim(),
-          'password': _passwordController.text,
-        },
-      );
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final success = await authProvider.login(
+      _usernameController.text.trim(),
+      _passwordController.text,
+    );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final token = data['access_token'];
-        NetworkManager.instance.setToken(token);
-        widget.onLoginSuccess();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(
-                  'Login failed: ${response.statusCode} - ${response.body}')),
-        );
-      }
-    } catch (e) {
+    if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Network error: $e')),
+        SnackBar(content: Text(authProvider.error ?? 'Login failed')),
       );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isLoading = context.watch<AuthProvider>().isLoading;
+
     return Scaffold(
       body: GlassBackground(
         child: Center(
@@ -140,8 +122,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           backgroundColor: Colors.teal.shade600,
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: _isLoading ? null : _login,
-                        child: _isLoading
+                        onPressed: isLoading ? null : _login,
+                        child: isLoading
                             ? const SizedBox(
                                 width: 24,
                                 height: 24,

@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 import '../main.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import 'package:provider/provider.dart';
+import '../providers/agent_provider.dart';
 
 class AgentMessage {
   final String text;
@@ -35,103 +37,18 @@ class AgentScreen extends StatefulWidget {
 
 class _AgentScreenState extends State<AgentScreen> {
   final TextEditingController _controller = TextEditingController();
-  List<AgentMessage> _messages = [
-    AgentMessage(
-      text:
-          "Hello! I am Aura, your AI Medical Assistant. How can I help you today?",
-      isUser: false,
-    )
-  ];
-  List<String> _dynamicChips = [];
-  bool _isLoading = false;
   final ScrollController _scrollController = ScrollController();
   bool _showScrollToBottom = false;
-  PlatformFile? _attachedFile;
-
-  String _currentSessionId = DateTime.now().millisecondsSinceEpoch.toString();
-  List<Map<String, dynamic>> _sessions = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchSessions();
-    _fetchHistory();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final provider = Provider.of<AgentProvider>(context, listen: false);
+      provider.fetchSessions();
+      provider.fetchHistory();
+    });
     _scrollController.addListener(_scrollListener);
-  }
-
-  Future<void> _fetchSessions() async {
-    try {
-      final response = await http.get(Uri.parse(ApiRoutes.agentSessions));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _sessions = List<Map<String, dynamic>>.from(data['sessions'] ?? []);
-        });
-      }
-    } catch (e) {
-      debugPrint("Error fetching sessions: $e");
-    }
-  }
-
-  Future<void> _loadSession(String sessionId) async {
-    setState(() {
-      _currentSessionId = sessionId;
-      _isLoading = true;
-      _messages = [];
-    });
-
-    try {
-      final response =
-          await http.get(Uri.parse(ApiRoutes.agentSession(sessionId)));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final history = data['messages'] ?? [];
-
-        setState(() {
-          _messages = history.map<AgentMessage>((msg) {
-            return AgentMessage(
-              text: msg['content'],
-              isUser: msg['role'] == 'user',
-            );
-          }).toList();
-        });
-        _scrollToBottomDelayed();
-      }
-    } catch (e) {
-      _addError("Error loading session: $e");
-    } finally {
-      setState(() => _isLoading = false);
-      _fetchHistory();
-    }
-  }
-
-  Future<void> _deleteSession(String sessionId) async {
-    try {
-      final response = await http.delete(Uri.parse(ApiRoutes.agentSession(sessionId)));
-      if (response.statusCode == 200) {
-        if (_currentSessionId == sessionId) {
-          _startNewChat();
-        } else {
-          _fetchSessions();
-        }
-      }
-    } catch (e) {
-      debugPrint("Error deleting session: $e");
-    }
-  }
-
-  void _startNewChat() {
-    setState(() {
-      _currentSessionId = DateTime.now().millisecondsSinceEpoch.toString();
-      _messages = [
-        AgentMessage(
-          text:
-              "Hello! I am Aura, your AI Medical Assistant. How can I help you today?",
-          isUser: false,
-        )
-      ];
-    });
-    _fetchHistory();
   }
 
   void _scrollListener() {
@@ -177,100 +94,7 @@ class _AgentScreenState extends State<AgentScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchHistory() async {
-    try {
-      final response = await http.get(
-          Uri.parse("${ApiRoutes.agentHistory}?session_id=$_currentSessionId"));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _dynamicChips = List<String>.from(data['queries'] ?? []);
-        });
-      }
-    } catch (e) {
-      // Ignore if server is down, we just won't show chips
-    }
-  }
-
-  Future<void> _sendMessage() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty && _attachedFile == null) return;
-
-    setState(() {
-      String displayMsg = text;
-      bool isImage = false;
-      Uint8List? imageBytes;
-
-      if (_attachedFile != null) {
-        final ext = _attachedFile!.extension?.toLowerCase();
-        isImage = ['png', 'jpg', 'jpeg'].contains(ext);
-        if (isImage && _attachedFile!.bytes != null) {
-          imageBytes = _attachedFile!.bytes;
-        } else {
-          displayMsg += "\n\n[Attached File: ${_attachedFile!.name}]";
-        }
-      }
-
-      _messages.add(AgentMessage(
-        text: displayMsg.trim(),
-        isUser: true,
-        attachedImageBytes: imageBytes,
-      ));
-      _isLoading = true;
-    });
-
-    final currentText =
-        text.isEmpty ? "Please analyze this attached file." : text;
-    final currentFile = _attachedFile;
-
-    _controller.clear();
-    setState(() {
-      _attachedFile = null;
-    });
-    _scrollToBottomDelayed();
-
-    try {
-      final request =
-          NetworkManager.instance.multipartRequest('POST', ApiRoutes.agentChat);
-      request.fields['message'] = currentText;
-      request.fields['session_id'] = _currentSessionId;
-
-      if (currentFile != null) {
-        request.files.add(http.MultipartFile.fromBytes(
-            'file', currentFile.bytes!,
-            filename: currentFile.name));
-      }
-
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _messages.add(AgentMessage(
-            text: data['response'] ?? "No response",
-            isUser: false,
-            intent: data['intent'],
-            engine: data['engine'],
-          ));
-        });
-        _scrollToBottomDelayed();
-        // Refresh history and sessions after a successful message
-        _fetchHistory();
-        _fetchSessions();
-      } else {
-        _addError("Error connecting to Agent. Code: ${response.statusCode}");
-      }
-    } catch (e) {
-      _addError("Network error: $e");
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _pickFile() async {
+  Future<void> _pickFile(AgentProvider provider) async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -279,12 +103,10 @@ class _AgentScreenState extends State<AgentScreen> {
       );
 
       if (result != null) {
-        setState(() {
-          _attachedFile = result.files.first;
-        });
+        provider.setAttachedFile(result.files.first);
       }
     } catch (e) {
-      _addError("Error picking file: $e");
+      provider.addError("Error picking file: $e");
     }
   }
 
@@ -348,13 +170,7 @@ class _AgentScreenState extends State<AgentScreen> {
         });
   }
 
-  void _addError(String text) {
-    setState(() {
-      _messages.add(AgentMessage(text: text, isUser: false));
-    });
-  }
-
-  Widget _buildSessionSidebar() {
+  Widget _buildSessionSidebar(AgentProvider provider) {
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,10 +186,10 @@ class _AgentScreenState extends State<AgentScreen> {
           Expanded(
             child: ListView.builder(
               padding: EdgeInsets.zero,
-              itemCount: _sessions.length,
+              itemCount: provider.sessions.length,
               itemBuilder: (context, index) {
-                final session = _sessions[index];
-                final isSelected = session['id'] == _currentSessionId;
+                final session = provider.sessions[index];
+                final isSelected = session['id'] == provider.currentSessionId;
                 final themeColor = Colors.teal;
                 return ListTile(
                   dense: true,
@@ -396,13 +212,14 @@ class _AgentScreenState extends State<AgentScreen> {
                       borderRadius: BorderRadius.circular(8)),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
-                    onPressed: () => _deleteSession(session['id']),
+                    onPressed: () => provider.deleteSession(session['id']),
                     splashRadius: 20,
                     tooltip: "Delete Chat",
                   ),
                   onTap: () {
                     if (!isSelected) {
-                      _loadSession(session['id']);
+                      provider.loadSession(session['id']);
+                      _scrollToBottomDelayed();
                     }
                   },
                 );
@@ -416,6 +233,8 @@ class _AgentScreenState extends State<AgentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<AgentProvider>();
+
     return GlassBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -446,9 +265,9 @@ class _AgentScreenState extends State<AgentScreen> {
                         ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.all(16),
-                          itemCount: _messages.length + (_isLoading ? 1 : 0),
+                          itemCount: provider.messages.length + (provider.isLoading ? 1 : 0),
                           itemBuilder: (context, index) {
-                            if (index == _messages.length && _isLoading) {
+                            if (index == provider.messages.length && provider.isLoading) {
                               return const Align(
                                 alignment: Alignment.centerLeft,
                                 child: Padding(
@@ -461,7 +280,7 @@ class _AgentScreenState extends State<AgentScreen> {
                                 ),
                               );
                             }
-                            return _MessageBubble(msg: _messages[index]);
+                            return _MessageBubble(msg: provider.messages[index]);
                           },
                         ),
                         if (_showScrollToBottom)
@@ -495,7 +314,7 @@ class _AgentScreenState extends State<AgentScreen> {
                     padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
                     child: GlassCard(
                       padding: EdgeInsets.zero,
-                      child: _buildInputArea(),
+                      child: _buildInputArea(provider),
                     ),
                   ),
                 ],
@@ -515,11 +334,11 @@ class _AgentScreenState extends State<AgentScreen> {
                       const Padding(
                         padding: EdgeInsets.only(top: 16.0),
                       ),
-                      _buildSessionSidebar(),
+                      _buildSessionSidebar(provider),
                       const Divider(height: 1, color: Colors.black12),
-                      _buildSuggestionChips(),
+                      _buildSuggestionChips(provider),
                       const Divider(height: 1, color: Colors.black12),
-                      _buildNewChatButton(),
+                      _buildNewChatButton(provider),
                     ],
                   ),
                 ),
@@ -531,14 +350,14 @@ class _AgentScreenState extends State<AgentScreen> {
     );
   }
 
-  Widget _buildNewChatButton() {
+  Widget _buildNewChatButton(AgentProvider provider) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: SizedBox(
         width: double.infinity,
         child: ElevatedButton.icon(
           onPressed: () {
-            _startNewChat();
+            provider.startNewChat();
           },
           icon: const Icon(Icons.add, size: 18),
           label: const Text("New Chat",
@@ -555,7 +374,7 @@ class _AgentScreenState extends State<AgentScreen> {
     );
   }
 
-  Widget _buildSuggestionChips() {
+  Widget _buildSuggestionChips(AgentProvider provider) {
     final defaultSuggestions = [
       "Get Test 1's latest report",
       "List all active security rules",
@@ -564,8 +383,7 @@ class _AgentScreenState extends State<AgentScreen> {
       "Show me the patient by MRN 12345"
     ];
 
-    // Combine dynamic history with defaults, keeping unique up to 5
-    List<String> combined = List.from(_dynamicChips);
+    List<String> combined = List.from(provider.dynamicChips);
     for (String defMsg in defaultSuggestions) {
       if (!combined.contains(defMsg)) {
         combined.add(defMsg);
@@ -611,7 +429,9 @@ class _AgentScreenState extends State<AgentScreen> {
                           borderRadius: BorderRadius.circular(20)),
                       onPressed: () {
                         _controller.text = text;
-                        _sendMessage();
+                        final txt = _controller.text;
+                        _controller.clear();
+                        provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
                       },
                     ),
                   ),
@@ -624,7 +444,7 @@ class _AgentScreenState extends State<AgentScreen> {
     );
   }
 
-  Widget _buildInputArea() {
+  Widget _buildInputArea(AgentProvider provider) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -635,7 +455,7 @@ class _AgentScreenState extends State<AgentScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_attachedFile != null)
+          if (provider.attachedFile != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 8.0, left: 4.0),
               child: Stack(
@@ -649,10 +469,10 @@ class _AgentScreenState extends State<AgentScreen> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: ['png', 'jpg', 'jpeg'].contains(
-                                  _attachedFile!.extension?.toLowerCase()) &&
-                              _attachedFile!.bytes != null
+                                  provider.attachedFile!.extension?.toLowerCase()) &&
+                              provider.attachedFile!.bytes != null
                           ? Image.memory(
-                              _attachedFile!.bytes!,
+                              provider.attachedFile!.bytes!,
                               width: 80,
                               height: 80,
                               fit: BoxFit.cover,
@@ -671,9 +491,7 @@ class _AgentScreenState extends State<AgentScreen> {
                     right: -8,
                     child: InkWell(
                       onTap: () {
-                        setState(() {
-                          _attachedFile = null;
-                        });
+                        provider.setAttachedFile(null);
                       },
                       child: Container(
                         padding: const EdgeInsets.all(2),
@@ -693,7 +511,7 @@ class _AgentScreenState extends State<AgentScreen> {
             children: [
               IconButton(
                 icon: const Icon(Icons.attach_file, color: Colors.grey),
-                onPressed: _pickFile,
+                onPressed: () => _pickFile(provider),
                 tooltip: "Attach Document or Image",
               ),
               Expanded(
@@ -710,7 +528,11 @@ class _AgentScreenState extends State<AgentScreen> {
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 14),
                   ),
-                  onSubmitted: (_) => _sendMessage(),
+                  onSubmitted: (_) {
+                    final txt = _controller.text;
+                    _controller.clear();
+                    provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -719,7 +541,11 @@ class _AgentScreenState extends State<AgentScreen> {
                 radius: 24,
                 child: IconButton(
                   icon: const Icon(Icons.send, color: Colors.white),
-                  onPressed: _sendMessage,
+                  onPressed: () {
+                    final txt = _controller.text;
+                    _controller.clear();
+                    provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
+                  },
                 ),
               )
             ],

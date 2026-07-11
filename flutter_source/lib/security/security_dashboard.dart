@@ -8,6 +8,8 @@ import 'package:audioplayers/audioplayers.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import 'package:provider/provider.dart';
+import '../providers/security_provider.dart';
 
 class SecurityDashboardScreen extends StatefulWidget {
   const SecurityDashboardScreen({super.key});
@@ -131,6 +133,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final securityProvider = context.watch<SecurityProvider>();
     return DefaultTabController(
       length: 2,
       child: Scaffold(

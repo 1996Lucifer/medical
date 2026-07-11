@@ -12,6 +12,8 @@ import 'report_analysis_view.dart';
 import '../main.dart' show GlassBackground, GlassCard;
 import '../storage/secure_storage_service.dart';
 import 'soap_note_view.dart';
+import 'package:provider/provider.dart';
+import '../providers/consultation_provider.dart';
 
 class ConsultationScreen extends StatefulWidget {
   const ConsultationScreen({super.key});
@@ -380,6 +382,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final consultationProvider = context.watch<ConsultationProvider>();
     return Scaffold(
       key: _scaffoldKey,
       extendBodyBehindAppBar: true,
