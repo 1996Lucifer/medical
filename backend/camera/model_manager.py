@@ -75,7 +75,7 @@ class ModelManager:
         if self._yolo_ppe is None:
             with self._yolo_ppe_lock:
                 if self._yolo_ppe is None:
-                    print("[ModelManager] Lazy loading YOLOv8n-PPE...")
+                    print("[ModelManager] Lazy loading YOLOv8n-PPE (Nano)...")
                     try:
                         from ultralytics import YOLO
                         self._yolo_ppe = YOLO("models/yolov8n-ppe.onnx", task="detect")

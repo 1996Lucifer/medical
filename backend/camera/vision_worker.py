@@ -62,7 +62,7 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 shared_array = np.ndarray((max_h, max_w, 3), dtype=dtype, buffer=shm.buf)
                 frame = np.copy(shared_array[:h, :w, :])
                 
-                _, face_events, equipment_events, incident_events = vision_service.process_frame(frame)
+                _, face_events, equipment_events, incident_events, ppe_events = vision_service.process_frame(frame)
                 
                 output_queue.put({
                     "type": "results",
@@ -70,7 +70,8 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                     "frame_id": frame_id,
                     "face_events": face_events,
                     "equipment_events": equipment_events,
-                    "incident_events": incident_events
+                    "incident_events": incident_events,
+                    "ppe_events": ppe_events
                 })
         except Exception as e:
             traceback.print_exc()

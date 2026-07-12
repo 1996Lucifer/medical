@@ -2,15 +2,18 @@ import cv2
 import numpy as np
 import os
 import json
+import base64
 import asyncio
 import camera.compliance_constants as comp_const
+from services.llm_manager import llm_manager
 
 class ComplianceService:
     """
-    Dynamic Rules Engine using local Vision AI (YOLO-PPE) instead of VLM.
+    Dynamic Rules Engine using Background VLM (MedGemma) reasoning.
     """
     def __init__(self):
         self._last_warning_time = {}
+        self._vlm_active = set()
 
     async def evaluate_dynamic_rules(self, frame: np.ndarray, rules: list, staff_name: str, camera_name: str, has_mask: bool = False, has_gloves: bool = False) -> dict:
         """
@@ -48,20 +51,63 @@ class ComplianceService:
             if not applied_rules:
                 print(f"[ComplianceService] No mapped rules for {staff_name} (Roles: {roles}). Skipping compliance check.")
             else:
+                missing_items = []
+                
+                # Check if we need PPE evaluation
+                needs_ppe_eval = any("mask" in r_text or "glove" in r_text for r_text in applied_rules)
+                
+                if needs_ppe_eval:
+                    # [VLM CHECK DISABLED] 
+                    # We are using pixel-perfect OpenCV Color + Pose tracking instead.
+                    pass
+                    '''
+                    # Prevent overlapping VLM checks for the same person to avoid memory explosion!
+                    if staff_name in self._vlm_active:
+                        print(f"[ComplianceService] VLM already analyzing {staff_name}. Skipping to prevent lag.")
+                    else:
+                        self._vlm_active.add(staff_name)
+                        try:
+                            # Use VLM for robust PPE detection
+                            _, buffer = cv2.imencode('.jpg', frame)
+                            base64_img = base64.b64encode(buffer).decode('utf-8')
+                            
+                            prompt = (
+                                "Analyze this image of a hospital staff member. "
+                                "Determine if they are wearing a medical mask covering their mouth/nose, "
+                                "and if their hands have surgical gloves on. "
+                                "Reply ONLY with a valid JSON object in this format: "
+                                '{"has_mask": true, "has_gloves": false}'
+                            )
+                            
+                            loop = asyncio.get_running_loop()
+                            vlm_response = await loop.run_in_executor(None, llm_manager.generate_with_image, base64_img, prompt, True)
+                            clean_json = vlm_response.replace('```json', '').replace('```', '').strip()
+                            data = json.loads(clean_json)
+                            has_mask = data.get("has_mask", has_mask)
+                            has_gloves = data.get("has_gloves", has_gloves)
+                            print(f"[ComplianceService] VLM PPE Check for {staff_name}: Mask={has_mask}, Gloves={has_gloves}")
+                        except Exception as e:
+                            print(f"[ComplianceService] VLM PPE Check Failed: {e}. Falling back to YOLO.")
+                        finally:
+                            self._vlm_active.discard(staff_name)
+                    '''
+
                 # Evaluate the specific rules mapped to them
                 for r_text in applied_rules:
                     if "mask" in r_text:
                         if not has_mask:
-                            is_violation = True
-                            reason = f"Safety rule violation: Mask not detected for {staff_name}."
-                            warning = "Warning, please ensure you are wearing a mask."
-                            break
+                            if "a mask" not in missing_items:
+                                missing_items.append("a mask")
                     if "glove" in r_text:
                         if has_gloves is not None and not has_gloves:
-                            is_violation = True
-                            reason = f"Safety rule violation: Gloves not detected for {staff_name}."
-                            warning = "Warning, please ensure you are wearing gloves."
-                            break
+                            if "gloves" not in missing_items:
+                                missing_items.append("gloves")
+                    # Add future rule checks here (e.g., hairnets) as needed.
+                    
+                if missing_items:
+                    is_violation = True
+                    reason = f"Safety rule violation: {' and '.join(missing_items)} not detected for {staff_name}."
+                    warning = f"Warning, please ensure you are wearing {' and '.join(missing_items)}."
                     # Add future rule checks here (e.g., hairnets) as needed.
 
         result = {

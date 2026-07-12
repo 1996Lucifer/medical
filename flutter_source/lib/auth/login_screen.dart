@@ -6,6 +6,7 @@ import '../main.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import '../providers/auth_provider.dart';
+import '../patient_portal/patient_dashboard_screen.dart' as patient_portal;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -133,6 +134,19 @@ class _LoginScreenState extends State<LoginScreen> {
                             : const Text('Sign In',
                                 style: TextStyle(fontSize: 16)),
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const patient_portal.PatientDashboardScreen(patientId: 1),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.favorite, color: Colors.pink),
+                      label: const Text("Enter Patient Portal (Demo)", style: TextStyle(color: Colors.pink)),
                     ),
                     if (kDebugMode) ...[
                       const SizedBox(height: 24),

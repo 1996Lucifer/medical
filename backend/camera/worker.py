@@ -229,10 +229,12 @@ class CameraWorker:
                                 "equipment_events", []
                             )
                             self.latest_incident_events = res.get("incident_events", [])
+                            self.latest_ppe_events = res.get("ppe_events", [])
 
                         face_events = getattr(self, "latest_face_events", [])
                         equipment_events = getattr(self, "latest_equipment_events", [])
                         incident_events = getattr(self, "latest_incident_events", [])
+                        ppe_events = getattr(self, "latest_ppe_events", [])
                         processed = manage_frame.copy()
 
                         # Draw AI events
@@ -298,6 +300,27 @@ class CameraWorker:
                                 1,
                             )
 
+                        for ppe in ppe_events:
+                            bbox = ppe["bbox"]
+                            label = f"{ppe['class']} {ppe.get('score', 0):.0%}"
+                            color = (255, 255, 0) # Cyan for PPE
+                            cv2.rectangle(
+                                processed,
+                                (bbox[0], bbox[1]),
+                                (bbox[2], bbox[3]),
+                                color,
+                                1,
+                            )
+                            cv2.putText(
+                                processed,
+                                label,
+                                (bbox[0], max(0, bbox[1] - 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.6,
+                                color,
+                                1,
+                            )
+
                         for inc in incident_events:
                             bbox = inc["bbox"]
                             if inc["type"] == "fall":
@@ -350,6 +373,7 @@ class CameraWorker:
                         face_events = []
                         equipment_events = []
                         incident_events = []
+                        ppe_events = []
 
                     h, w = processed.shape[:2]
 

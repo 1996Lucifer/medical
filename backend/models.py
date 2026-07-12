@@ -88,6 +88,7 @@ class Consultation(Base):
     date = Column(DateTime(timezone=True), server_default=func.now())
     transcript = Column(Text, nullable=True)
     discharge_summary = Column(Text, nullable=True)
+    prescription = Column(Text, nullable=True)
 
     patient = relationship("Patient", back_populates="consultations")
 
@@ -102,9 +103,11 @@ class MedicalReport(Base):
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
     date = Column(DateTime(timezone=True), server_default=func.now())
+    file_path = Column(String, nullable=True)
     key_findings = Column(Text, nullable=True)
     abnormalities = Column(Text, nullable=True)
     recommendations = Column(Text, nullable=True)
+    vitals_extracted = Column(Text, nullable=True)
     raw_response = Column(Text, nullable=True)
 
     patient = relationship("Patient", back_populates="medical_reports")

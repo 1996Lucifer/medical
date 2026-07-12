@@ -1,6 +1,9 @@
 import cv2
 import numpy as np
 import onnxruntime as ort
+import json
+import os
+import onnxruntime as ort
 from camera.model_manager import ModelManager
 
 from camera.vision_constants import (
@@ -47,6 +50,43 @@ class VisionService:
         self.active_face_tracks = {}
         self.next_track_id = 0
         self.identity_cache = {}
+        
+        self.ppe_config_path = os.path.join(os.path.dirname(__file__), "..", "config", "ppe_colors.json")
+
+    def _hex_to_hsv_mask(self, hex_code: str, h_tol: int, s_tol: int, v_tol: int, hsv_frame: np.ndarray):
+        hex_code = hex_code.lstrip('#')
+        rgb = tuple(int(hex_code[i:i+2], 16) for i in (0, 2, 4))
+        color_bgr = np.uint8([[[rgb[2], rgb[1], rgb[0]]]])
+        color_hsv = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2HSV)[0][0]
+        h, s, v = int(color_hsv[0]), int(color_hsv[1]), int(color_hsv[2])
+        lower_bound = np.array([max(0, h - h_tol), max(0, s - s_tol), max(0, v - v_tol)])
+        upper_bound = np.array([min(179, h + h_tol), min(255, s + s_tol), min(255, v + v_tol)])
+        return cv2.inRange(hsv_frame, lower_bound, upper_bound)
+        
+    def _get_dynamic_color_mask(self, hsv_frame: np.ndarray):
+        combined_mask = np.zeros(hsv_frame.shape[:2], dtype=np.uint8)
+        if not os.path.exists(self.ppe_config_path):
+            return combined_mask
+            
+        try:
+            with open(self.ppe_config_path, 'r') as f:
+                config = json.load(f)
+            
+            for color in config.get("ppe_colors", []):
+                if not color.get("enabled", False):
+                    continue
+                mask = self._hex_to_hsv_mask(
+                    color["hex"], 
+                    color.get("hue_tolerance", 20),
+                    color.get("sat_tolerance", 50),
+                    color.get("val_tolerance", 50),
+                    hsv_frame
+                )
+                combined_mask = cv2.bitwise_or(combined_mask, mask)
+        except Exception as e:
+            print(f"[VisionService] Error reading PPE config: {e}")
+            
+        return combined_mask
 
     def update_staff_embeddings(self, staff_list):
         self.staff_names = []
@@ -209,7 +249,7 @@ class VisionService:
 
         yolo_pose = ModelManager().get_yolo_pose()
         if yolo_pose:
-            pose_results = yolo_pose.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False)
+            pose_results = yolo_pose.track(frame, persist=True, tracker="botsort.yaml", verbose=False)
             if pose_results and pose_results[0].boxes:
                 boxes = pose_results[0].boxes
                 if hasattr(pose_results[0], 'keypoints') and pose_results[0].keypoints is not None:
@@ -331,44 +371,47 @@ class VisionService:
                     del self.identity_cache[tid] # Forget unknown people quickly so we re-scan them
 
 
-            # PPE Detection
-            yolo_ppe = ModelManager().get_yolo_ppe()
-            if yolo_ppe:
-                ppe_results = yolo_ppe(frame, verbose=False)
-                if ppe_results and ppe_results[0].boxes:
-                    boxes = ppe_results[0].boxes
-                    for box in boxes:
-                        cls_id = int(box.cls[0])
-                        conf = float(box.conf[0])
-                        thresh = 0.4
-                        if cls_id == 4: thresh = 0.15
-                        elif cls_id == 0: thresh = 0.85
-                            
-                        if conf > thresh:
-                            x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            label_map = {0: "Gloves", 1: "Vest", 2: "Goggles", 3: "Helmet", 4: "Mask", 5: "Safety_shoe"}
-                            ppe_class = label_map.get(cls_id, "PPE")
-                            ppe_events.append({
-                                "class": ppe_class,
-                                "bbox": [x1, y1, x2, y2],
-                                "score": conf
-                            })
+            hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            color_mask = self._get_dynamic_color_mask(hsv_frame)
 
-            any_gloves = any(ppe["class"] == "Gloves" for ppe in ppe_events)
-
-            # Link PPE to Faces
             for face in face_events:
-                fx1, fy1, fx2, fy2 = face["bbox"]
                 face["has_mask"] = False
+                face["has_gloves"] = False
+                kps = face.get("kps")
                 
-                hands_visible = people_hands_visible.get(face.get("tid"), True)
-                face["has_gloves"] = any_gloves if hands_visible else None
-                for ppe in ppe_events:
-                    if ppe["class"] == "Mask":
-                        px1, py1, px2, py2 = ppe["bbox"]
-                        if not (px2 < fx1 or px1 > fx2 or py2 < fy1 or py1 > fy2):
-                            face["has_mask"] = True
-                            break
+                if kps is not None:
+                    fh, fw = frame.shape[:2]
+                    
+                    # --- Mask Detection (Nose / Mouth Area) ---
+                    nose = kps[0]
+                    if nose[0] > 0 and nose[1] > 0:
+                        nx, ny = int(nose[0]), int(nose[1])
+                        # Box around mouth area
+                        mx1, my1 = max(0, nx - 50), max(0, ny - 20)
+                        mx2, my2 = min(fw, nx + 50), min(fh, ny + 80)
+                        
+                        roi = color_mask[my1:my2, mx1:mx2]
+                        if roi.size > 0:
+                            ratio = np.sum(roi > 0) / roi.size
+                            if ratio > 0.15:
+                                face["has_mask"] = True
+                                ppe_events.append({"class": "Mask", "bbox": [mx1, my1, mx2, my2], "score": ratio})
+
+                    # --- Gloves Detection (Wrists) ---
+                    if len(kps) > 10:
+                        for idx in [9, 10]: # Left and Right wrist
+                            wrist = kps[idx]
+                            if wrist[0] > 0 and wrist[1] > 0:
+                                wx, wy = int(wrist[0]), int(wrist[1])
+                                gx1, gy1 = max(0, wx - 70), max(0, wy - 70)
+                                gx2, gy2 = min(fw, wx + 70), min(fh, wy + 70)
+                                
+                                roi = color_mask[gy1:gy2, gx1:gx2]
+                                if roi.size > 0:
+                                    ratio = np.sum(roi > 0) / roi.size
+                                    if ratio > 0.15:
+                                        face["has_gloves"] = True
+                                        ppe_events.append({"class": "Gloves", "bbox": [gx1, gy1, gx2, gy2], "score": ratio})
                 
                 if face["has_mask"] and face["name"] == "Unknown":
                     upper_emb = self.extract_upper_embedding(img=frame, bbox=face["bbox"])
@@ -398,7 +441,7 @@ class VisionService:
                         best_dist = dist
                         best_track_id = tid
                         
-                if best_dist < 100:
+                if best_dist < 300:
                     t = self.active_face_tracks[best_track_id]
                     if face["name"] == "Unknown" and t["name"] != "Unknown":
                         face["name"] = t["name"]
@@ -416,6 +459,16 @@ class VisionService:
                             face["has_mask"] = t.get("has_mask", False)
                         else:
                             t["has_mask"] = False
+                            
+                    if face["has_gloves"]:
+                        t["gloves_missed"] = 0
+                        t["has_gloves"] = True
+                    else:
+                        t["gloves_missed"] = t.get("gloves_missed", 0) + 1
+                        if t["gloves_missed"] < 20: # 20 frames memory for gloves since they move faster
+                            face["has_gloves"] = t.get("has_gloves", False)
+                        else:
+                            t["has_gloves"] = False
                         
                     t["centroid"] = (cx, cy)
                     t["missed"] = 0
@@ -427,6 +480,8 @@ class VisionService:
                         "score": face["score"],
                         "has_mask": face["has_mask"],
                         "mask_missed": 0,
+                        "has_gloves": face["has_gloves"],
+                        "gloves_missed": 0,
                         "missed": 0,
                         "used": True
                     }
@@ -536,7 +591,7 @@ class VisionService:
                 new_active_tracks[tid] = t
         self.active_face_tracks = new_active_tracks
 
-        return frame, face_events, equipment_events, incident_events
+        return frame, face_events, equipment_events, incident_events, ppe_events
 
 
 

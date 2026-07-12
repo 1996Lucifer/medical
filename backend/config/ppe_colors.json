@@ -1,0 +1,28 @@
+{
+    "ppe_colors": [
+        {
+            "name": "Surgical White",
+            "hex": "#FFFFFF",
+            "hue_tolerance": 180,
+            "sat_tolerance": 60,
+            "val_tolerance": 105,
+            "enabled": true
+        },
+        {
+            "name": "Surgical Blue",
+            "hex": "#0088FF",
+            "hue_tolerance": 20,
+            "sat_tolerance": 200,
+            "val_tolerance": 105,
+            "enabled": true
+        },
+        {
+            "name": "Black Nitrile",
+            "hex": "#000000",
+            "hue_tolerance": 180,
+            "sat_tolerance": 255,
+            "val_tolerance": 50,
+            "enabled": false
+        }
+    ]
+}

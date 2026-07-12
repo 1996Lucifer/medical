@@ -29,7 +29,7 @@ models.Base.metadata.create_all(bind=engine)
 load_dotenv()
 
 from camera import routes as camera_routes
-from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients, rbac, agent
+from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients, rbac, agent, patient_portal
 from routers.auth import get_current_user
 
 app = FastAPI(title="Healthcare Operations Copilot API")
@@ -48,6 +48,7 @@ app.include_router(camera_routes.router)
 app.include_router(auth.router)
 app.include_router(analysis.router)
 app.include_router(patients.router)
+app.include_router(patient_portal.router)
 
 # Mount static files
 os.makedirs("uploads/staff", exist_ok=True)
