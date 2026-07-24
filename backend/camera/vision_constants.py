@@ -27,13 +27,40 @@ CPU_CONFIG = {
     "det_size": (320, 320),
     "frame_width": 640,
     "jpeg_quality": 75,
-    "target_fps": 10,
-    "label": "CPU",
+    "target_fps": 15,
+    "label": "CPU (OpenVINO)",
 }
 
+
+def get_runtime_vision_config(available_providers=None):
+    """
+    Pick conservative runtime settings for the active inference backend.
+    CPU stays intentionally small so camera streaming remains responsive.
+    """
+    if available_providers is None:
+        try:
+            import onnxruntime as ort
+
+            available_providers = ort.get_available_providers()
+        except Exception:
+            available_providers = []
+
+    if "CUDAExecutionProvider" in available_providers:
+        return CUDA_CONFIG
+    # CoreML may be installed in ONNX Runtime without being used by the
+    # InsightFace models. In that case InsightFace falls back to CPU, so use
+    # the small CPU profile instead of feeding it 1920px/640px frames.
+    return CPU_CONFIG
+
+
 # --- Facial Recognition ---
-REJECTION_THRESHOLD = 0.5
+REJECTION_THRESHOLD = 0.35
+UPPER_FACE_REJECTION_THRESHOLD = 0.38
+UPPER_FACE_HEIGHT_RATIO = 0.48
 MIN_FACE_SIZE = 60
+IDENTITY_REFRESH_FRAMES = 25
+UNKNOWN_IDENTITY_RETRY_FRAMES = 15
+IDENTITY_CACHE_TTL_FRAMES = 90
 
 # --- Security Alerts ---
 UNKNOWN_PERSON_GRACE_PERIOD_SEC = 3.0
@@ -49,3 +76,32 @@ TAMPER_LAPLACIAN_THRESHOLD = 50.0
 # --- Visualization ---
 DRAW_POSE_SKELETON = True
 
+# --- Zone-Based Compliance ---
+VERIFICATION_EXPIRY_SEC = 120  # 2 minutes
+VERIFICATION_CONFIDENCE_THRESHOLD = 0.7
+# VLM Prompts for PPE Verification
+VLM_MASK_PROMPT = "Look closely at the face. Is there a blue or white surgical mask clearly covering the nose and mouth? If the face is bare, answer NO. Answer only YES or NO."
+VLM_GLOVE_PROMPT = "Look closely at the hands. Are there blue, white, or nitrile medical examination gloves covering the hands? If the hands are bare skin, or if you cannot see hands, answer NO. Answer only YES or NO."
+
+# --- YOLO Detection ---
+YOLO_MODEL = "yolo11n.onnx"
+YOLO_CONFIDENCE_THRESHOLD = 0.40
+YOLO_PERSON_CLASS = 0  # COCO class ID for 'person'
+YOLO_CPU_IMGSZ = 416
+YOLO_GPU_IMGSZ = 640
+# Reject implausibly thin "person" boxes (common chair/door-edge false positives).
+MIN_PERSON_ASPECT_RATIO = 0.18
+MIN_PERSON_HEIGHT_PX = 80
+PPE_YOLO_MODEL = "best.fp16.onnx"
+PPE_YOLO_OPENVINO_DIR = "openvino"
+PPE_DETECTION_INTERVAL_FRAMES = 1
+PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.10
+PPE_EVIDENCE_TTL_FRAMES = 1
+# Three detector passes are about 1.5s at the CPU profile; use a longer window
+# because hands can leave the frame while staff are moving naturally.
+PPE_REVOCATION_MISSED_SAMPLES = 6
+
+# --- Zone Processing ---
+ZONE_TYPE_OBSERVATION = "observation"
+ZONE_TYPE_VERIFICATION = "verification"
+ZONE_TYPE_RESTRICTED = "restricted"

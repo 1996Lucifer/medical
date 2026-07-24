@@ -176,12 +176,14 @@ class CameraROI(Base):
     """
     Region of Interest (ROI) mapping for a specific camera.
     points: JSON array of normalized coordinates, e.g., [{"x": 0.1, "y": 0.2}, ...]
+    zone_type: 'observation', 'verification', or 'restricted'
     """
     __tablename__ = "camera_rois"
 
     id = Column(Integer, primary_key=True, index=True)
     camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False)
     zone_name = Column(String, index=True, nullable=False) # e.g. 'ICU', 'Operating Room'
+    zone_type = Column(String, nullable=False, default="observation")  # observation | verification | restricted
     points = Column(Text, nullable=False) # JSON array
 
     camera = relationship("Camera", back_populates="rois")
@@ -378,4 +380,25 @@ class LLMAuditLog(Base):
     latency_ms = Column(Float, nullable=True)
     token_usage = Column(Integer, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PersonVerification(Base):
+    """
+    Stores PPE compliance verification tokens.
+    A person verified in a verification zone receives a token that is valid
+    across all cameras until it expires. This avoids repeated PPE checks.
+    """
+    __tablename__ = "person_verifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    staff_name = Column(String, index=True, nullable=False)
+    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=True)
+    has_mask = Column(Boolean, default=False)
+    has_left_glove = Column(Boolean, default=False)
+    has_right_glove = Column(Boolean, default=False)
+    is_verified = Column(Boolean, default=False)
+    confidence = Column(Float, nullable=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 

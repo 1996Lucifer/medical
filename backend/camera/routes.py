@@ -57,9 +57,9 @@ async def ws_camera(
     finally:
         db.close()
 
-    # Start camera worker for this specific mode
-    loop = asyncio.get_event_loop()
-    worker_key = f"{cam_id_resolved}_{mode}"
+    # Start camera worker for this specific camera (shared across all modes and clients)
+    loop = asyncio.get_running_loop()
+    worker_key = str(cam_id_resolved) if cam_id_resolved else camera_url
     
     if worker_key not in active_workers:
         active_workers[worker_key] = CameraWorker()

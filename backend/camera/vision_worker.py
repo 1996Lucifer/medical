@@ -3,6 +3,7 @@ from multiprocessing import shared_memory
 import threading
 import numpy as np
 import traceback
+import queue
 
 def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
     """
@@ -11,8 +12,8 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
     """
     print("[VisionWorkerProcess] Initializing AI Models in separate process...")
     try:
-        from camera.vision_service import VisionService
-        vision_service = VisionService()
+        from camera.vision_service_zones import VisionServiceZones
+        vision_service = VisionServiceZones()
     except Exception as e:
         print(f"[VisionWorkerProcess] Failed to initialize VisionService: {e}")
         output_queue.put({"type": "fatal", "error": str(e)})
@@ -31,11 +32,16 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 output_queue.put({"type": "staff_updated"})
                 continue
                 
+            if req["type"] == "update_zones":
+                vision_service.update_zone_polygons(req["zones"])
+                continue
+                
             if req["type"] == "register_camera":
                 cam_id = req["camera_id"]
-                shm_name = req["shm_name"]
                 try:
-                    shm_dict[cam_id] = shared_memory.SharedMemory(name=shm_name)
+                    shm_in = shared_memory.SharedMemory(name=req["shm_name"])
+                    shm_out = shared_memory.SharedMemory(name=req["shm_out_name"])
+                    shm_dict[cam_id] = (shm_in, shm_out)
                     output_queue.put({"type": "camera_registered", "camera_id": cam_id})
                 except Exception as e:
                     output_queue.put({"type": "error", "error": f"Failed to attach SHM for {cam_id}: {e}"})
@@ -44,7 +50,14 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
             if req["type"] == "unregister_camera":
                 cam_id = req["camera_id"]
                 if cam_id in shm_dict:
-                    shm_dict[cam_id].close()
+                    shm_in, shm_out = shm_dict[cam_id]
+                    shm_in.close()
+                    shm_out.close()
+                    try:
+                        shm_in.unlink()
+                        shm_out.unlink()
+                    except FileNotFoundError:
+                        pass
                     del shm_dict[cam_id]
                 continue
 
@@ -57,12 +70,14 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 if cam_id not in shm_dict:
                     continue
                     
-                # Copy from shared memory to local memory
-                shm = shm_dict[cam_id]
-                shared_array = np.ndarray((max_h, max_w, 3), dtype=dtype, buffer=shm.buf)
-                frame = np.copy(shared_array[:h, :w, :])
+                shm_in, _ = shm_dict[cam_id]
+                shared_in = np.ndarray((max_h, max_w, 3), dtype=dtype, buffer=shm_in.buf)
                 
-                _, face_events, equipment_events, incident_events, ppe_events = vision_service.process_frame(frame)
+                # Copy the latest input frame for inference. The camera worker
+                # draws smoothed overlays on the live frame, so we do not need
+                # to copy an annotated frame back through shared memory.
+                frame = np.copy(shared_in[:h, :w, :])
+                _, face_events, equipment_events, incident_events, ppe_events = vision_service.process_frame(frame, camera_id=cam_id)
                 
                 output_queue.put({
                     "type": "results",
@@ -75,11 +90,20 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 })
         except Exception as e:
             traceback.print_exc()
-            output_queue.put({"type": "error", "error": str(e)})
+            error_payload = {"type": "error", "error": str(e)}
+            if isinstance(locals().get("req"), dict) and "camera_id" in req:
+                error_payload["camera_id"] = req["camera_id"]
+            output_queue.put(error_payload)
 
     # Cleanup
-    for shm in shm_dict.values():
-        shm.close()
+    for shm_in, shm_out in shm_dict.values():
+        shm_in.close()
+        shm_out.close()
+        try:
+            shm_in.unlink()
+            shm_out.unlink()
+        except FileNotFoundError:
+            pass
 
 class VisionProcessManager:
     _instance = None
@@ -109,7 +133,7 @@ class VisionProcessManager:
             return
             
         ctx = mp.get_context('spawn')
-        self.input_queue = ctx.Queue()
+        self.input_queue = ctx.Queue(maxsize=4)
         self.output_queue = ctx.Queue()
         
         self.process = ctx.Process(
@@ -131,52 +155,81 @@ class VisionProcessManager:
                     cam_id = res["camera_id"]
                     with self.result_lock:
                         self.latest_results[cam_id] = res
+                elif res.get("type") == "error" and res.get("camera_id"):
+                    cam_id = res["camera_id"]
+                    with self.result_lock:
+                        self.latest_results[cam_id] = res
             except Exception as e:
                 pass
 
-    def update_staff(self, staff_list):
-        if self.input_queue:
+    def update_staff(self, staff_list: list):
+        if self.process and self.process.is_alive():
             self.input_queue.put({"type": "update_staff", "staff_list": staff_list})
 
-    def register_camera(self, camera_id):
+    def update_zones(self, zones: list):
+        if self.process and self.process.is_alive():
+            try:
+                self.input_queue.put_nowait({"type": "update_zones", "zones": zones})
+            except queue.Full:
+                pass
+
+    def register_camera(self, camera_id: str):
         if camera_id in self.camera_shms or not self.input_queue:
             return
         dummy = np.zeros((self.max_h, self.max_w, 3), dtype=self.dtype)
-        shm = shared_memory.SharedMemory(create=True, size=dummy.nbytes)
-        self.camera_shms[camera_id] = shm
-        self.input_queue.put({"type": "register_camera", "camera_id": camera_id, "shm_name": shm.name})
+        shm_in = shared_memory.SharedMemory(create=True, size=dummy.nbytes)
+        shm_out = shared_memory.SharedMemory(create=True, size=dummy.nbytes)
+        self.camera_shms[camera_id] = (shm_in, shm_out)
+        self.input_queue.put({"type": "register_camera", "camera_id": camera_id, "shm_name": shm_in.name, "shm_out_name": shm_out.name})
 
     def unregister_camera(self, camera_id):
         if camera_id in self.camera_shms and self.input_queue:
             self.input_queue.put({"type": "unregister_camera", "camera_id": camera_id})
-            shm = self.camera_shms.pop(camera_id)
-            shm.close()
+            shm_in, shm_out = self.camera_shms.pop(camera_id)
+            shm_in.close()
+            shm_out.close()
             try:
-                shm.unlink()
-            except:
+                shm_in.unlink()
+                shm_out.unlink()
+            except FileNotFoundError:
                 pass
         with self.result_lock:
             self.latest_results.pop(camera_id, None)
+        if hasattr(self, 'is_busy') and camera_id in self.is_busy:
+            del self.is_busy[camera_id]
 
     def process_frame_async(self, camera_id, frame, frame_id):
         if camera_id not in self.camera_shms:
+            return False
+            
+        if not hasattr(self, 'is_busy'):
+            self.is_busy = {}
+            
+        if self.is_busy.get(camera_id, False):
             return False
             
         h, w = frame.shape[:2]
         if h > self.max_h or w > self.max_w:
             return False
             
-        shm = self.camera_shms[camera_id]
-        shared_array = np.ndarray((self.max_h, self.max_w, 3), dtype=self.dtype, buffer=shm.buf)
+        shm_in, _ = self.camera_shms[camera_id]
+        shared_array = np.ndarray((self.max_h, self.max_w, 3), dtype=self.dtype, buffer=shm_in.buf)
         shared_array[:h, :w, :] = frame
         
-        self.input_queue.put({"type": "process_frame", "camera_id": camera_id, "frame_id": frame_id, "h": h, "w": w})
+        self.is_busy[camera_id] = True
+        try:
+            self.input_queue.put_nowait({"type": "process_frame", "camera_id": camera_id, "frame_id": frame_id, "h": h, "w": w})
+        except queue.Full:
+            self.is_busy[camera_id] = False
+            return False
         return True
 
     def pop_result(self, camera_id):
         with self.result_lock:
-            if camera_id in self.latest_results:
-                return self.latest_results.pop(camera_id)
+            res = self.latest_results.pop(camera_id, None)
+            if res and hasattr(self, 'is_busy'):
+                self.is_busy[camera_id] = False
+            return res
         return None
 
 vision_process_manager = VisionProcessManager()

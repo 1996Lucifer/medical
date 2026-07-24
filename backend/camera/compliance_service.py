@@ -83,11 +83,12 @@ class ComplianceService:
                             vlm_response = await loop.run_in_executor(None, llm_manager.generate_with_image, base64_img, prompt, True)
                             clean_json = vlm_response.replace('```json', '').replace('```', '').strip()
                             data = json.loads(clean_json)
+                            # VLM is the ground truth, override the crude OpenCV logic
                             has_mask = data.get("has_mask", has_mask)
                             has_gloves = data.get("has_gloves", has_gloves)
                             print(f"[ComplianceService] VLM PPE Check for {staff_name}: Mask={has_mask}, Gloves={has_gloves}")
                         except Exception as e:
-                            print(f"[ComplianceService] VLM PPE Check Failed: {e}. Falling back to YOLO.")
+                            print(f"[ComplianceService] VLM PPE Check Failed: {e}. Falling back to OpenCV.")
                         finally:
                             self._vlm_active.discard(staff_name)
                     '''

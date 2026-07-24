@@ -25,3 +25,12 @@ Respond strictly in JSON format matching this schema:
     "spoken_warning": "A short 1-sentence verbal warning to be spoken out loud by the camera speaker. Personalize it with the person's name if they are violating."
 }}
 """
+
+# --- Zone-Based Verification Events ---
+EVENT_TYPE_VERIFICATION_STARTED = "VerificationStarted"
+EVENT_TYPE_VERIFICATION_PASSED = "VerificationPassed"
+EVENT_TYPE_VERIFICATION_FAILED = "VerificationFailed"
+EVENT_TYPE_VERIFICATION_EXPIRED = "VerificationExpired"
+EVENT_TYPE_MASK_REMOVED = "MaskRemoved"
+EVENT_TYPE_UNAUTHORIZED_ENTRY = "UnauthorizedEntry"
+

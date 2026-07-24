@@ -54,6 +54,10 @@ def load_staff_list(db: Session) -> list:
 def update_global_embeddings(db: Session):
     staff_list = load_staff_list(db)
     vision_service.update_staff_embeddings(staff_list)
+    # The multi-camera zone service runs in a separate process, so it needs
+    # the same refreshed identity set without waiting for a camera restart.
+    from camera.vision_worker import vision_process_manager
+    vision_process_manager.update_staff(staff_list)
 
 
 @router.post("", response_model=StaffResponse)
@@ -131,6 +135,7 @@ async def add_staff_photo(
             shutil.copyfileobj(file.file, buffer)
 
         embedding = vision_service.extract_embedding(file_path)
+        upper_embedding = vision_service.extract_upper_embedding(image_path=file_path)
         if embedding is None:
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -139,6 +144,8 @@ async def add_staff_photo(
         photo = models.StaffPhoto(
             staff_id=staff_id,
             embedding=embedding.tolist(),
+            upper_embedding=(upper_embedding.tolist()
+                             if upper_embedding is not None else None),
             label=label,
             photo_path=file_path
         )
@@ -343,11 +350,16 @@ async def setup_staff_video(
                 filename = f"{uuid.uuid4().hex}_{bucket}.jpg"
                 file_path = os.path.join(upload_dir, filename)
                 cv2.imwrite(file_path, data["frame"])
+                upper_embedding = vision_service.extract_upper_embedding(
+                    image_path=file_path
+                )
                 
                 # Create StaffPhoto entry
                 photo = models.StaffPhoto(
                     staff_id=staff_id,
                     embedding=data["embedding"].tolist(),
+                    upper_embedding=(upper_embedding.tolist()
+                                     if upper_embedding is not None else None),
                     label=bucket,
                     photo_path=file_path
                 )
@@ -355,6 +367,7 @@ async def setup_staff_video(
                 extracted_count += 1
                 
         db.commit()
+        update_global_embeddings(db)
         
         return {"status": "success", "extracted_count": extracted_count}
 
@@ -421,7 +434,9 @@ async def live_setup_ws(websocket: WebSocket, staff_id: int, db: Session = Depen
             base_instruction = instructions[current_target]
                 
             # Process face
-            faces = vision_service.app.get(frame)
+            from camera.model_manager import ModelManager
+            face_app = ModelManager().get_face_analysis()
+            faces = face_app.get(frame) if face_app else []
             if not faces:
                 await websocket.send_json({
                     "status": "capturing",
@@ -485,14 +500,19 @@ async def live_setup_ws(websocket: WebSocket, staff_id: int, db: Session = Depen
                 })
                 
             if match:
-                # Store it in memory
-                # Extract upper embedding for this angle
-                upper_emb = vision_service.extract_upper_embedding(img=frame, bbox=face.bbox)
+                upper_embedding = vision_service.extract_upper_embedding(
+                    img=frame, bbox=face.bbox.astype(int)
+                )
+                # Store the normal and upper-face embeddings for masked matching.
                 captured_data.append({
                     "target": current_target,
                     "frame": frame,
                     "embedding": face.embedding.tolist(),
-                    "upper_embedding": upper_emb.tolist() if upper_emb is not None else None
+                    "upper_embedding": (
+                        upper_embedding.tolist()
+                        if upper_embedding is not None
+                        else None
+                    ),
                 })
                 
                 completed.append(current_target)

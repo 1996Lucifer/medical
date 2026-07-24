@@ -71,6 +71,23 @@ class AudioService:
         self.audio_cache = {}
 
     def speak(self, camera_url: str, text: str, vendor: str = "generic"):
+        # Verification sessions identify a camera by ID, not a hardware URL.
+        # In that case speak through the local system speaker immediately.
+        if not camera_url:
+            if text in self.audio_cache:
+                wav_bytes = self.audio_cache[text]
+                threading.Thread(
+                    target=self._local_fallback,
+                    args=(text, wav_bytes),
+                    daemon=True,
+                ).start()
+            else:
+                audio_process_manager.generate_async(
+                    text,
+                    lambda wav_bytes, txt: self._local_fallback(txt, wav_bytes),
+                )
+            return
+
         if text in self.audio_cache:
             wav_bytes = self.audio_cache[text]
             threading.Thread(target=self._on_audio_generated, args=(camera_url, text, vendor, wav_bytes), daemon=True).start()
@@ -80,6 +97,11 @@ class AudioService:
     def _on_audio_generated(self, camera_url: str, text: str, vendor: str, wav_bytes: bytes):
         if not wav_bytes:
             print(f"[AudioService] Failed to generate audio for: {text}")
+            import sys
+            import subprocess
+            if sys.platform == "darwin":
+                print(f"[AudioService] Using macOS native 'say' fallback.")
+                subprocess.run(["say", text])
             return
             
         if text not in self.audio_cache:
@@ -114,6 +136,12 @@ class AudioService:
     def _local_fallback(self, text: str, wav_bytes: bytes):
         print(f"[AudioService] Local Speaker Fallback: {text}")
         try:
+            if not wav_bytes:
+                import sys
+                if sys.platform == "darwin":
+                    subprocess.run(["say", text])
+                return
+
             wav_path = tempfile.mktemp(suffix=".wav")
             with open(wav_path, "wb") as f:
                 f.write(wav_bytes)

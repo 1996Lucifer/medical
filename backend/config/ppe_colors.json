@@ -3,9 +3,9 @@
         {
             "name": "Surgical White",
             "hex": "#FFFFFF",
-            "hue_tolerance": 180,
-            "sat_tolerance": 60,
-            "val_tolerance": 105,
+            "hue_tolerance": 20,
+            "sat_tolerance": 30,
+            "val_tolerance": 50,
             "enabled": true
         },
         {

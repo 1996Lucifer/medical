@@ -7,11 +7,9 @@ import onnxruntime as ort
 from camera.model_manager import ModelManager
 
 from camera.vision_constants import (
-    CUDA_CONFIG,
-    COREML_CONFIG,
-    CPU_CONFIG,
     REJECTION_THRESHOLD,
     MIN_FACE_SIZE,
+    get_runtime_vision_config,
 )
 
 def detect_compute_backend() -> dict:
@@ -19,16 +17,7 @@ def detect_compute_backend() -> dict:
     Detect the best available compute backend and return
     quality settings tuned for that backend.
     """
-    providers = ort.get_available_providers()
-
-    if "CUDAExecutionProvider" in providers:
-        return CUDA_CONFIG
-    elif "CoreMLExecutionProvider" in providers:
-        # Apple Silicon — fast Neural Engine
-        return COREML_CONFIG
-    else:
-        # CPU only — use smaller detection grid and lower resolution
-        return CPU_CONFIG
+    return get_runtime_vision_config(ort.get_available_providers())
 
 
 
@@ -393,7 +382,7 @@ class VisionService:
                         roi = color_mask[my1:my2, mx1:mx2]
                         if roi.size > 0:
                             ratio = np.sum(roi > 0) / roi.size
-                            if ratio > 0.15:
+                            if ratio > 0.50:
                                 face["has_mask"] = True
                                 ppe_events.append({"class": "Mask", "bbox": [mx1, my1, mx2, my2], "score": ratio})
 
@@ -403,13 +392,13 @@ class VisionService:
                             wrist = kps[idx]
                             if wrist[0] > 0 and wrist[1] > 0:
                                 wx, wy = int(wrist[0]), int(wrist[1])
-                                gx1, gy1 = max(0, wx - 70), max(0, wy - 70)
-                                gx2, gy2 = min(fw, wx + 70), min(fh, wy + 70)
+                                gx1, gy1 = max(0, wx - 45), max(0, wy - 45)
+                                gx2, gy2 = min(fw, wx + 45), min(fh, wy + 45)
                                 
                                 roi = color_mask[gy1:gy2, gx1:gx2]
                                 if roi.size > 0:
                                     ratio = np.sum(roi > 0) / roi.size
-                                    if ratio > 0.15:
+                                    if ratio > 0.35:
                                         face["has_gloves"] = True
                                         ppe_events.append({"class": "Gloves", "bbox": [gx1, gy1, gx2, gy2], "score": ratio})
                 

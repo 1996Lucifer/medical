@@ -1,6 +1,7 @@
 import platform
 import os
 import subprocess
+import threading
 
 class LLMManager:
     """
@@ -14,6 +15,7 @@ class LLMManager:
         self.engine_name = self._select_engine()
         self.active_model_name = None
         self.active_model = None
+        self._model_lock = threading.Lock()
 
     def _detect_hardware(self) -> str:
         """Detects if we have Apple Silicon, Nvidia GPU, or basic CPU."""
@@ -83,10 +85,15 @@ class LLMManager:
                     print("🖼️  Found mmproj file for MedGemma. Enabling vision chat handler...")
                     chat_handler = Llava15ChatHandler(clip_model_path=mmproj_path)
             
+            cpu_count = os.cpu_count() or 4
+            n_gpu_layers = -1 if self.hardware_type in ("Apple Silicon", "Nvidia GPU") else 0
+
             self.active_model = Llama(
                 model_path=model_path, 
                 n_ctx=target_n_ctx, 
-                n_gpu_layers=-1,  # Enable hardware acceleration
+                n_gpu_layers=n_gpu_layers,
+                n_threads=max(2, min(cpu_count, 8)),
+                n_batch=256,
                 chat_handler=chat_handler,
                 verbose=False
             )
@@ -102,12 +109,16 @@ class LLMManager:
         Routes the prompt to either MedGemma or Qwen3 based on the intent.
         Uses model-specific prompt templates to prevent hallucination and infinite looping.
         """
-        self._load_specific_model(is_clinical)
-
-        if self.active_model is None:
-            return f"❌ Model not loaded. Check backend logs."
-
         try:
+            with self._model_lock:
+                self._load_specific_model(is_clinical)
+
+                if self.active_model is None:
+                    return f"❌ Model not loaded. Check backend logs."
+
+                model = self.active_model
+                active_model_name = self.active_model_name
+
             print(f"\n🧠 [LLMManager] Routing to {self.active_model_name}.gguf")
             print("=" * 60)
             print(">>> ORIGINAL PROMPT:")
@@ -141,13 +152,17 @@ class LLMManager:
                 formatted_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
                 stop_tokens = ["<|im_end|>", "<|im_start|>"]
 
-            response = self.active_model(
-                formatted_prompt,
-                max_tokens=self.current_max_tokens,
-                temperature=0.1,
-                stop=stop_tokens,
-                echo=False
-            )
+            with self._model_lock:
+                if self.active_model_name != active_model_name:
+                    self._load_specific_model(is_clinical)
+                    model = self.active_model
+                response = model(
+                    formatted_prompt,
+                    max_tokens=self.current_max_tokens,
+                    temperature=0.1,
+                    stop=stop_tokens,
+                    echo=False
+                )
 
             # Extract generated text from llama_cpp output format
             result = response['choices'][0]['text'].strip()
@@ -165,13 +180,17 @@ class LLMManager:
         """
         Multimodal generation using MedGemma and chat completion format.
         """
-        self._load_specific_model(is_clinical)
-
-        if self.active_model is None:
-            return f"❌ Model not loaded. Check backend logs."
-
         try:
-            print(f"\n👁️ [LLMManager] Routing IMAGE + PROMPT to {self.active_model_name}.gguf")
+            with self._model_lock:
+                self._load_specific_model(is_clinical)
+
+                if self.active_model is None:
+                    return f"❌ Model not loaded. Check backend logs."
+
+                model = self.active_model
+                active_model_name = self.active_model_name
+
+            print(f"\n👁️ [LLMManager] Routing IMAGE + PROMPT to {active_model_name}.gguf")
             print("=" * 60)
             print(">>> ORIGINAL PROMPT:")
             print(prompt)
@@ -188,12 +207,18 @@ class LLMManager:
                 }
             ]
 
-            response = self.active_model.create_chat_completion(
-                messages=messages,
-                max_tokens=self.current_max_tokens,
-                temperature=0.2,
-                stop=["USER:", "User:", "<|im_end|>", "<|end_of_text|>", "<eos>", "```\nUSER:"]
-            )
+            with self._model_lock:
+                if self.active_model_name != active_model_name:
+                    self._load_specific_model(is_clinical)
+                    model = self.active_model
+                response = model.create_chat_completion(
+                    messages=messages,
+                    max_tokens=16,
+                    temperature=0.0,
+                    # Do not stop on a newline: MedGemma often emits a
+                    # leading newline before the actual YES/NO answer.
+                    stop=["USER:", "User:", "<|im_end|>", "<|end_of_text|>", "<eos>"]
+                )
 
             result = response['choices'][0]['message']['content'].strip()
 
