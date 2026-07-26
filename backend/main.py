@@ -30,8 +30,11 @@ def _get_whisper_device():
 
 # Create database tables and vector extension
 with engine.connect() as conn:
-    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    conn.commit()
+    try:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+    except Exception as e:
+        print(f"Skipping vector extension creation: {e}")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -272,7 +275,7 @@ def delete_consultation(consultation_id: int, db: Session = Depends(get_db)):
     consultation = db.query(models.Consultation).filter(models.Consultation.id == consultation_id).first()
     if not consultation:
         raise HTTPException(status_code=404, detail="Consultation not found")
-    
+
     db.delete(consultation)
     db.commit()
     return {"message": "Consultation deleted successfully"}
