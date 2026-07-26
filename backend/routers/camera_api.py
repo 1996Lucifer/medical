@@ -10,18 +10,40 @@ import models
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
+def parse_rtsp_url(url: str) -> dict:
+    if not url:
+        return {"ip_address": "127.0.0.1", "port": 554, "username": None, "password": None, "stream_path": ""}
+    raw_url = url if url.startswith("rtsp://") else f"rtsp://{url}"
+    parsed = urllib.parse.urlparse(raw_url)
+    return {
+        "ip_address": parsed.hostname or "127.0.0.1",
+        "port": parsed.port or 554,
+        "username": parsed.username or None,
+        "password": parsed.password or None,
+        "stream_path": parsed.path or "",
+    }
+
 class CameraCreate(BaseModel):
     name: str
     location: Optional[str] = None
-    rtsp_url: str
-    ha_entity_id: Optional[str] = None
+    ip_address: Optional[str] = "127.0.0.1"
+    port: Optional[int] = 554
+    username: Optional[str] = None
+    password: Optional[str] = None
+    stream_path: Optional[str] = None
+    rtsp_url: Optional[str] = None
 
 class CameraResponse(BaseModel):
     id: int
     name: str
-    location: Optional[str]
+    location: Optional[str] = None
+    ip_address: Optional[str] = "127.0.0.1"
+    port: Optional[int] = 554
+    username: Optional[str] = None
+    password: Optional[str] = None
+    stream_path: Optional[str] = None
     rtsp_url: str
-    ha_entity_id: Optional[str]
+    is_restricted: Optional[bool] = False
     model_config = ConfigDict(from_attributes=True)
 
 class ROICreate(BaseModel):
@@ -38,8 +60,30 @@ class ROIResponse(BaseModel):
 
 @router.post("", response_model=CameraResponse)
 def create_camera(body: CameraCreate, db: Session = Depends(get_db)):
-    """Register a new camera with its RTSP URL and location."""
-    cam = models.Camera(name=body.name, location=body.location, rtsp_url=body.rtsp_url, ha_entity_id=body.ha_entity_id)
+    """Register a new camera with structured connection details."""
+    ip = body.ip_address
+    port = body.port or 554
+    user = body.username
+    pwd = body.password
+    path = body.stream_path
+
+    if body.rtsp_url and (not ip or (ip == "127.0.0.1" and not user and not path)):
+        parsed = parse_rtsp_url(body.rtsp_url)
+        ip = parsed["ip_address"]
+        port = parsed["port"]
+        user = parsed["username"] or user
+        pwd = parsed["password"] or pwd
+        path = parsed["stream_path"] or path
+
+    cam = models.Camera(
+        name=body.name,
+        location=body.location,
+        ip_address=ip or "127.0.0.1",
+        port=port,
+        username=user,
+        password=pwd,
+        stream_path=path,
+    )
     db.add(cam)
     db.commit()
     db.refresh(cam)
@@ -83,10 +127,29 @@ def update_camera(camera_id: int, body: CameraCreate, db: Session = Depends(get_
     cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
+
+    ip = body.ip_address
+    port = body.port or 554
+    user = body.username
+    pwd = body.password
+    path = body.stream_path
+
+    if body.rtsp_url and (not ip or (ip == "127.0.0.1" and not user and not path)):
+        parsed = parse_rtsp_url(body.rtsp_url)
+        ip = parsed["ip_address"]
+        port = parsed["port"]
+        user = parsed["username"] or user
+        pwd = parsed["password"] or pwd
+        path = parsed["stream_path"] or path
+
     cam.name = body.name
     cam.location = body.location
-    cam.rtsp_url = body.rtsp_url
-    cam.ha_entity_id = body.ha_entity_id
+    cam.ip_address = ip or "127.0.0.1"
+    cam.port = port
+    cam.username = user
+    cam.password = pwd
+    cam.stream_path = path
+
     db.commit()
     db.refresh(cam)
     return cam

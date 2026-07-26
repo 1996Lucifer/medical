@@ -109,10 +109,13 @@ CREATE TABLE "public"."cameras" (
     "id" int4 NOT NULL DEFAULT nextval('cameras_id_seq'::regclass),
     "name" varchar NOT NULL,
     "location" varchar,
-    "rtsp_url" varchar NOT NULL,
-    "is_restricted" bool NOT NULL,
+    "ip_address" varchar NOT NULL DEFAULT '127.0.0.1',
+    "port" int4 NOT NULL DEFAULT 554,
+    "username" varchar,
+    "password" varchar,
+    "stream_path" varchar,
+    "is_restricted" bool NOT NULL DEFAULT false,
     "created_at" timestamptz DEFAULT now(),
-    "ha_entity_id" varchar,
     PRIMARY KEY ("id")
 );
 

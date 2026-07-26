@@ -27,7 +27,11 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
   // Camera Info
   late TextEditingController _nameCtrl;
   late TextEditingController _locCtrl;
-  late TextEditingController _urlCtrl;
+  late TextEditingController _ipCtrl;
+  late TextEditingController _portCtrl;
+  late TextEditingController _usernameCtrl;
+  late TextEditingController _passwordCtrl;
+  late TextEditingController _streamPathCtrl;
   bool _isSavingInfo = false;
 
   // ROIs
@@ -48,7 +52,11 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
 
     _nameCtrl = TextEditingController(text: widget.camera['name']);
     _locCtrl = TextEditingController(text: widget.camera['location'] ?? '');
-    _urlCtrl = TextEditingController(text: widget.camera['rtsp_url']);
+    _ipCtrl = TextEditingController(text: widget.camera['ip_address'] ?? '');
+    _portCtrl = TextEditingController(text: (widget.camera['port'] ?? 554).toString());
+    _usernameCtrl = TextEditingController(text: widget.camera['username'] ?? '');
+    _passwordCtrl = TextEditingController(text: widget.camera['password'] ?? '');
+    _streamPathCtrl = TextEditingController(text: widget.camera['stream_path'] ?? '');
 
     if (_locCtrl.text.isNotEmpty && !_zones.contains(_locCtrl.text)) {
       _zones.add(_locCtrl.text);
@@ -64,7 +72,11 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
     _tabController.dispose();
     _nameCtrl.dispose();
     _locCtrl.dispose();
-    _urlCtrl.dispose();
+    _ipCtrl.dispose();
+    _portCtrl.dispose();
+    _usernameCtrl.dispose();
+    _passwordCtrl.dispose();
+    _streamPathCtrl.dispose();
     super.dispose();
   }
 
@@ -168,8 +180,11 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
         body: jsonEncode({
           'name': _nameCtrl.text,
           'location': _locCtrl.text.isEmpty ? null : _locCtrl.text,
-          'rtsp_url': _urlCtrl.text,
-          'ha_entity_id': widget.camera['ha_entity_id'],
+          'ip_address': _ipCtrl.text.trim(),
+          'port': int.tryParse(_portCtrl.text.trim()) ?? 554,
+          'username': _usernameCtrl.text.isEmpty ? null : _usernameCtrl.text.trim(),
+          'password': _passwordCtrl.text.isEmpty ? null : _passwordCtrl.text.trim(),
+          'stream_path': _streamPathCtrl.text.isEmpty ? null : _streamPathCtrl.text.trim(),
         }),
       );
       if (resp.statusCode == 200 && mounted) {
@@ -491,6 +506,15 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
   }
 
   Widget _buildInfoTab() {
+    final ip = _ipCtrl.text.trim();
+    final port = _portCtrl.text.trim().isEmpty ? '554' : _portCtrl.text.trim();
+    final user = _usernameCtrl.text.trim();
+    final pass = _passwordCtrl.text.trim();
+    var path = _streamPathCtrl.text.trim();
+    if (path.isNotEmpty && !path.startsWith('/')) path = '/$path';
+    final creds = (user.isNotEmpty || pass.isNotEmpty) ? '$user:$pass@' : '';
+    final previewUrl = ip.isEmpty ? (widget.camera['rtsp_url'] ?? 'rtsp://[ip]:[port]/[path]') : 'rtsp://$creds$ip:$port$path';
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -503,9 +527,73 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
               controller: _locCtrl,
               decoration: const InputDecoration(labelText: 'Location')),
           const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _ipCtrl,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(labelText: 'IP Address / Host'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 1,
+                child: TextField(
+                  controller: _portCtrl,
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(labelText: 'Port'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _usernameCtrl,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(labelText: 'Username (optional)'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _passwordCtrl,
+                  obscureText: true,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(labelText: 'Password (optional)'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           TextField(
-              controller: _urlCtrl,
-              decoration: const InputDecoration(labelText: 'RTSP URL')),
+            controller: _streamPathCtrl,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(labelText: 'Stream Path (optional)'),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black38,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.teal.withOpacity(0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('RTSP STREAM PREVIEW', style: TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(previewUrl, style: const TextStyle(color: Colors.tealAccent, fontFamily: 'monospace', fontSize: 12)),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,

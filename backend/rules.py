@@ -62,12 +62,6 @@ class SecurityRulesEngine:
                 db.commit()
                 print(f"[Security] 🚨 THEFT ALERT: {equip_id} moved at {camera_name} without staff!")
                 
-                # Fetch camera to get HA entity ID for siren
-                camera = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
-                if camera and camera.ha_entity_id:
-                    from ha_service import trigger_siren
-                    trigger_siren(camera.ha_entity_id)
-                    
                 # Broadcast alert to WebSocket (Flutter frontend)
                 self._broadcast_alert(alert, camera_name)
                 
@@ -113,10 +107,6 @@ class SecurityRulesEngine:
                 db.add(alert)
                 db.commit()
                 print(f"[Security] 🚨 RESTRICTED ACCESS ALERT: {staff_name} detected at {camera_name}!")
-                
-                if camera.ha_entity_id:
-                    from ha_service import trigger_siren
-                    trigger_siren(camera.ha_entity_id)
                 
                 self._broadcast_alert(alert, camera_name)
                 

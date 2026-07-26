@@ -171,13 +171,30 @@ class Camera(Base):
     id         = Column(Integer, primary_key=True, index=True)
     name       = Column(String, nullable=False)     # e.g. "Main Entrance"
     location   = Column(String, nullable=True)      # e.g. "Ground Floor, Block A"
-    rtsp_url   = Column(String, nullable=False)
-    ha_entity_id = Column(String, nullable=True)    # e.g. "siren.tapo_camera_alarm"
+    ip_address = Column(String, nullable=False, default="127.0.0.1") # e.g. "192.168.1.100"
+    port       = Column(Integer, nullable=False, default=554)
+    username   = Column(String, nullable=True)
+    password   = Column(String, nullable=True)
+    stream_path = Column(String, nullable=True, default="")
     is_restricted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     security_alerts = relationship("SecurityAlert", back_populates="camera")
     rois = relationship("CameraROI", back_populates="camera", cascade="all, delete-orphan")
+
+    @property
+    def rtsp_url(self) -> str:
+        cred = ""
+        if self.username or self.password:
+            user = self.username or ""
+            pwd = self.password or ""
+            cred = f"{user}:{pwd}@"
+        path = self.stream_path or ""
+        if path and not path.startswith("/"):
+            path = "/" + path
+        ip = self.ip_address or "127.0.0.1"
+        port = self.port or 554
+        return f"rtsp://{cred}{ip}:{port}{path}"
 
 
 class CameraROI(Base):

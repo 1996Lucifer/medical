@@ -151,8 +151,11 @@ CREATE TABLE IF NOT EXISTS cameras (
     id            SERIAL PRIMARY KEY,
     name          VARCHAR(255) NOT NULL,
     location      VARCHAR(255),
-    rtsp_url      VARCHAR(1024) NOT NULL,
-    ha_entity_id  VARCHAR(255),
+    ip_address    VARCHAR(255) NOT NULL DEFAULT '127.0.0.1',
+    port          INTEGER NOT NULL DEFAULT 554,
+    username      VARCHAR(255),
+    password      VARCHAR(255),
+    stream_path   VARCHAR(512),
     is_restricted BOOLEAN NOT NULL DEFAULT FALSE,
     created_at    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
