@@ -873,7 +873,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       barrierDismissible: false,
       builder: (ctx) => Theme(
         data:
-            ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
+            ThemeData.dark().copyWith(dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer)),
         child: StatefulBuilder(builder: (ctx, setD) {
           return AlertDialog(
             title: const Text('Onboard New Personnel',
@@ -1003,7 +1003,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => Theme(
-        data: ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
+        data: ThemeData.dark().copyWith(dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer)),
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
             title: const Text('Edit Profile', style: TextStyle(color: Colors.white)),
@@ -1061,7 +1061,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       context: context,
       builder: (ctx) => Theme(
         data:
-            ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
+            ThemeData.dark().copyWith(dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer)),
         child: AlertDialog(
           title:
               const Text('Revoke Access', style: TextStyle(color: _critical)),

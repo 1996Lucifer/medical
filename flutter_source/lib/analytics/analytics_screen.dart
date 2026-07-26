@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
-import 'package:provider/provider.dart';
-import '../providers/analytics_provider.dart';
 
 class AnalyticsDashboardScreen extends StatefulWidget {
   const AnalyticsDashboardScreen({super.key});

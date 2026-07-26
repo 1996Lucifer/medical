@@ -391,7 +391,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
     showDialog(
         context: context,
         builder: (ctx) => Theme(
-              data: ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
+              data: ThemeData.dark().copyWith(dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer)),
               child: AlertDialog(
                   title: Text(type == 'group' ? 'Create Custom Group' : 'Create Custom Permission', style: const TextStyle(color: Colors.white)),
                   content: Column(mainAxisSize: MainAxisSize.min, children: [

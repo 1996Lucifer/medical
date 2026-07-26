@@ -76,7 +76,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
       context: context,
       builder: (ctx) => Theme(
         data: ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: _bgBase, dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer),
+          scaffoldBackgroundColor: _bgBase, dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer),
         ),
         child: StatefulBuilder(builder: (ctx, setD) {
           final ip = ipCtrl.text.trim();
@@ -221,7 +221,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
       context: context,
       builder: (ctx) => Theme(
         data: ThemeData.dark().copyWith(
-          dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer),
+          dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer),
         ),
         child: StatefulBuilder(builder: (ctx, setD) {
           final ip = ipCtrl.text.trim();
