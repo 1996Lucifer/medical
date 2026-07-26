@@ -1,14 +1,55 @@
-version: '3'
-
 services:
-  homeassistant:
-    container_name: homeassistant
-    image: "ghcr.io/home-assistant/home-assistant:stable"
-    volumes:
-      - ./ha_config:/config
-      - /etc/localtime:/etc/localtime:ro
-    ports:
-      - "8123:8123"
+  medical-db:
+    container_name: medical-db
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
-    # Note: On a Linux server, you typically want to uncomment this line:
-    # network_mode: host
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=medical_agent
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init_db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d medical_agent"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  medial-agent:
+    container_name: medial-agent
+    image: medical-agent-medial-agent
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/workspace/start_services.sh"]
+    restart: unless-stopped
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - DISPLAY=${DISPLAY:-:0}
+      - DATABASE_URL=postgresql://postgres:postgres@medical-db:5432/medical_agent
+    depends_on:
+      medical-db:
+        condition: service_healthy
+    # To enable GPU passthrough after host NVIDIA driver reload/reboot, uncomment the block below:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, utility, compute]
+    ports:
+      - "8000:8000"
+      - "8080:8080"
+    volumes:
+      - ./:/workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    ipc: host
+    shm_size: "8g"
+
+volumes:
+  postgres_data:
