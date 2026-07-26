@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Medical Agent — Full Database Schema
 -- =============================================================================
--- Run this file once to bootstrap the database from scratch.
+-- Run this file once to bootstrap the PostgreSQL database from scratch.
 -- If the DB already exists, skip CREATE DATABASE and just run the rest.
 --
 -- psql usage:
@@ -15,134 +15,185 @@
 -- Comment this out if the DB already exists.
 CREATE DATABASE medical_agent;
 
--- Switch into the new database (psql only — comment out for other editors)
+-- Switch into the new database (psql interactive shell)
 \c medical_agent
 
 
 -- ── Step 2: Enable extensions ─────────────────────────────────────────────────
--- pgvector is required for face-embedding similarity search.
+-- pgvector is required for 512-D face & text embedding similarity search.
 CREATE EXTENSION IF NOT EXISTS vector;
 
 
--- ── Step 3: Tables ────────────────────────────────────────────────────────────
+-- ── Step 3: RBAC & User Management ───────────────────────────────────────────
 
--- Consultations
--- Stores patient audio consultation transcripts and AI-generated discharge summaries.
+CREATE TABLE IF NOT EXISTS users (
+    id              SERIAL PRIMARY KEY,
+    username        VARCHAR(255) UNIQUE NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    role            VARCHAR(50) NOT NULL DEFAULT 'admin',
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_users_id ON users (id);
+CREATE INDEX IF NOT EXISTS ix_users_username ON users (username);
+
+CREATE TABLE IF NOT EXISTS rbac_groups (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_rbac_groups_id ON rbac_groups (id);
+CREATE INDEX IF NOT EXISTS ix_rbac_groups_name ON rbac_groups (name);
+
+CREATE TABLE IF NOT EXISTS rbac_permissions (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_rbac_permissions_id ON rbac_permissions (id);
+CREATE INDEX IF NOT EXISTS ix_rbac_permissions_name ON rbac_permissions (name);
+
+CREATE TABLE IF NOT EXISTS user_groups (
+    user_id  INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    group_id INTEGER NOT NULL REFERENCES rbac_groups (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, group_id)
+);
+
+CREATE TABLE IF NOT EXISTS group_permissions (
+    group_id      INTEGER NOT NULL REFERENCES rbac_groups (id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES rbac_permissions (id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, permission_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_permissions (
+    user_id       INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    permission_id INTEGER NOT NULL REFERENCES rbac_permissions (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, permission_id)
+);
+
+
+-- ── Step 4: Patients & Consultations ──────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS patients (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(255) NOT NULL,
+    mrn        VARCHAR(100) UNIQUE,
+    dob        DATE,
+    gender     VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_patients_id ON patients (id);
+CREATE INDEX IF NOT EXISTS ix_patients_name ON patients (name);
+CREATE INDEX IF NOT EXISTS ix_patients_mrn ON patients (mrn);
+
 CREATE TABLE IF NOT EXISTS consultations (
     id                SERIAL PRIMARY KEY,
-    patient_name      VARCHAR(255),
+    patient_id        INTEGER NOT NULL REFERENCES patients (id) ON DELETE CASCADE,
     date              TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     transcript        TEXT,
-    discharge_summary TEXT
+    discharge_summary TEXT,
+    prescription      TEXT
 );
+CREATE INDEX IF NOT EXISTS ix_consultations_id ON consultations (id);
 
-CREATE INDEX IF NOT EXISTS ix_consultations_id           ON consultations (id);
-CREATE INDEX IF NOT EXISTS ix_consultations_patient_name ON consultations (patient_name);
+CREATE TABLE IF NOT EXISTS medical_reports (
+    id               SERIAL PRIMARY KEY,
+    patient_id       INTEGER NOT NULL REFERENCES patients (id) ON DELETE CASCADE,
+    date             TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    file_path        VARCHAR(1024),
+    key_findings     TEXT,
+    abnormalities    TEXT,
+    recommendations  TEXT,
+    vitals_extracted TEXT,
+    raw_response     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_medical_reports_id ON medical_reports (id);
 
 
--- Staff
--- Registered staff members with their 512-dimensional ArcFace embeddings.
--- The embedding column uses pgvector for fast cosine-similarity lookups.
+-- ── Step 5: Staff Recognition & Biometrics ───────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS staff (
-    id         SERIAL PRIMARY KEY,
-    name       VARCHAR(255)       NOT NULL,
-    embedding  vector(512),                    -- InsightFace ArcFace 512-D (primary photo)
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(255) NOT NULL,
+    role            VARCHAR(100) DEFAULT 'Medical Staff',
+    embedding       vector(512),                     -- InsightFace ArcFace 512-D
+    upper_embedding vector(512),                     -- Upper 45% masked face embedding
+    photo_path      VARCHAR(1024),
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS ix_staff_id   ON staff (id);
+CREATE INDEX IF NOT EXISTS ix_staff_id ON staff (id);
 CREATE INDEX IF NOT EXISTS ix_staff_name ON staff (name);
 
-
--- Staff Photos
--- One-to-many: each staff member can have multiple face photos (front, left, right, angled, etc.)
--- All embeddings are checked during recognition — more photos = better angle coverage.
 CREATE TABLE IF NOT EXISTS staff_photos (
-    id         SERIAL PRIMARY KEY,
-    staff_id   INTEGER NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
-    embedding  vector(512) NOT NULL,
-    label      VARCHAR(100),                   -- e.g. 'front', 'left', 'right', 'with glasses'
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    id              SERIAL PRIMARY KEY,
+    staff_id        INTEGER NOT NULL REFERENCES staff (id) ON DELETE CASCADE,
+    embedding       vector(512) NOT NULL,
+    upper_embedding vector(512),
+    label           VARCHAR(100),                    -- 'front', 'left', 'right', 'angled'
+    photo_path      VARCHAR(1024),
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS ix_staff_photos_id       ON staff_photos (id);
+CREATE INDEX IF NOT EXISTS ix_staff_photos_id ON staff_photos (id);
 CREATE INDEX IF NOT EXISTS ix_staff_photos_staff_id ON staff_photos (staff_id);
 
-
--- Attendance
--- Auto-marked when a registered staff member's face is recognised by the camera.
--- Duplicate entries are suppressed in application code (5-minute cooldown per person).
-CREATE TABLE IF NOT EXISTS attendance (
+CREATE TABLE IF NOT EXISTS staff_activity (
     id         SERIAL PRIMARY KEY,
-    staff_id   INTEGER REFERENCES staff (id) ON DELETE SET NULL,
-    staff_name VARCHAR(255) NOT NULL,
-    confidence FLOAT        NOT NULL,           -- cosine similarity score (0.0–1.0)
-    timestamp  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    date       DATE         NOT NULL DEFAULT CURRENT_DATE
+    title      VARCHAR(255) NOT NULL,
+    subtitle   VARCHAR(255) NOT NULL,
+    color      VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS ix_attendance_id         ON attendance (id);
-CREATE INDEX IF NOT EXISTS ix_attendance_staff_name ON attendance (staff_name);
-CREATE INDEX IF NOT EXISTS ix_attendance_date       ON attendance (date);
+CREATE INDEX IF NOT EXISTS ix_staff_activity_id ON staff_activity (id);
 
 
--- Cameras
+-- ── Step 6: Cameras, ROIs, and Attendance ─────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS cameras (
     id            SERIAL PRIMARY KEY,
-    name          VARCHAR(255)  NOT NULL,
+    name          VARCHAR(255) NOT NULL,
     location      VARCHAR(255),
     rtsp_url      VARCHAR(1024) NOT NULL,
-    is_restricted BOOLEAN       NOT NULL DEFAULT FALSE
+    ha_entity_id  VARCHAR(255),
+    is_restricted BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
 CREATE INDEX IF NOT EXISTS ix_cameras_id ON cameras (id);
 
-
--- Camera ROIs
 CREATE TABLE IF NOT EXISTS camera_rois (
-    id SERIAL PRIMARY KEY,
+    id        SERIAL PRIMARY KEY,
     camera_id INTEGER NOT NULL REFERENCES cameras (id) ON DELETE CASCADE,
     zone_name VARCHAR(255) NOT NULL,
-    points TEXT NOT NULL
+    zone_type VARCHAR(50) NOT NULL DEFAULT 'observation',
+    points    TEXT NOT NULL
 );
-
 CREATE INDEX IF NOT EXISTS ix_camera_rois_id ON camera_rois (id);
 CREATE INDEX IF NOT EXISTS ix_camera_rois_zone_name ON camera_rois (zone_name);
 
-
--- Security Alerts
-CREATE TABLE IF NOT EXISTS security_alerts (
-    id SERIAL PRIMARY KEY,
-    rule_name VARCHAR NOT NULL,
-    severity VARCHAR DEFAULT 'medium',
-    camera_id INTEGER REFERENCES cameras(id),
-    details TEXT,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    resolved BOOLEAN DEFAULT FALSE
+CREATE TABLE IF NOT EXISTS attendance (
+    id          SERIAL PRIMARY KEY,
+    staff_id    INTEGER REFERENCES staff (id) ON DELETE SET NULL,
+    staff_name  VARCHAR(255) NOT NULL,
+    confidence  FLOAT NOT NULL,
+    date        DATE NOT NULL DEFAULT CURRENT_DATE,
+    entry_time  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_seen   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    exit_time   TIMESTAMP WITH TIME ZONE,
+    camera_id   INTEGER REFERENCES cameras (id) ON DELETE SET NULL,
+    camera_name VARCHAR(255)
 );
-
-CREATE TABLE IF NOT EXISTS security_rules (
-    id SERIAL PRIMARY KEY,
-    target_area VARCHAR,
-    rule_text VARCHAR NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE
-);
-
-CREATE INDEX IF NOT EXISTS ix_security_alerts_id ON security_alerts (id);
+CREATE INDEX IF NOT EXISTS ix_attendance_id ON attendance (id);
+CREATE INDEX IF NOT EXISTS ix_attendance_staff_name ON attendance (staff_name);
+CREATE INDEX IF NOT EXISTS ix_attendance_date ON attendance (date);
 
 
--- Equipment Types
+-- ── Step 7: Equipment Tracking & Inventory ───────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS equipment_types (
     id   SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE
 );
-
-CREATE INDEX IF NOT EXISTS ix_equipment_types_id   ON equipment_types (id);
+CREATE INDEX IF NOT EXISTS ix_equipment_types_id ON equipment_types (id);
 CREATE INDEX IF NOT EXISTS ix_equipment_types_name ON equipment_types (name);
 
-
--- Equipment Items
 CREATE TABLE IF NOT EXISTS equipment_items (
     id               SERIAL PRIMARY KEY,
     equipment_id     VARCHAR(255) NOT NULL UNIQUE,
@@ -150,12 +201,9 @@ CREATE TABLE IF NOT EXISTS equipment_items (
     current_location VARCHAR(255),
     last_seen        TIMESTAMP WITH TIME ZONE
 );
-
-CREATE INDEX IF NOT EXISTS ix_equipment_items_id           ON equipment_items (id);
+CREATE INDEX IF NOT EXISTS ix_equipment_items_id ON equipment_items (id);
 CREATE INDEX IF NOT EXISTS ix_equipment_items_equipment_id ON equipment_items (equipment_id);
 
-
--- Equipment Tracking
 CREATE TABLE IF NOT EXISTS equipment_tracking (
     id                SERIAL PRIMARY KEY,
     equipment_item_id INTEGER NOT NULL REFERENCES equipment_items (id) ON DELETE CASCADE,
@@ -163,88 +211,122 @@ CREATE TABLE IF NOT EXISTS equipment_tracking (
     camera_name       VARCHAR(255),
     timestamp         TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
 CREATE INDEX IF NOT EXISTS ix_equipment_tracking_id ON equipment_tracking (id);
 
 
--- Events
+-- ── Step 8: Events, Alerts, & Verification Tokens ─────────────────────────────
+
 CREATE TABLE IF NOT EXISTS events (
     id            SERIAL PRIMARY KEY,
     event_type    VARCHAR(100) NOT NULL,
     camera_id     INTEGER REFERENCES cameras (id) ON DELETE SET NULL,
     camera_name   VARCHAR(255),
     confidence    FLOAT,
-    snapshot_path VARCHAR(255),
+    snapshot_path VARCHAR(1024),
     timestamp     TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     details       TEXT
 );
-
-CREATE INDEX IF NOT EXISTS ix_events_id         ON events (id);
+CREATE INDEX IF NOT EXISTS ix_events_id ON events (id);
 CREATE INDEX IF NOT EXISTS ix_events_event_type ON events (event_type);
 
-CREATE INDEX IF NOT EXISTS ix_inventory_alerts_timestamp ON inventory_alerts (timestamp);
-CREATE INDEX IF NOT EXISTS ix_inventory_alerts_resolved  ON inventory_alerts (resolved);
-
--- ── RBAC System ──────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS rbac_groups (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
-    description TEXT
+CREATE TABLE IF NOT EXISTS security_alerts (
+    id        SERIAL PRIMARY KEY,
+    rule_name VARCHAR(255) NOT NULL,
+    severity  VARCHAR(50) DEFAULT 'medium',
+    camera_id INTEGER REFERENCES cameras (id) ON DELETE SET NULL,
+    details   TEXT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    resolved  BOOLEAN DEFAULT FALSE
 );
-CREATE INDEX IF NOT EXISTS ix_rbac_groups_name ON rbac_groups (name);
+CREATE INDEX IF NOT EXISTS ix_security_alerts_id ON security_alerts (id);
 
-CREATE TABLE IF NOT EXISTS rbac_permissions (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
-    description TEXT
+CREATE TABLE IF NOT EXISTS security_rules (
+    id          SERIAL PRIMARY KEY,
+    target_area VARCHAR(255),
+    rule_text   TEXT NOT NULL,
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE
 );
-CREATE INDEX IF NOT EXISTS ix_rbac_permissions_name ON rbac_permissions (name);
+CREATE INDEX IF NOT EXISTS ix_security_rules_id ON security_rules (id);
+CREATE INDEX IF NOT EXISTS ix_security_rules_target_area ON security_rules (target_area);
 
-CREATE TABLE IF NOT EXISTS user_groups (
-    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    group_id INTEGER NOT NULL REFERENCES rbac_groups (id) ON DELETE CASCADE,
-    PRIMARY KEY (user_id, group_id)
+CREATE TABLE IF NOT EXISTS person_verifications (
+    id              SERIAL PRIMARY KEY,
+    staff_name      VARCHAR(255) NOT NULL,
+    camera_id       INTEGER REFERENCES cameras (id) ON DELETE SET NULL,
+    has_mask        BOOLEAN DEFAULT FALSE,
+    has_left_glove  BOOLEAN DEFAULT FALSE,
+    has_right_glove BOOLEAN DEFAULT FALSE,
+    is_verified     BOOLEAN DEFAULT FALSE,
+    confidence      FLOAT,
+    verified_at     TIMESTAMP WITH TIME ZONE,
+    expires_at      TIMESTAMP WITH TIME ZONE,
+    created_at      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS ix_person_verifications_id ON person_verifications (id);
+CREATE INDEX IF NOT EXISTS ix_person_verifications_staff_name ON person_verifications (staff_name);
 
-CREATE TABLE IF NOT EXISTS group_permissions (
-    group_id INTEGER NOT NULL REFERENCES rbac_groups (id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES rbac_permissions (id) ON DELETE CASCADE,
-    PRIMARY KEY (group_id, permission_id)
+
+-- ── Step 9: AI, RAG & Memory Tables ──────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+    id            SERIAL PRIMARY KEY,
+    title         VARCHAR(255) NOT NULL,
+    document_type VARCHAR(100) NOT NULL,
+    created_at    TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS ix_knowledge_documents_id ON knowledge_documents (id);
 
-CREATE TABLE IF NOT EXISTS user_permissions (
-    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    permission_id INTEGER NOT NULL REFERENCES rbac_permissions (id) ON DELETE CASCADE,
-    PRIMARY KEY (user_id, permission_id)
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id          SERIAL PRIMARY KEY,
+    document_id INTEGER NOT NULL REFERENCES knowledge_documents (id) ON DELETE CASCADE,
+    content     TEXT NOT NULL,
+    embedding   vector(512),
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS ix_document_chunks_id ON document_chunks (id);
 
+CREATE TABLE IF NOT EXISTS medical_faq (
+    id         SERIAL PRIMARY KEY,
+    question   TEXT NOT NULL,
+    answer     TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_medical_faq_id ON medical_faq (id);
 
--- =============================================================================
--- Useful read-only queries for your DB editor
--- =============================================================================
+CREATE TABLE IF NOT EXISTS conversation_history (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    session_id VARCHAR(255) NOT NULL,
+    role       VARCHAR(50) NOT NULL,
+    content    TEXT NOT NULL,
+    timestamp  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_conversation_history_id ON conversation_history (id);
+CREATE INDEX IF NOT EXISTS ix_conversation_history_session_id ON conversation_history (session_id);
 
--- View today's attendance with staff details:
--- SELECT a.id, a.staff_name, s.name AS registered_name,
---        ROUND((a.confidence * 100)::numeric, 1) AS match_pct,
---        a.timestamp::time AS checked_in_at
--- FROM   attendance a
--- LEFT   JOIN staff s ON s.id = a.staff_id
--- WHERE  a.date = CURRENT_DATE
--- ORDER  BY a.timestamp DESC;
+CREATE TABLE IF NOT EXISTS agent_memory (
+    id         SERIAL PRIMARY KEY,
+    session_id VARCHAR(255) NOT NULL,
+    fact       TEXT NOT NULL,
+    embedding  vector(512),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_agent_memory_id ON agent_memory (id);
+CREATE INDEX IF NOT EXISTS ix_agent_memory_session_id ON agent_memory (session_id);
 
--- Count of attendances per staff member for today:
--- SELECT staff_name, COUNT(*) AS times_seen,
---        MAX(timestamp) AS last_seen,
---        ROUND(AVG(confidence * 100)::numeric, 1) AS avg_match_pct
--- FROM   attendance
--- WHERE  date = CURRENT_DATE
--- GROUP  BY staff_name
--- ORDER  BY last_seen DESC;
-
--- List all staff with their registration date:
--- SELECT id, name, created_at FROM staff ORDER BY created_at DESC;
-
--- List all consultations (latest first):
--- SELECT id, patient_name, date, LEFT(transcript, 120) AS transcript_preview
--- FROM   consultations
--- ORDER  BY date DESC;
+CREATE TABLE IF NOT EXISTS llm_audit_log (
+    id             SERIAL PRIMARY KEY,
+    session_id     VARCHAR(255),
+    prompt         TEXT,
+    context_used   TEXT,
+    retrieved_rows INTEGER,
+    model_used     VARCHAR(255),
+    response       TEXT,
+    confidence     FLOAT,
+    latency_ms     FLOAT,
+    token_usage    INTEGER,
+    timestamp      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_llm_audit_log_id ON llm_audit_log (id);
+CREATE INDEX IF NOT EXISTS ix_llm_audit_log_session_id ON llm_audit_log (session_id);

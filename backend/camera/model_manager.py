@@ -30,11 +30,14 @@ class ModelManager:
         self._mp_hands = None
         self._mp_hands_lock = threading.Lock()
 
-        self._yolo_detectors = {}
+        self._yolo_detector = None
         self._yolo_lock = threading.Lock()
 
         self._ppe_detector = None
         self._ppe_lock = threading.Lock()
+
+        self._yolo_world_detector = None
+        self._yolo_world_lock = threading.Lock()
 
         self._tts_model = None
         self._tts_lock = threading.Lock()
@@ -134,7 +137,7 @@ class ModelManager:
                     except Exception as e:
                         print(f"[ModelManager] Failed to load YOLO for camera {camera_id}: {e}")
                         self._yolo_detectors[camera_id] = False
-                        
+
         model = self._yolo_detectors.get(camera_id)
         return model if model is not False else None
 
@@ -200,3 +203,27 @@ class ModelManager:
                         print(f"[ModelManager] Failed to load KittenTTS: {e}")
                         self._tts_model = False
         return self._tts_model if self._tts_model is not False else None
+
+    def get_yolo_world_detector(self):
+        """Load YOLO-World v2 detector for open-vocabulary detection from models directory."""
+        if self._yolo_world_detector is None:
+            with self._yolo_world_lock:
+                if self._yolo_world_detector is None:
+                    try:
+                        from ultralytics import YOLO
+                        models_dir = os.path.abspath(
+                            os.path.join(os.path.dirname(__file__), "..", "models")
+                        )
+                        world_onnx = os.path.join(models_dir, "yolov8s-worldv2.onnx")
+                        if os.path.exists(world_onnx):
+                            print(f"[ModelManager] Loading YOLO-World v2 model from {world_onnx}...")
+                            self._yolo_world_detector = YOLO(world_onnx)
+                        else:
+                            print("[ModelManager] Loading default YOLOv8s-World v2 model...")
+                            self._yolo_world_detector = YOLO("yolov8s-worldv2.onnx")
+                        print("[ModelManager] YOLO-World v2 model loaded successfully.")
+                    except Exception as exc:
+                        print(f"[ModelManager] Failed to load YOLO-World v2: {exc}")
+                        self._yolo_world_detector = False
+        return self._yolo_world_detector if self._yolo_world_detector is not False else None
+
