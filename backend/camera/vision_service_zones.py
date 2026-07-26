@@ -87,8 +87,10 @@ class VisionServiceZones:
         self.zone_polygons: List[Tuple[str, str, np.ndarray]] = []
         # Each entry: (zone_name, zone_type, polygon_pts)
 
-        # Frame counter for throttling
+        # Frame counter & Human centroid tracking state
         self._frame_count = 0
+        self._active_tracks: Dict[int, dict] = {}
+        self._next_track_id: int = 0
         self._last_identity_run: Dict[int, int] = {}  # track_id → last frame identity was checked
         self._last_ppe_sample: Dict[int, int] = {}  # track_id → last frame PPE crops were sampled
         self._ppe_evidence: Dict[int, dict] = {}
@@ -217,10 +219,46 @@ class VisionServiceZones:
                     print(f"[ZoneDebug] {name} at {bbox} IN ZONE: {zone_name} ({zone_type})")
                 return zone_name, zone_type
 
-        if self.debug_zones and name != "Unknown":
-            poly_str = " | ".join([f"{z}: {p.tolist()}" for z, t, p in self.zone_polygons])
-            print(f"[ZoneDebug] {name} at {bbox} is OUTSIDE all zones! Polygons: {poly_str}")
-        return None, ZONE_TYPE_OBSERVATION
+    def _update_human_tracks(self, current_detections: List[dict]) -> List[dict]:
+        """
+        Maintain persistent human track IDs across consecutive frames using centroid matching.
+        """
+        updated_tracks = []
+        for det in current_detections:
+            x1, y1, x2, y2 = det["bbox"]
+            cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+
+            best_tid = -1
+            min_dist = 220.0  # Max pixel distance for same track across frames
+            for tid, t_data in self._active_tracks.items():
+                tcx, tcy = t_data["centroid"]
+                dist = ((cx - tcx)**2 + (cy - tcy)**2)**0.5
+                if dist < min_dist:
+                    min_dist = dist
+                    best_tid = tid
+
+            if best_tid == -1:
+                self._next_track_id += 1
+                best_tid = self._next_track_id
+
+            self._active_tracks[best_tid] = {
+                "centroid": (cx, cy),
+                "bbox": det["bbox"],
+                "last_frame": self._frame_count,
+            }
+            item = det.copy()
+            item["track_id"] = best_tid
+            updated_tracks.append(item)
+
+        # Prune inactive tracks older than 60 frames
+        stale_tids = [
+            tid for tid, t_data in self._active_tracks.items()
+            if self._frame_count - t_data["last_frame"] > 60
+        ]
+        for tid in stale_tids:
+            del self._active_tracks[tid]
+
+        return updated_tracks
 
     @staticmethod
     def _is_plausible_person_bbox(bbox: list) -> bool:
@@ -691,114 +729,84 @@ class VisionServiceZones:
         incident_events = []
         ppe_events = []
 
-        # ── Step 1: YOLO11n Person Detection + ByteTrack Tracking ─────────
-        yolo = ModelManager().get_yolo_detector(camera_id=self.camera_name)
-        if yolo is None:
+        # ── Step 1: Detect Human Faces & Landmarks (InsightFace SCRFD) ──────
+        app = ModelManager().get_face_analysis(self.config)
+        if not app:
             return frame, face_events, equipment_events, incident_events, ppe_events
 
-        # Run YOLO with ByteTrack tracking
-        results = yolo.track(
-            frame,
-            persist=True,
-            tracker="bytetrack.yaml",
-            conf=YOLO_CONFIDENCE_THRESHOLD,
-            classes=[YOLO_PERSON_CLASS],
-            imgsz=self.yolo_imgsz,
-            device=self.device,
-            verbose=False,
-        )
-
-        if not results or len(results) == 0:
+        faces = app.get(original_frame)
+        if not faces or len(faces) == 0:
             return frame, face_events, equipment_events, incident_events, ppe_events
 
-        detections = results[0]
-        boxes = detections.boxes
-        if boxes is None or len(boxes) == 0:
+        current_detections = []
+        for face in faces:
+            fx1, fy1, fx2, fy2 = map(int, face.bbox)
+            fw_box = max(1, fx2 - fx1)
+            fh_box = max(1, fy2 - fy1)
+
+            # Extrapolate full person body bounds from facial landmark proportions
+            px1 = max(0, fx1 - int(fw_box * 0.8))
+            py1 = max(0, fy1 - int(fh_box * 0.3))
+            px2 = min(fw, fx2 + int(fw_box * 0.8))
+            py2 = min(fh, fy2 + int(fh_box * 4.5))
+            person_bbox = [px1, py1, px2, py2]
+
+            emb = face.embedding
+            emb_norm = np.linalg.norm(emb)
+            if emb_norm > 0:
+                emb = emb / emb_norm
+
+            name = "Unknown"
+            score = 0.0
+            staff_id = None
+
+            if self.staff_embeddings_matrix.shape[0] > 0 and emb is not None:
+                scores = np.dot(self.staff_embeddings_matrix, emb)
+                best_idx = int(np.argmax(scores))
+                best_score = float(scores[best_idx])
+                if best_score >= REJECTION_THRESHOLD:
+                    name = self.staff_names[best_idx]
+                    staff_id = self.staff_ids[best_idx]
+                    score = best_score
+                elif self.staff_has_upper_embedding.any():
+                    upper_emb = self._extract_upper_face_embedding(original_frame, face.bbox)
+                    if upper_emb is not None:
+                        upper_scores = np.dot(self.staff_upper_embeddings_matrix, upper_emb)
+                        upper_scores[~self.staff_has_upper_embedding] = -1.0
+                        upper_best_idx = int(np.argmax(upper_scores))
+                        upper_best_score = float(upper_scores[upper_best_idx])
+                        if upper_best_score >= UPPER_FACE_REJECTION_THRESHOLD:
+                            name = self.staff_names[upper_best_idx]
+                            staff_id = self.staff_ids[upper_best_idx]
+                            score = upper_best_score
+
+            current_detections.append({
+                "face_bbox": [fx1, fy1, fx2, fy2],
+                "bbox": person_bbox,
+                "name": name,
+                "score": score,
+                "staff_id": staff_id,
+                "det_conf": float(getattr(face, "det_score", 0.90)),
+            })
+
+        tracked_human_objects = self._update_human_tracks(current_detections)
+        if not tracked_human_objects:
             return frame, face_events, equipment_events, incident_events, ppe_events
 
-        tracked_people = [
-            (
-                int(box.id[0]) if box.id is not None else -1,
-                box.xyxy[0].cpu().numpy().astype(int).tolist(),
-            )
-            for box in boxes
-            if self._is_plausible_person_bbox(
-                box.xyxy[0].cpu().numpy().astype(int).tolist()
-            )
-        ]
-        if not tracked_people:
-            return frame, face_events, equipment_events, incident_events, ppe_events
-        plausible_track_ids = {track_id for track_id, _ in tracked_people}
+        tracked_people = [(det["track_id"], det["bbox"]) for det in tracked_human_objects]
         ppe_by_track = self._detect_ppe_for_tracks(original_frame, tracked_people)
 
         # ── Step 2: Process Each Tracked Person ───────────────────────────
         active_track_ids = set()
         
-        for box in boxes:
-            bbox = box.xyxy[0].cpu().numpy().astype(int).tolist()
-            track_id = int(box.id[0]) if box.id is not None else -1
-            if track_id not in plausible_track_ids:
-                continue
-            det_conf = float(box.conf[0])
+        for det in tracked_human_objects:
+            bbox = det["bbox"]
+            track_id = det["track_id"]
+            det_conf = det["det_conf"]
+            name = det["name"]
+            score = det["score"]
+            staff_id = det["staff_id"]
             active_track_ids.add(track_id)
-
-            # Spatial Identity Inheritance: if a new track appears exactly where a known track just vanished
-            if track_id not in self.identity_cache and track_id != -1:
-                x1, y1, x2, y2 = bbox
-                center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
-                best_lost_id = -1
-                min_dist = float('inf')
-                
-                # Check stale IDs in cache
-                for lost_tid, data in self.identity_cache.items():
-                    if lost_tid not in active_track_ids and data.get("name") != "Unknown":
-                        frames_since = self._frame_count - data.get("last_frame", 0)
-                        if frames_since < 30:  # If lost within last 1.5 seconds
-                            lost_bbox = data.get("last_bbox")
-                            if lost_bbox:
-                                lx1, ly1, lx2, ly2 = lost_bbox
-                                l_center_x, l_center_y = (lx1 + lx2) / 2, (ly1 + ly2) / 2
-                                dist = ((center_x - l_center_x)**2 + (center_y - l_center_y)**2)**0.5
-                                if dist < 300 and dist < min_dist:  # Distance threshold increased for head movement
-                                    min_dist = dist
-                                    best_lost_id = lost_tid
-                                    
-                if best_lost_id != -1:
-                    print(f"[VisionServiceZones] Inheriting identity {self.identity_cache[best_lost_id]['name']} from track {best_lost_id} to {track_id} (dist={min_dist:.1f})")
-                    self.identity_cache[track_id] = {
-                        "name": self.identity_cache[best_lost_id]["name"],
-                        "score": self.identity_cache[best_lost_id]["score"],
-                        "last_frame": self._frame_count,
-                        "last_bbox": bbox
-                    }
-                    self._last_identity_run[track_id] = self._frame_count
-
-            # ── Step 3: Identity Recognition (throttled) ──────────────────────
-            cached_identity = self.identity_cache.get(track_id, {})
-            frames_since_identity = (
-                self._frame_count - self._last_identity_run.get(track_id, 0)
-            )
-
-            should_identify = (
-                track_id not in self._last_identity_run
-                or (
-                    cached_identity.get("name") == "Unknown"
-                    and frames_since_identity >= UNKNOWN_IDENTITY_RETRY_FRAMES
-                )
-                or frames_since_identity >= IDENTITY_REFRESH_FRAMES
-            )
-
-            if should_identify:
-                name, score, staff_id = self._identify_person(
-                    original_frame, bbox, track_id
-                )
-            else:
-                name = cached_identity.get("name", "Unknown")
-                score = cached_identity.get("score", 0.0)
-                staff_id = cached_identity.get("staff_id")
-                if track_id in self.identity_cache:
-                    self.identity_cache[track_id]["last_bbox"] = bbox
-                    self.identity_cache[track_id]["last_frame"] = self._frame_count
 
             # ── Step 4: Zone Classification ───────────────────────────────────
             zone_name, zone_type = self._classify_zone(bbox, name)
@@ -907,11 +915,6 @@ class VisionServiceZones:
             )
 
         # ── Cleanup stale identity cache entries ──────────────────────────
-        active_track_ids = set()
-        for box in boxes:
-            if box.id is not None:
-                active_track_ids.add(int(box.id[0]))
-
         stale_ids = [
             tid
             for tid in self.identity_cache
