@@ -71,6 +71,7 @@ class VisionServiceZones:
 
         # Staff identity data
         self.staff_names: List[str] = []
+        self.staff_ids: List[Optional[int]] = []
         self.staff_embeddings_matrix = np.empty((0, 512))
         self.staff_upper_embeddings_matrix = np.empty((0, 512))
         self.staff_has_upper_embedding = np.empty((0,), dtype=bool)
@@ -97,11 +98,13 @@ class VisionServiceZones:
     def update_staff_embeddings(self, staff_list: list) -> None:
         """Update the staff identity database for face recognition."""
         self.staff_names = []
+        self.staff_ids = []
         embeddings = []
         upper_embeddings = []
         has_upper_embeddings = []
         for staff in staff_list:
             self.staff_names.append(staff["name"])
+            self.staff_ids.append(staff.get("id"))
             emb = np.asarray(staff["embedding"], dtype=np.float32)
             norm = np.linalg.norm(emb)
             if norm > 0:
@@ -231,7 +234,7 @@ class VisionServiceZones:
 
     def _identify_person(
         self, frame: np.ndarray, bbox: list, track_id: int
-    ) -> Tuple[str, float]:
+    ) -> Tuple[str, float, Optional[int]]:
         """
         Run InsightFace on the person's bounding box region to identify them.
         Uses caching to avoid running InsightFace every frame.
@@ -244,12 +247,12 @@ class VisionServiceZones:
                 cached["name"] != "Unknown"
                 and frames_since < self.identity_cache_ttl
             ):
-                return cached["name"], cached["score"]
+                return cached["name"], cached["score"], cached.get("staff_id")
 
         # Run InsightFace
         app = ModelManager().get_face_analysis(self.config)
         if not app:
-            return "Unknown", 0.0
+            return "Unknown", 0.0, None
 
         # Crop the person region with margin for face detection
         h, w = frame.shape[:2]
@@ -262,11 +265,11 @@ class VisionServiceZones:
         person_crop = frame[ry1:ry2, rx1:rx2]
 
         if person_crop.size == 0:
-            return "Unknown", 0.0
+            return "Unknown", 0.0, None
 
         faces = app.get(person_crop)
         if not faces:
-            return "Unknown", 0.0
+            return "Unknown", 0.0, None
 
         # Pick the largest face in the crop
         best_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
@@ -276,16 +279,18 @@ class VisionServiceZones:
             emb = emb / emb_norm
 
         if self.staff_embeddings_matrix.shape[0] == 0:
-            return "Unknown", 0.0
+            return "Unknown", 0.0, None
 
         scores = np.dot(self.staff_embeddings_matrix, emb)
         best_idx = int(np.argmax(scores))
         best_score = float(scores[best_idx])
         name = "Unknown"
+        staff_id = None
         identity_source = "full_face"
 
         if best_score >= REJECTION_THRESHOLD:
             name = self.staff_names[best_idx]
+            staff_id = self.staff_ids[best_idx]
         elif self.staff_has_upper_embedding.any():
             upper_emb = self._extract_upper_face_embedding(
                 person_crop, best_face.bbox
@@ -297,12 +302,14 @@ class VisionServiceZones:
                 upper_best_score = float(upper_scores[upper_best_idx])
                 if upper_best_score >= UPPER_FACE_REJECTION_THRESHOLD:
                     name = self.staff_names[upper_best_idx]
+                    staff_id = self.staff_ids[upper_best_idx]
                     best_score = upper_best_score
                     identity_source = "upper_face"
 
         # Cache the result
         self.identity_cache[track_id] = {
             "name": name,
+            "staff_id": staff_id,
             "score": best_score,
             "identity_source": identity_source,
             "last_frame": self._frame_count,
@@ -316,7 +323,7 @@ class VisionServiceZones:
         }
         self._last_identity_run[track_id] = self._frame_count
 
-        return name, best_score
+        return name, best_score, staff_id
 
     def _crop_face_region(
         self,
@@ -458,6 +465,24 @@ class VisionServiceZones:
 
         return left_crop, right_crop
 
+    def _get_texture_variance(self, image_bgr: np.ndarray, bbox: List[int]) -> float:
+        """
+        Calculate Laplacian variance of a bounding box.
+        High variance = lots of detail (bare face: lips, nose, pores).
+        Low variance = smooth surface (medical mask).
+        """
+        x1, y1, x2, y2 = bbox
+        # Add a tiny bit of padding to avoid edges
+        pad = 2
+        x1, y1 = max(0, x1 + pad), max(0, y1 + pad)
+        x2, y2 = max(0, x2 - pad), max(0, y2 - pad)
+        crop = image_bgr[y1:y2, x1:x2]
+        if crop.size == 0:
+            return 0.0
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+        return float(np.var(laplacian))
+
     def _detect_ppe_for_tracks(
         self, frame: np.ndarray, tracked_people: List[Tuple[int, list]]
     ) -> Dict[int, dict]:
@@ -524,14 +549,14 @@ class VisionServiceZones:
 
                 x1, y1, x2, y2 = detection.xyxy[0].cpu().numpy().astype(int)
 
+                box_dict = None
                 if label != "person":
-                    self._last_ppe_boxes.append(
-                        {
-                            "class": label,
-                            "score": conf,
-                            "bbox": [int(x1), int(y1), int(x2), int(y2)],
-                        }
-                    )
+                    box_dict = {
+                        "class": label,
+                        "score": conf,
+                        "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    }
+                    self._last_ppe_boxes.append(box_dict)
 
                 if label not in ("mask", "glove"):
                     continue
@@ -573,10 +598,22 @@ class VisionServiceZones:
                             # Extremely strict threshold: mask center must be in top 30% of body box
                             is_properly_worn = center_y <= py1 + height * 0.30
 
+                        is_bare_face = False
+                        if is_properly_worn:
+                            tex_var = self._get_texture_variance(frame, [x1, y1, x2, y2])
+                            # If texture detail is high, it's bare skin (lips, nose), not a mask
+                            if tex_var > 65.0:
+                                is_properly_worn = False
+                                is_bare_face = True
+
                         if is_properly_worn:
                             current[track_id]["mask"] = True
-                        else:
+                        elif not is_bare_face:
                             current[track_id]["improper_mask"] = True
+                            if box_dict is not None:
+                                box_dict["class"] = "mask (improper)"
+                        elif box_dict is not None:
+                            box_dict["class"] = "mask (false positive)"
                     elif label == "glove":
                         side = "left_glove" if center_x >= (px1 + px2) / 2 else "right_glove"
                         current[track_id][side] = True
@@ -653,7 +690,7 @@ class VisionServiceZones:
         ppe_events = []
 
         # ── Step 1: YOLO11n Person Detection + ByteTrack Tracking ─────────
-        yolo = ModelManager().get_yolo_detector()
+        yolo = ModelManager().get_yolo_detector(camera_id=self.camera_name)
         if yolo is None:
             return frame, face_events, equipment_events, incident_events, ppe_events
 
@@ -749,12 +786,13 @@ class VisionServiceZones:
             )
 
             if should_identify:
-                name, score = self._identify_person(
+                name, score, staff_id = self._identify_person(
                     original_frame, bbox, track_id
                 )
             else:
                 name = cached_identity.get("name", "Unknown")
                 score = cached_identity.get("score", 0.0)
+                staff_id = cached_identity.get("staff_id")
                 if track_id in self.identity_cache:
                     self.identity_cache[track_id]["last_bbox"] = bbox
                     self.identity_cache[track_id]["last_frame"] = self._frame_count
@@ -834,6 +872,7 @@ class VisionServiceZones:
                 bbox,
                 track_id,
                 name,
+                staff_id,
                 score,
                 zone_name,
                 zone_type,
@@ -898,6 +937,7 @@ class VisionServiceZones:
         bbox: list,
         track_id: int,
         name: str,
+        staff_id: Optional[int],
         score: float,
         zone_name: Optional[str],
         zone_type: str,
@@ -950,17 +990,20 @@ class VisionServiceZones:
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
         # Draw label
-        label = f"#{track_id} {name}"
+        if staff_id is not None:
+            label = f"#{staff_id} {name}"
+        else:
+            label = f"{name}"
         if score > 0:
             label += f" {score:.0%}"
         cv2.putText(
             frame,
             label,
-            (x1, max(0, y1 - 10)),
+            (x1, max(15, y1 - 10)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            0.5,
             color,
-            2,
+            1,
         )
 
         # Draw status below bbox

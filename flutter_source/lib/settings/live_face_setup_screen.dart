@@ -6,6 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../network/api_routes.dart';
 
+const Color _bgBase = Color(0xFF041329);
+const Color _tealAccent = Color(0xFF5ffbd6);
+const Color _surfaceContainer = Color(0xFF112036);
+const Color _surfaceContainerHigh = Color(0xFF1c2a41);
+const Color _textColor = Color(0xFFd6e3ff);
+const Color _textVariant = Color(0xFFbacac3);
+const Color _outlineVariant = Color(0xFF3c4a45);
+
 class LiveFaceSetupScreen extends StatefulWidget {
   final int staffId;
   const LiveFaceSetupScreen({super.key, required this.staffId});
@@ -14,7 +22,7 @@ class LiveFaceSetupScreen extends StatefulWidget {
   State<LiveFaceSetupScreen> createState() => _LiveFaceSetupScreenState();
 }
 
-class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
+class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTickerProviderStateMixin {
   CameraController? _controller;
   WebSocketChannel? _channel;
   Timer? _timer;
@@ -22,13 +30,19 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
   int _currentCameraIndex = 0;
 
   bool _isInitializing = true;
-  String _currentInstruction = "Connecting to AI Engine...";
+  String _currentInstruction = "Initializing System Handshake...";
   List<String> _completedAngles = [];
   bool _isComplete = false;
+
+  late AnimationController _scanController;
 
   @override
   void initState() {
     super.initState();
+    _scanController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
     _initCamera();
   }
 
@@ -39,8 +53,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
         if (_cameras.isEmpty) throw Exception('No cameras found');
 
         // Try to start with front camera if available
-        _currentCameraIndex = _cameras
-            .indexWhere((c) => c.lensDirection == CameraLensDirection.front);
+        _currentCameraIndex = _cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.front);
         if (_currentCameraIndex == -1) _currentCameraIndex = 0;
       }
 
@@ -70,8 +83,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
 
   Future<void> _switchCamera() async {
     if (_cameras.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No other cameras found')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No other cameras found')));
       return;
     }
 
@@ -98,15 +110,15 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
 
         setState(() {
           _currentInstruction = data['instruction'] ?? '';
-          _completedAngles =
-              (data['completed'] as List<dynamic>).cast<String>();
+          _completedAngles = (data['completed'] as List<dynamic>).cast<String>();
 
           if (data['status'] == 'complete') {
             _isComplete = true;
             _timer?.cancel();
             Future.delayed(const Duration(seconds: 2), () {
-              if (mounted)
+              if (mounted) {
                 Navigator.pop(context, true); // true indicates success
+              }
             });
           }
         });
@@ -125,10 +137,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
 
     // Start streaming frames
     _timer = Timer.periodic(const Duration(milliseconds: 600), (t) async {
-      if (_isComplete ||
-          _controller == null ||
-          !_controller!.value.isInitialized ||
-          _controller!.value.isTakingPicture) {
+      if (_isComplete || _controller == null || !_controller!.value.isInitialized || _controller!.value.isTakingPicture) {
         return;
       }
 
@@ -144,6 +153,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
 
   @override
   void dispose() {
+    _scanController.dispose();
     _timer?.cancel();
     _channel?.sink.close();
     _controller?.dispose();
@@ -152,34 +162,29 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
 
   Widget _buildCheckmark(String angle, String label) {
     final isDone = _completedAngles.contains(angle);
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: isDone
-            ? Colors.green.withValues(alpha: 0.2)
-            : Colors.white.withValues(alpha: 0.1),
-        border: Border.all(
-            color: isDone
-                ? Colors.green.withValues(alpha: 0.5)
-                : Colors.transparent),
-        borderRadius: BorderRadius.circular(20),
+        color: isDone ? _tealAccent.withOpacity(0.1) : _surfaceContainerHigh,
+        border: Border.all(color: isDone ? _tealAccent.withOpacity(0.5) : _outlineVariant.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             isDone ? Icons.check_circle : Icons.circle_outlined,
-            color: isDone ? Colors.green : Colors.white54,
-            size: 18,
+            color: isDone ? _tealAccent : _textVariant,
+            size: 20,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Text(
-            label,
+            label.toUpperCase(),
             style: TextStyle(
-              fontSize: 15,
-              color: isDone ? Colors.green : Colors.white70,
-              fontWeight: isDone ? FontWeight.bold : FontWeight.w500,
+              fontSize: 12,
+              color: isDone ? _tealAccent : _textVariant,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
             ),
           ),
         ],
@@ -189,22 +194,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isInitializing) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
-      );
-    }
-
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _bgBase,
       appBar: AppBar(
-        title: const Text('Face ID Setup',
-            style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 18)),
-        centerTitle: true,
+        title: const Text('Staff Biometric Registration', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -214,179 +207,272 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> {
             onPressed: _switchCamera,
             tooltip: 'Switch Camera',
           ),
+          const SizedBox(width: 16),
         ],
       ),
-      extendBodyBehindAppBar: true,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_controller != null && _controller!.value.isInitialized)
-            Positioned.fill(
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: 1 / _controller!.value.aspectRatio,
-                  child: CameraPreview(_controller!),
-                ),
-              ),
-            ),
-
-          // Perfect circular face cutout overlay
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _FaceHolePainter(isComplete: _isComplete),
-            ),
-          ),
-
-          // Instruction Overlay pill
-          Positioned(
-            top: 100,
-            left: 20,
-            right: 20,
-            child: Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(30),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.2)),
-                    ),
-                    child: Text(
-                      _currentInstruction,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // Progress Checklist (Glassmorphism card)
-          Positioned(
-            bottom: 40,
-            left: 20,
-            right: 20,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(30),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(30),
-                    border:
-                        Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
+      body: _isInitializing
+          ? const Center(child: CircularProgressIndicator(color: _tealAccent))
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth > 900) {
+                  return Row(
                     children: [
-                      const Text('Progress',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18)),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          _buildCheckmark('front', 'Front'),
-                          _buildCheckmark('side_left', 'Left'),
-                          _buildCheckmark('side_right', 'Right'),
-                          _buildCheckmark('angled_up', 'Up'),
-                          _buildCheckmark('angled_down', 'Down'),
-                        ],
-                      ),
+                      Expanded(flex: 7, child: _buildCameraFeed()),
+                      Expanded(flex: 5, child: _buildRegistrationPanel()),
                     ],
-                  ),
-                ),
+                  );
+                }
+                return Column(
+                  children: [
+                    Expanded(flex: 6, child: _buildCameraFeed()),
+                    Expanded(flex: 5, child: _buildRegistrationPanel()),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildCameraFeed() {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator(color: _tealAccent));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: _surfaceContainer,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _tealAccent.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(color: _tealAccent.withOpacity(0.05), blurRadius: 30, spreadRadius: 5),
+          ],
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: AspectRatio(
+                aspectRatio: 1 / _controller!.value.aspectRatio,
+                child: CameraPreview(_controller!),
               ),
             ),
-          ),
-
-          if (_isComplete)
-            Container(
-              color: Colors.black.withValues(alpha: 0.85),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+            // Darken overlay
+            Container(color: Colors.black.withOpacity(0.3)),
+            
+            // Central Target Frame
+            Center(
+              child: Container(
+                width: 280,
+                height: 340,
+                decoration: BoxDecoration(
+                  border: Border.all(color: _tealAccent.withOpacity(0.4), width: 1, style: BorderStyle.solid),
+                  borderRadius: BorderRadius.circular(32),
+                ),
+                child: Stack(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green, size: 80),
-                    SizedBox(height: 16),
-                    Text(
-                      'Face ID Complete',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold),
+                    // Dashed inner border
+                    Positioned.fill(
+                      child: Container(
+                        margin: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: _tealAccent.withOpacity(0.2), width: 2),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                      ),
+                    ),
+                    // Scanning line animation
+                    AnimatedBuilder(
+                      animation: _scanController,
+                      builder: (context, child) {
+                        return Positioned(
+                          top: _scanController.value * 320,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            height: 2,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.transparent, _tealAccent, Colors.transparent],
+                              ),
+                              boxShadow: [
+                                BoxShadow(color: _tealAccent, blurRadius: 10, spreadRadius: 2)
+                              ]
+                            ),
+                          ),
+                        );
+                      }
+                    ),
+                    // Match Text
+                    Positioned(
+                      top: -14,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _tealAccent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'SUBJECT_DETECTED',
+                            style: TextStyle(color: _bgBase, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1, fontFamily: 'monospace'),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-        ],
+
+            // Corners
+            Positioned(top: 32, left: 32, child: _buildCorner(top: true, left: true)),
+            Positioned(top: 32, right: 32, child: _buildCorner(top: true, left: false)),
+            Positioned(bottom: 32, left: 32, child: _buildCorner(top: false, left: true)),
+            Positioned(bottom: 32, right: 32, child: _buildCorner(top: false, left: false)),
+
+            // Mock Monospace Stats
+            Positioned(
+              top: 24,
+              right: 24,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _buildMonoText('FPS: 60.0'),
+                  _buildMonoText('ISO: 400'),
+                  _buildMonoText('EXP: -0.5'),
+                ],
+              ),
+            ),
+            Positioned(
+              bottom: 24,
+              left: 24,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildMonoText('LAT: 40.7128 N'),
+                  _buildMonoText('LONG: 74.0060 W'),
+                  _buildMonoText('NODE: AEGIS_CAM_04'),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
-}
 
-class _FaceHolePainter extends CustomPainter {
-  final bool isComplete;
-  _FaceHolePainter({required this.isComplete});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Dim the background lightly so the face cutout is visible but surroundings can be seen
-    final paint = Paint()..color = Colors.black.withValues(alpha: 0.45);
-
-    // Create a circular/oval cutout that scales correctly but isn't too huge on tablets
-    final shortestSide = size.width < size.height ? size.width : size.height;
-
-    // Make the oval take up ~75% of the shortest side (matching the backend's 80% safe zone)
-    final ovalWidth = shortestSide * 0.75;
-    final ovalHeight = shortestSide *
-        0.95; // Slightly taller than wide for a natural face shape
-
-    final rect = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2.3),
-      width: ovalWidth,
-      height: ovalHeight,
+  Widget _buildCorner({required bool top, required bool left}) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        border: Border(
+          top: top ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
+          bottom: !top ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
+          left: left ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
+          right: !left ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
+        ),
+      ),
     );
-
-    // Combine outer rect and inner oval to create a hole
-    final path = Path.combine(
-      PathOperation.difference,
-      Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
-      Path()
-        ..addOval(rect)
-        ..close(),
-    );
-    canvas.drawPath(path, paint);
-
-    // Draw an elegant Apple-style border around the hole
-    final borderPaint = Paint()
-      ..color =
-          isComplete ? Colors.green : Colors.blueAccent.withValues(alpha: 0.8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    canvas.drawOval(rect, borderPaint);
   }
 
-  @override
-  bool shouldRepaint(covariant _FaceHolePainter oldDelegate) {
-    return oldDelegate.isComplete != isComplete;
+  Widget _buildMonoText(String text) {
+    return Text(
+      text,
+      style: TextStyle(color: _tealAccent.withOpacity(0.8), fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+    );
+  }
+
+  Widget _buildRegistrationPanel() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 24, 24, 24),
+      child: Container(
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: _surfaceContainer.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _tealAccent.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.fingerprint, color: _tealAccent, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text('Live AI Enrollment', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                    Text('Follow the prompts to configure access.', style: TextStyle(color: _textVariant, fontSize: 14)),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 48),
+            const Text('CURRENT INSTRUCTION', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: _surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _outlineVariant.withOpacity(0.3)),
+              ),
+              child: Text(
+                _currentInstruction,
+                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 32),
+            const Text('BIOMETRIC PROGRESS', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildCheckmark('front', 'Front'),
+                _buildCheckmark('side_left', 'Left'),
+                _buildCheckmark('side_right', 'Right'),
+                _buildCheckmark('angled_up', 'Up'),
+                _buildCheckmark('angled_down', 'Down'),
+              ],
+            ),
+            const Spacer(),
+            if (_isComplete)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.green),
+                    SizedBox(width: 12),
+                    Text('Biometric Profile Completed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

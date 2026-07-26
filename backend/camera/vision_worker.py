@@ -12,14 +12,18 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
     """
     print("[VisionWorkerProcess] Initializing AI Models in separate process...")
     try:
-        from camera.vision_service_zones import VisionServiceZones
-        vision_service = VisionServiceZones()
+        # We no longer instantiate a single global VisionService here.
+        # Instead, we instantiate them per camera_id dynamically.
+        pass
     except Exception as e:
         print(f"[VisionWorkerProcess] Failed to initialize VisionService: {e}")
         output_queue.put({"type": "fatal", "error": str(e)})
         return
         
     shm_dict = {} # camera_id -> SharedMemory
+    vision_services = {} # camera_id -> VisionServiceZones
+    global_staff_list = []
+    global_zones = []
     
     while True:
         try:
@@ -28,12 +32,16 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 break # Shutdown signal
             
             if req["type"] == "update_staff":
-                vision_service.update_staff_embeddings(req["staff_list"])
+                global_staff_list = req["staff_list"]
+                for vs in vision_services.values():
+                    vs.update_staff_embeddings(global_staff_list)
                 output_queue.put({"type": "staff_updated"})
                 continue
                 
             if req["type"] == "update_zones":
-                vision_service.update_zone_polygons(req["zones"])
+                global_zones = req["zones"]
+                for vs in vision_services.values():
+                    vs.update_zone_polygons(global_zones)
                 continue
                 
             if req["type"] == "register_camera":
@@ -42,6 +50,15 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                     shm_in = shared_memory.SharedMemory(name=req["shm_name"])
                     shm_out = shared_memory.SharedMemory(name=req["shm_out_name"])
                     shm_dict[cam_id] = (shm_in, shm_out)
+                    
+                    from camera.vision_service_zones import VisionServiceZones
+                    vs = VisionServiceZones(camera_name=str(cam_id))
+                    if global_staff_list:
+                        vs.update_staff_embeddings(global_staff_list)
+                    if global_zones:
+                        vs.update_zone_polygons(global_zones)
+                    vision_services[cam_id] = vs
+                    
                     output_queue.put({"type": "camera_registered", "camera_id": cam_id})
                 except Exception as e:
                     output_queue.put({"type": "error", "error": f"Failed to attach SHM for {cam_id}: {e}"})
@@ -59,6 +76,8 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                     except FileNotFoundError:
                         pass
                     del shm_dict[cam_id]
+                if cam_id in vision_services:
+                    del vision_services[cam_id]
                 continue
 
             if req["type"] == "process_frame":
@@ -67,7 +86,7 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 h = req["h"]
                 w = req["w"]
                 
-                if cam_id not in shm_dict:
+                if cam_id not in shm_dict or cam_id not in vision_services:
                     continue
                     
                 shm_in, _ = shm_dict[cam_id]
@@ -77,7 +96,7 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 # draws smoothed overlays on the live frame, so we do not need
                 # to copy an annotated frame back through shared memory.
                 frame = np.copy(shared_in[:h, :w, :])
-                _, face_events, equipment_events, incident_events, ppe_events = vision_service.process_frame(frame, camera_id=cam_id)
+                _, face_events, equipment_events, incident_events, ppe_events = vision_services[cam_id].process_frame(frame, camera_id=cam_id)
                 
                 output_queue.put({
                     "type": "results",

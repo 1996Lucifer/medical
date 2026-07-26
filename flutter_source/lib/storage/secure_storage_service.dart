@@ -66,4 +66,28 @@ class SecureStorageService {
       await _storage.write(key: 'note_keys_index', value: jsonEncode(keys));
     }
   }
+
+  /// Delete a note by backend ID
+  Future<void> deleteNoteById(int id) async {
+    final String? indexString = await _storage.read(key: 'note_keys_index');
+    if (indexString == null) return;
+    
+    final List<dynamic> keys = jsonDecode(indexString);
+    String? keyToDelete;
+    
+    for (var key in keys) {
+      final String? noteString = await _storage.read(key: key);
+      if (noteString != null) {
+        final Map<String, dynamic> noteData = jsonDecode(noteString);
+        if (noteData['id'] == id) {
+          keyToDelete = key;
+          break;
+        }
+      }
+    }
+    
+    if (keyToDelete != null) {
+      await deleteNote(keyToDelete);
+    }
+  }
 }

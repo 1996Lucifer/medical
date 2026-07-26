@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -26,6 +24,20 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
   StreamSubscription? _sub;
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isConnected = false;
+
+  final TextEditingController _ruleController = TextEditingController();
+
+  // Aetheris colors
+  static const Color _primary = Color(0xFFffffff);
+  static const Color _onSurface = Color(0xFFd6e3ff);
+  static const Color _onSurfaceVariant = Color(0xFFbacac3);
+  static const Color _primaryFixedDim = Color(0xFF38debb);
+  static const Color _primaryContainer = Color(0xFF5ffbd6);
+  static const Color _secondary = Color(0xFFa6e6ff);
+  static const Color _secondaryContainer = Color(0xFF14d1ff);
+  static const Color _surfaceContainerHigh = Color(0xFF1c2a41);
+  static const Color _surfaceContainerLowest = Color(0xFF010e24);
+  static const Color _error = Color(0xFFffb4ab);
 
   @override
   void initState() {
@@ -56,6 +68,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
           "rule_text": text,
         }),
       );
+      _ruleController.clear();
       _fetchRules();
     } catch (_) {}
   }
@@ -128,345 +141,349 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
     _sub?.cancel();
     _channel?.sink.close();
     _audioPlayer.dispose();
+    _ruleController.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final securityProvider = context.watch<SecurityProvider>();
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        extendBodyBehindAppBar: true,
-        appBar: AppBar(
-          title: const Text(
-            'Security & Compliance',
-            style: TextStyle(
-                fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-          ),
-          backgroundColor: Colors.white.withValues(alpha: 0.6),
-          elevation: 0,
-          flexibleSpace: ClipRRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: Container(color: Colors.transparent),
-            ),
-          ),
-          bottom: const TabBar(
-            labelColor: Colors.teal,
-            unselectedLabelColor: Colors.black54,
-            indicatorColor: Colors.teal,
-            tabs: [
-              Tab(
-                  text: 'Active Alerts',
-                  icon: Icon(Icons.warning_amber_rounded)),
-              Tab(text: 'Dynamic Rules', icon: Icon(Icons.rule_folder_rounded)),
-            ],
-          ),
-          actions: [
-            Icon(
-              _isConnected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-              color: _isConnected ? Colors.teal : const Color(0xFFF43F5E),
-            ),
-            const SizedBox(width: 16),
-          ],
-        ),
-        body: GlassBackground(
-          child: TabBarView(
+  Widget _buildMetricsGrid() {
+    return GridView.count(
+      crossAxisCount: MediaQuery.of(context).size.width > 900 ? 3 : 1,
+      crossAxisSpacing: 24,
+      mainAxisSpacing: 24,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: MediaQuery.of(context).size.width > 900 ? 2.8 : 2.0,
+      children: [
+        _buildMetricCard('Active Threats', '${_alerts.where((a) => a['resolved'] != true).length}', '+2 since last hour', _error, Icons.emergency_share, true),
+        _buildMetricCard('Nodes Monitored', '1,284', '100% Operational', _primaryFixedDim, Icons.sensors, false),
+        _buildMetricCard('System Integrity', '99.9%', 'Encrypted', _secondary, Icons.security, false),
+      ],
+    );
+  }
+
+  Widget _buildMetricCard(String title, String value, String subtitle, Color color, IconData icon, bool isError) {
+    return GlassCard(
+      padding: const EdgeInsets.all(24.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildAlertsTab(),
-              _buildRulesTab(),
+              Text(title, style: const TextStyle(color: _onSurfaceVariant, fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text(value, style: TextStyle(color: color, fontSize: 36, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(isError ? Icons.trending_up : Icons.check_circle, color: color, size: 14),
+                  const SizedBox(width: 4),
+                  Text(subtitle, style: TextStyle(color: color, fontSize: 12)),
+                ],
+              )
             ],
           ),
-        ),
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 32),
+          )
+        ],
       ),
     );
   }
 
-  Widget _buildAlertsTab() {
-    return _alerts.isEmpty
-        ? Center(
-            child: GlassCard(
-              width: 320,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.shield_rounded,
-                      size: 56, color: Colors.teal.shade600),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'All clear.',
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F172A)),
+  Widget _buildAlertsFeed() {
+    return GlassCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: _primaryFixedDim),
+                    SizedBox(width: 12),
+                    Text("Active Security Alerts", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primary)),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'No active security alerts.',
-                    style: TextStyle(fontSize: 14, color: Colors.black54),
-                    textAlign: TextAlign.center,
+                  child: Row(
+                    children: [
+                      Container(width: 8, height: 8, decoration: BoxDecoration(color: _isConnected ? _primaryFixedDim : _error, shape: BoxShape.circle)),
+                      const SizedBox(width: 8),
+                      Text(_isConnected ? 'Live Feed' : 'Disconnected', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _onSurface)),
+                    ],
                   ),
-                ],
-              ),
+                )
+              ],
             ),
-          )
-        : Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800),
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0, vertical: 12.0),
-                itemCount: _alerts.length,
-                itemBuilder: (ctx, i) {
-                  final alert = _alerts[i];
-                  final isCritical = alert['severity'] == 'critical';
-                  final isResolved = alert['resolved'] == true;
+          ),
+          Container(height: 1, color: Colors.white.withValues(alpha: 0.1)),
+          _alerts.isEmpty 
+          ? const Padding(
+              padding: EdgeInsets.all(40.0),
+              child: Center(child: Text('No active security alerts.', style: TextStyle(color: _onSurfaceVariant))),
+            )
+          : ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _alerts.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 16),
+              padding: const EdgeInsets.all(24),
+              itemBuilder: (ctx, i) {
+                final alert = _alerts[i];
+                final isCritical = alert['severity'] == 'critical';
+                final isResolved = alert['resolved'] == true;
+                
+                final Color alertColor = isResolved ? _onSurfaceVariant : (isCritical ? _error : _secondaryContainer);
+                final IconData alertIcon = isCritical ? Icons.security : Icons.masks;
 
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isResolved
-                                ? Colors.white.withValues(alpha: 0.50)
-                                : (isCritical
-                                    ? const Color(0xFFFFF1F2)
-                                        .withValues(alpha: 0.75)
-                                    : Colors.amber.shade50
-                                        .withValues(alpha: 0.75)),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isResolved
-                                  ? Colors.white.withValues(alpha: 0.3)
-                                  : (isCritical
-                                      ? const Color(0xFFFECDD3)
-                                          .withValues(alpha: 0.4)
-                                      : Colors.amber.shade200
-                                          .withValues(alpha: 0.4)),
-                              width: 1.5,
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: alertColor.withValues(alpha: 0.05),
+                    border: Border.all(color: alertColor.withValues(alpha: 0.2)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(color: alertColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+                        child: Icon(alertIcon, color: alertColor),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('${isCritical ? 'CRITICAL' : 'ELEVATED'}: ${alert['rule_name']}', style: TextStyle(color: alertColor, fontWeight: FontWeight.w600, fontSize: 14)),
+                                Text(alert['timestamp'].toString(), style: const TextStyle(color: _onSurfaceVariant, fontSize: 12)),
+                              ],
                             ),
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            leading: CircleAvatar(
-                              backgroundColor: isResolved
-                                  ? Colors.grey.shade200
-                                  : (isCritical
-                                      ? const Color(0xFFFFE4E6)
-                                      : Colors.amber.shade100),
-                              child: Icon(
-                                isCritical
-                                    ? Icons.warning_rounded
-                                    : Icons.info_outline_rounded,
-                                color: isResolved
-                                    ? Colors.grey
-                                    : (isCritical
-                                        ? const Color(0xFFBE123C)
-                                        : Colors.amber.shade800),
-                              ),
-                            ),
-                            title: Text(
-                              '${alert['rule_name']} - ${alert['camera_name']}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: isResolved
-                                    ? Colors.grey.shade600
-                                    : const Color(0xFF0F172A),
-                              ),
-                            ),
-                            subtitle: Text(
-                              'Details: ${alert['details']}\nTime: ${alert['timestamp']}',
-                              style: TextStyle(
-                                color: isResolved
-                                    ? Colors.grey.shade500
-                                    : const Color(0xFF334155),
-                                height: 1.4,
-                              ),
-                            ),
-                            trailing: isResolved
-                                ? const Icon(Icons.check_circle_rounded,
-                                    color: Colors.teal)
-                                : ElevatedButton(
+                            const SizedBox(height: 4),
+                            Text('Camera: ${alert['camera_name']}. Details: ${alert['details']}', style: const TextStyle(color: _onSurface, fontSize: 13)),
+                            const SizedBox(height: 12),
+                            if (!isResolved)
+                              Row(
+                                children: [
+                                  ElevatedButton(
                                     onPressed: () => _resolveAlert(alert['id']),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.teal.shade700,
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 16, vertical: 8),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
+                                      backgroundColor: alertColor,
+                                      foregroundColor: isCritical ? const Color(0xFF690005) : const Color(0xFF00566b),
+                                      minimumSize: const Size(0, 32),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
                                     ),
-                                    child: const Text('Resolve'),
+                                    child: const Text('Resolve', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                   ),
-                          ),
+                                  const SizedBox(width: 12),
+                                  OutlinedButton(
+                                    onPressed: () {},
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: alertColor,
+                                      side: BorderSide(color: alertColor.withValues(alpha: 0.3)),
+                                      minimumSize: const Size(0, 32),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    ),
+                                    child: const Text('View Cam', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  ),
+                                ],
+                              )
+                          ],
                         ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
+                      )
+                    ],
+                  ),
+                );
+              },
+            )
+        ],
+      ),
+    );
   }
 
-  Widget _buildRulesTab() {
-    return Center(
-        child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: GlassCard(
+  Widget _buildRulesEngine() {
+    return Column(
+      children: [
+        GlassCard(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.smart_toy, color: _primaryContainer),
+                  SizedBox(width: 12),
+                  Text("AI Rules Engine", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primary)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text("Input natural language to deploy new security protocols across the entire facility.", style: TextStyle(color: _onSurfaceVariant, fontSize: 14)),
+              const SizedBox(height: 24),
+              Container(
+                decoration: BoxDecoration(
+                  color: _surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                child: TextField(
+                  controller: _ruleController,
+                  maxLines: 4,
+                  style: const TextStyle(color: _onSurface, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'e.g., Alert me if a person enters the pharmacy without a badge after 10 PM',
+                    hintStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.5)),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.all(16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    if (_ruleController.text.isNotEmpty) {
+                      _addRule('Global', _ruleController.text);
+                    }
+                  },
+                  icon: const Icon(Icons.bolt, size: 20),
+                  label: const Text('Deploy Rule', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primaryContainer,
+                    foregroundColor: const Color(0xFF00725e),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 10,
+                    shadowColor: _primaryContainer.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+              const Text("Recent Deployments", style: TextStyle(color: _onSurfaceVariant, fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 16),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _rules.length,
+                itemBuilder: (ctx, i) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
                     child: Row(
                       children: [
-                        const Icon(Icons.auto_awesome, color: Colors.teal),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Dynamic Rules Engine',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16)),
-                              Text(
-                                  'Write rules in natural language. Gemini AI will evaluate camera feeds to enforce them!',
-                                  style: TextStyle(
-                                      color: Colors.black54, fontSize: 13)),
-                            ],
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: _showAddRuleDialog,
-                          icon: const Icon(Icons.add),
-                          label: const Text('New Rule'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0F172A),
-                            foregroundColor: Colors.white,
-                          ),
+                        Container(width: 6, height: 6, decoration: const BoxDecoration(color: _primaryFixedDim, shape: BoxShape.circle)),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(_rules[i]['rule_text'], style: const TextStyle(color: _onSurface, fontSize: 12))),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: _error, size: 16),
+                          onPressed: () => _deleteRule(_rules[i]['id']),
+                          constraints: const BoxConstraints(),
+                          padding: EdgeInsets.zero,
                         )
                       ],
                     ),
-                  ),
+                  );
+                },
+              )
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        GlassCard(
+          height: 160,
+          child: Stack(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      _primaryContainer.withValues(alpha: 0.2),
+                      Colors.transparent,
+                    ]
+                  )
                 ),
-                Expanded(
-                  child: ListView.builder(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16.0, vertical: 8.0),
-                      itemCount: _rules.length,
-                      itemBuilder: (ctx, i) {
-                        final rule = _rules[i];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: GlassCard(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(rule['rule_text'],
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15)),
-                              subtitle: Padding(
-                                padding: const EdgeInsets.only(top: 8.0),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                            color: Colors.teal.shade50,
-                                            borderRadius:
-                                                BorderRadius.circular(6),
-                                            border: Border.all(
-                                                color: Colors.teal.shade200)),
-                                        child: Text(
-                                            rule['target_area'] ??
-                                                'Global Area',
-                                            style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.teal.shade700,
-                                                fontWeight: FontWeight.w600))),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                        'Added: ${rule['created_at'].toString().substring(0, 10)}',
-                                        style: const TextStyle(
-                                            fontSize: 12, color: Colors.grey)),
-                                  ],
-                                ),
-                              ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline,
-                                    color: Colors.red),
-                                onPressed: () => _deleteRule(rule['id']),
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                )
-              ],
-            )));
+              ),
+              const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.language, color: _primaryContainer, size: 40),
+                    SizedBox(height: 8),
+                    Text('Network Heatmap Active', style: TextStyle(color: _primaryFixedDim, fontWeight: FontWeight.w600, fontSize: 14)),
+                  ],
+                ),
+              )
+            ],
+          ),
+        )
+      ],
+    );
   }
 
-  void _showAddRuleDialog() {
-    final textCtrl = TextEditingController();
-    final areaCtrl = TextEditingController(text: 'ICU');
-    showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-              title: const Text('Add Dynamic AI Rule'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: areaCtrl,
-                    decoration: const InputDecoration(
-                        labelText: 'Target Area (e.g. ICU, Global)',
-                        border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: textCtrl,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Rule (e.g. All staff must wear gloves)',
-                      border: OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancel')),
-                ElevatedButton(
-                    onPressed: () {
-                      if (textCtrl.text.isNotEmpty) {
-                        _addRule(areaCtrl.text, textCtrl.text);
-                        Navigator.pop(ctx);
-                      }
-                    },
-                    child: const Text('Add Rule'))
+  @override
+  Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 900;
+    
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      body: GlassBackground(
+        child: ListView(
+          padding: const EdgeInsets.all(40),
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Security Command Center', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: _primary)),
+                const SizedBox(height: 8),
+                const Text('Real-time AI-driven monitoring of hospital infrastructure, access points, and personnel compliance.', style: TextStyle(fontSize: 16, color: _onSurfaceVariant)),
+                const SizedBox(height: 32),
+                _buildMetricsGrid(),
+                const SizedBox(height: 24),
+                if (isDesktop)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 2, child: _buildAlertsFeed()),
+                      const SizedBox(width: 24),
+                      Expanded(flex: 1, child: _buildRulesEngine()),
+                    ],
+                  )
+                else
+                  Column(
+                    children: [
+                      _buildAlertsFeed(),
+                      const SizedBox(height: 24),
+                      _buildRulesEngine(),
+                    ],
+                  )
               ],
-            ));
+            )
+          ],
+        ),
+      ),
+    );
   }
 }

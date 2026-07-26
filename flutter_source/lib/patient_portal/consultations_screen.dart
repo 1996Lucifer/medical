@@ -63,7 +63,7 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
                           ),
                           child: const Icon(Icons.history_edu, color: Colors.purple),
                         ),
-                        title: Text("Doctor Visit", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        title: const Text("Doctor Visit", style: TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(DateFormat.yMMMd().add_jm().format(date)),
                         children: [
                           Padding(

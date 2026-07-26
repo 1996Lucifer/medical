@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,8 +10,10 @@ import 'camera/camera_screen.dart';
 import 'camera/camera_status_service.dart';
 import 'consultation/consultation_screen.dart';
 import 'network/environment.dart';
+import 'patients/patients_list_screen.dart';
 import 'security/security_dashboard.dart';
 import 'settings/settings_screen.dart';
+import 'widgets/shared_app_drawer.dart';
 
 import 'providers/auth_provider.dart';
 import 'providers/agent_provider.dart';
@@ -45,18 +48,24 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Healthcare Operations Copilot',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
+      theme: ThemeData.dark().copyWith(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E3A8A), // Deep medical blue
-          primary: const Color(0xFF1E3A8A),
-          secondary: Colors.teal.shade600,
+          seedColor: const Color(0xFF0F172A), // Dark slate
+          primary: const Color(0xFF38BDF8), // Light blue for accents
+          secondary: const Color(0xFF2DD4BF), // Teal for secondary accents
+          brightness: Brightness.dark,
         ),
+        scaffoldBackgroundColor: Colors.transparent,
         useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
       ),
       home: Consumer<AuthProvider>(
         builder: (context, auth, _) {
           return auth.isAuthenticated
-              ? const MainLayout()
+              ? MainLayout()
               : const LoginScreen();
         },
       ),
@@ -64,15 +73,23 @@ class MyApp extends StatelessWidget {
   }
 }
 
+final GlobalKey<MainLayoutState> mainLayoutKey = GlobalKey<MainLayoutState>();
+
 class MainLayout extends StatefulWidget {
-  const MainLayout({super.key});
+  MainLayout({Key? key}) : super(key: mainLayoutKey);
 
   @override
-  State<MainLayout> createState() => _MainLayoutState();
+  State<MainLayout> createState() => MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> {
-  int _currentIndex = 0;
+class MainLayoutState extends State<MainLayout> {
+  int currentIndex = 0;
+
+  void changeTab(int index) {
+    setState(() {
+      currentIndex = index;
+    });
+  }
 
   @override
   void initState() {
@@ -89,16 +106,24 @@ class _MainLayoutState extends State<MainLayout> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    
+    final isDesktop = MediaQuery.of(context).size.width > 900;
+
     final List<Widget> screens = [];
     final List<NavigationDestination> destinations = [];
 
     if (auth.hasPermission('view_admin')) {
       screens.add(const SuperAdminDashboardScreen());
       destinations.add(const NavigationDestination(
-        icon: Icon(Icons.admin_panel_settings_outlined),
-        selectedIcon: Icon(Icons.admin_panel_settings),
-        label: 'Admin',
+        icon: Icon(Icons.grid_view),
+        label: 'Command Center',
+      ));
+    }
+
+    if (auth.hasPermission('view_patients')) {
+      screens.add(const PatientsListScreen());
+      destinations.add(const NavigationDestination(
+        icon: Icon(Icons.people_alt_outlined),
+        label: 'Patients',
       ));
     }
 
@@ -106,7 +131,6 @@ class _MainLayoutState extends State<MainLayout> {
       screens.add(const ConsultationScreen());
       destinations.add(const NavigationDestination(
         icon: Icon(Icons.medical_services_outlined),
-        selectedIcon: Icon(Icons.medical_services),
         label: 'Consultation',
       ));
     }
@@ -115,7 +139,6 @@ class _MainLayoutState extends State<MainLayout> {
       screens.add(const CameraScreen());
       destinations.add(const NavigationDestination(
         icon: Icon(Icons.videocam_outlined),
-        selectedIcon: Icon(Icons.videocam),
         label: 'AI Camera',
       ));
     }
@@ -123,18 +146,16 @@ class _MainLayoutState extends State<MainLayout> {
     if (auth.hasPermission('view_analytics')) {
       screens.add(const AnalyticsDashboardScreen());
       destinations.add(const NavigationDestination(
-        icon: Icon(Icons.bar_chart_outlined),
-        selectedIcon: Icon(Icons.bar_chart),
-        label: 'Analytics',
+        icon: Icon(Icons.analytics_outlined),
+        label: 'AI Analytics',
       ));
     }
 
     if (auth.hasPermission('view_security')) {
       screens.add(const SecurityDashboardScreen());
       destinations.add(const NavigationDestination(
-        icon: Icon(Icons.security_outlined),
-        selectedIcon: Icon(Icons.security),
-        label: 'Security',
+        icon: Icon(Icons.lock_outline),
+        label: 'Security Vault',
       ));
     }
 
@@ -142,7 +163,6 @@ class _MainLayoutState extends State<MainLayout> {
       screens.add(const AgentScreen());
       destinations.add(const NavigationDestination(
         icon: Icon(Icons.chat_bubble_outline),
-        selectedIcon: Icon(Icons.chat_bubble),
         label: 'Agent',
       ));
     }
@@ -150,9 +170,8 @@ class _MainLayoutState extends State<MainLayout> {
     if (auth.hasPermission('view_settings')) {
       screens.add(const SettingsScreen());
       destinations.add(const NavigationDestination(
-        icon: Icon(Icons.settings_outlined),
-        selectedIcon: Icon(Icons.settings),
-        label: 'Settings',
+        icon: Icon(Icons.settings_system_daydream_outlined),
+        label: 'System Health',
       ));
     }
 
@@ -164,20 +183,55 @@ class _MainLayoutState extends State<MainLayout> {
       ));
     }
 
-    if (_currentIndex >= screens.length) {
-      _currentIndex = 0;
+    if (currentIndex >= screens.length) {
+      currentIndex = 0;
+    }
+
+    Widget content = IndexedStack(
+      index: currentIndex,
+      children: screens,
+    );
+
+    if (isDesktop) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF041329), // Aetheris background
+        body: Row(
+          children: [
+            SharedAppDrawer(
+              currentIndex: currentIndex,
+              onIndexChanged: changeTab,
+            ),
+            Expanded(child: content),
+          ],
+        ),
+      );
     }
 
     return Scaffold(
-      body: screens[_currentIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: destinations,
+      backgroundColor: const Color(0xFF041329),
+      drawer: Drawer(
+        backgroundColor: const Color(0xFF071A33),
+        child: SharedAppDrawer(
+          currentIndex: currentIndex,
+          onIndexChanged: changeTab,
+        ),
+      ),
+      body: Stack(
+        children: [
+          content,
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 8,
+            child: Builder(
+              builder: (ctx) => IconButton(
+                icon: const Icon(Icons.menu, color: Colors.white, shadows: [
+                  Shadow(color: Colors.black54, blurRadius: 4)
+                ]),
+                onPressed: () => Scaffold.of(ctx).openDrawer(),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -200,7 +254,7 @@ class GlassCard extends StatelessWidget {
     this.height,
     this.padding,
     this.margin,
-    this.borderRadius = 16.0,
+    this.borderRadius = 12.0,
   });
 
   @override
@@ -213,23 +267,29 @@ class GlassCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 30,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Container(
-        padding: padding ?? const EdgeInsets.all(16.0),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.85),
-          borderRadius: BorderRadius.circular(borderRadius),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.6),
-            width: 1.5,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+          child: Container(
+            padding: padding ?? const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF112036).withValues(alpha: 0.6), // surface-container
+              borderRadius: BorderRadius.circular(borderRadius),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.1),
+                width: 1.0,
+              ),
+            ),
+            child: child,
           ),
         ),
-        child: child,
       ),
     );
   }
@@ -245,40 +305,37 @@ class GlassBackground extends StatelessWidget {
     return Stack(
       children: [
         Container(
-          color:
-              const Color(0xFFF8FAFC), // Lighter slate for cleaner medical look
+          color: const Color(0xFF041329), // Background color
         ),
         Positioned(
-          top: -80,
-          right: -80,
+          top: -100,
+          right: -100,
           child: Container(
-            width: 320,
-            height: 320,
+            width: 600,
+            height: 600,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.teal.shade100.withValues(alpha: 0.45),
+              color: const Color(0xFF38debb).withValues(alpha: 0.05), // Primary-fixed-dim leak
+            ),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 120.0, sigmaY: 120.0),
+              child: Container(color: Colors.transparent),
             ),
           ),
         ),
         Positioned(
-          bottom: -100,
-          left: -100,
+          bottom: 80,
+          left: 40,
           child: Container(
-            width: 380,
-            height: 380,
+            width: 400,
+            height: 400,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF1E3A8A)
-                  .withValues(alpha: 0.12), // Medical Blue
+              color: const Color(0xFF14d1ff).withValues(alpha: 0.05), // Secondary-container leak
             ),
-          ),
-        ),
-        const Positioned.fill(
-          child: Center(
-            child: Opacity(
-              opacity: 0.04,
-              child: Icon(Icons.local_hospital,
-                  size: 350, color: Color(0xFF1E3A8A)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 100.0, sigmaY: 100.0),
+              child: Container(color: Colors.transparent),
             ),
           ),
         ),
