@@ -165,8 +165,8 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: isDone ? _tealAccent.withOpacity(0.1) : _surfaceContainerHigh,
-        border: Border.all(color: isDone ? _tealAccent.withOpacity(0.5) : _outlineVariant.withOpacity(0.3)),
+        color: isDone ? _tealAccent.withValues(alpha: 0.1) : _surfaceContainerHigh,
+        border: Border.all(color: isDone ? _tealAccent.withValues(alpha: 0.5) : _outlineVariant.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -244,9 +244,9 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
         decoration: BoxDecoration(
           color: _surfaceContainer,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: _tealAccent.withOpacity(0.2)),
+          border: Border.all(color: _tealAccent.withValues(alpha: 0.2)),
           boxShadow: [
-            BoxShadow(color: _tealAccent.withOpacity(0.05), blurRadius: 30, spreadRadius: 5),
+            BoxShadow(color: _tealAccent.withValues(alpha: 0.05), blurRadius: 30, spreadRadius: 5),
           ],
         ),
         clipBehavior: Clip.hardEdge,
@@ -260,15 +260,15 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
               ),
             ),
             // Darken overlay
-            Container(color: Colors.black.withOpacity(0.3)),
-            
+            Container(color: Colors.black.withValues(alpha: 0.3)),
+
             // Central Target Frame
             Center(
               child: Container(
                 width: 280,
                 height: 340,
                 decoration: BoxDecoration(
-                  border: Border.all(color: _tealAccent.withOpacity(0.4), width: 1, style: BorderStyle.solid),
+                  border: Border.all(color: _tealAccent.withValues(alpha: 0.4), width: 1, style: BorderStyle.solid),
                   borderRadius: BorderRadius.circular(32),
                 ),
                 child: Stack(
@@ -278,7 +278,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                       child: Container(
                         margin: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          border: Border.all(color: _tealAccent.withOpacity(0.2), width: 2),
+                          border: Border.all(color: _tealAccent.withValues(alpha: 0.2), width: 2),
                           borderRadius: BorderRadius.circular(24),
                         ),
                       ),
@@ -293,7 +293,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                           right: 0,
                           child: Container(
                             height: 2,
-                            decoration: BoxDecoration(
+                            decoration: const BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [Colors.transparent, _tealAccent, Colors.transparent],
                               ),
@@ -372,10 +372,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
       height: 40,
       decoration: BoxDecoration(
         border: Border(
-          top: top ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
-          bottom: !top ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
-          left: left ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
-          right: !left ? BorderSide(color: _tealAccent.withOpacity(0.6), width: 2) : BorderSide.none,
+          top: top ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
+          bottom: !top ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
+          left: left ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
+          right: !left ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
         ),
       ),
     );
@@ -384,7 +384,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
   Widget _buildMonoText(String text) {
     return Text(
       text,
-      style: TextStyle(color: _tealAccent.withOpacity(0.8), fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+      style: TextStyle(color: _tealAccent.withValues(alpha: 0.8), fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.bold),
     );
   }
 
@@ -394,9 +394,9 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
       child: Container(
         padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
-          color: _surfaceContainer.withOpacity(0.6),
+          color: _surfaceContainer.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+          border: Border.all(color: _outlineVariant.withValues(alpha: 0.2)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -406,15 +406,15 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: _tealAccent.withOpacity(0.1),
+                    color: _tealAccent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(Icons.fingerprint, color: _tealAccent, size: 28),
                 ),
                 const SizedBox(width: 16),
-                Column(
+                const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
+                  children: [
                     Text('Live AI Enrollment', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
                     Text('Follow the prompts to configure access.', style: TextStyle(color: _textVariant, fontSize: 14)),
                   ],
@@ -430,7 +430,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
               decoration: BoxDecoration(
                 color: _surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _outlineVariant.withOpacity(0.3)),
+                border: Border.all(color: _outlineVariant.withValues(alpha: 0.3)),
               ),
               child: Text(
                 _currentInstruction,
@@ -457,9 +457,9 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
+                  color: Colors.green.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                  border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
                 ),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,

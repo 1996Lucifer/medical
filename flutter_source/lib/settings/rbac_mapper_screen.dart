@@ -391,7 +391,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
     showDialog(
         context: context,
         builder: (ctx) => Theme(
-              data: ThemeData.dark().copyWith(dialogBackgroundColor: _surfaceContainer),
+              data: ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
               child: AlertDialog(
                   title: Text(type == 'group' ? 'Create Custom Group' : 'Create Custom Permission', style: const TextStyle(color: Colors.white)),
                   content: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -600,7 +600,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(color: isSelected ? _tealAccent : _outlineVariant, width: isSelected ? 2 : 1),
                                         boxShadow: [
-                                          if (isSelected) BoxShadow(color: _tealAccent.withOpacity(0.2), blurRadius: 12, spreadRadius: 2)
+                                          if (isSelected) BoxShadow(color: _tealAccent.withValues(alpha: 0.2), blurRadius: 12, spreadRadius: 2)
                                         ],
                                       ),
                                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -610,7 +610,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                             width: 40,
                                             height: 40,
                                             decoration: BoxDecoration(
-                                              color: nodeColor.withOpacity(0.1),
+                                              color: nodeColor.withValues(alpha: 0.1),
                                               borderRadius: BorderRadius.circular(8),
                                             ),
                                             child: Icon(icon, color: nodeColor, size: 20),
@@ -656,7 +656,7 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                             child: Container(
                                               width: 6,
                                               height: 6,
-                                              decoration: BoxDecoration(color: _tealAccent.withOpacity(0.8), shape: BoxShape.circle),
+                                              decoration: BoxDecoration(color: _tealAccent.withValues(alpha: 0.8), shape: BoxShape.circle),
                                             ),
                                           ),
                                         ),
@@ -805,7 +805,7 @@ class _BackgroundGridPainter extends CustomPainter {
     final paint = Paint()
       ..color = _outlineVariant
       ..strokeWidth = 1.0;
-    
+
     for(double i = 0; i < size.width; i += 40) {
       canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
     }
@@ -830,7 +830,7 @@ class _EdgePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = _tealAccent.withOpacity(0.6)
+      ..color = _tealAccent.withValues(alpha: 0.6)
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke;
 
@@ -848,7 +848,7 @@ class _EdgePainter extends CustomPainter {
         final controlPoint2 = Offset(start.dx + (end.dx - start.dx) / 2, end.dy);
         path.cubicTo(controlPoint1.dx, controlPoint1.dy, controlPoint2.dx, controlPoint2.dy, end.dx, end.dy);
         canvas.drawPath(path, paint);
-        
+
         // Draw connection dot
         canvas.drawCircle(start, 4, Paint()..color = _tealAccent..style = PaintingStyle.fill);
         canvas.drawCircle(end, 4, Paint()..color = _tealAccent..style = PaintingStyle.fill);

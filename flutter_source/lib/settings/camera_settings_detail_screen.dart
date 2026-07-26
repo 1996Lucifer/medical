@@ -583,7 +583,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
             decoration: BoxDecoration(
               color: Colors.black38,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.teal.withOpacity(0.3)),
+              border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

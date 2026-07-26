@@ -210,10 +210,10 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     padding: const EdgeInsets.only(left: 16.0, bottom: 6),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(2),
-                      child: LinearProgressIndicator(
+                      child: const LinearProgressIndicator(
                         value: 0.92,
                         backgroundColor: _surfaceContainerHigh,
-                        valueColor: const AlwaysStoppedAnimation<Color>(_secondary),
+                        valueColor: AlwaysStoppedAnimation<Color>(_secondary),
                         minHeight: 4,
                       ),
                     ),
@@ -420,7 +420,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                   children: [
                     SizedBox(
                       width: 140,
-                      child: Text('${_formatDate(r['date'])}', style: const TextStyle(color: _onSurfaceVariant, fontSize: 13)),
+                      child: Text(_formatDate(r['date']), style: const TextStyle(color: _onSurfaceVariant, fontSize: 13)),
                     ),
                     Expanded(
                       flex: 2,

@@ -40,8 +40,8 @@ class _LoginScreenState extends State<LoginScreen> {
         final data = jsonDecode(res.body);
         if (data['msg'] == 'Admin created') {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Default admin account created (admin/admin)', style: TextStyle(color: _primary)),
+            const SnackBar(
+              content: Text('Default admin account created (admin/admin)', style: TextStyle(color: _primary)),
               backgroundColor: _surfaceContainerHighest,
             ),
           );

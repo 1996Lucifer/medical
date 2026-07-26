@@ -67,7 +67,7 @@ class SharedAppDrawer extends StatelessWidget {
         label: 'System Health',
       ));
     }
-    
+
     if (destinations.isEmpty) {
       destinations.add(const NavigationDestination(
         icon: Icon(Icons.error),
@@ -85,13 +85,13 @@ class SharedAppDrawer extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(24.0),
+          const Padding(
+            padding: EdgeInsets.all(24.0),
             child: Row(
               children: [
-                const Icon(Icons.shield, color: tealAccent, size: 28),
-                const SizedBox(width: 12),
-                const Text(
+                Icon(Icons.shield, color: tealAccent, size: 28),
+                SizedBox(width: 12),
+                Text(
                   'Aegis Hospital AI',
                   style: TextStyle(color: tealAccent, fontSize: 18, fontWeight: FontWeight.bold),
                 ),
@@ -103,9 +103,9 @@ class SharedAppDrawer extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: surfaceBright.withOpacity(0.3),
+                color: surfaceBright.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withOpacity(0.05)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
               ),
               child: Row(
                 children: [
@@ -113,7 +113,7 @@ class SharedAppDrawer extends StatelessWidget {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: tealAccent.withOpacity(0.2),
+                      color: tealAccent.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(6),
                     ),
                   ),
@@ -136,7 +136,7 @@ class SharedAppDrawer extends StatelessWidget {
               itemBuilder: (context, index) {
                 final dest = destinations[index];
                 final isActive = currentIndex == index;
-                
+
                 return InkWell(
                   onTap: () {
                     onIndexChanged(index);
@@ -148,7 +148,7 @@ class SharedAppDrawer extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: isActive ? tealAccent.withOpacity(0.1) : Colors.transparent,
+                      color: isActive ? tealAccent.withValues(alpha: 0.1) : Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
                       border: isActive ? const Border(left: BorderSide(color: tealAccent, width: 3)) : null,
                     ),

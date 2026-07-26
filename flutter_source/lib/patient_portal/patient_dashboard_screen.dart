@@ -69,19 +69,19 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
           const SizedBox(height: 8),
           const Text("Heart rate trends over time based on your uploaded reports."),
           const SizedBox(height: 24),
-          
+
           if (heartRateSpots.isNotEmpty)
             Container(
               height: 300,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.blue.withOpacity(0.1), Colors.purple.withOpacity(0.1)],
+                  colors: [Colors.blue.withValues(alpha: 0.1), Colors.purple.withValues(alpha: 0.1)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
               ),
               child: LineChart(
                 LineChartData(
@@ -102,7 +102,7 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
                       dotData: const FlDotData(show: true),
                       belowBarData: BarAreaData(
                         show: true,
-                        color: Colors.blue.withOpacity(0.2),
+                        color: Colors.blue.withValues(alpha: 0.2),
                       ),
                     ),
                   ],

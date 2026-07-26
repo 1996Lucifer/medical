@@ -79,9 +79,9 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
   static const Color _surfaceContainerHigh = Color(0xFF1c2a41);
   static const Color _surfaceContainerLowest = Color(0xFF010e24);
   static const Color _error = Color(0xFFffb4ab);
-  
+
   late AnimationController _pulseController;
-  int _primaryCameraIndex = 0;
+  final int _primaryCameraIndex = 0;
   bool _showOverlays = true;
 
   @override
@@ -90,7 +90,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
     _fetchCameras();
     _connectEventsStream();
     _connectStatusStream();
-    
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
@@ -138,7 +138,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
     try {
       final wsUri = Uri.parse(ApiRoutes.camerasStatusWs);
       _statusChannel = WebSocketChannel.connect(wsUri);
-      
+
       _statusSub = _statusChannel!.stream.listen((message) {
         if (mounted) {
           final data = jsonDecode(message) as Map<String, dynamic>;
@@ -220,7 +220,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
               mode: _showOverlays ? 'ai' : 'manage',
               fit: BoxFit.contain,
             ),
-            
+
             // Scanline overlay
             Positioned.fill(
               child: IgnorePointer(
@@ -240,7 +240,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                 ),
               ),
             ),
-            
+
             Positioned(
               left: 16,
               top: 16,
@@ -290,7 +290,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                 ],
               ),
             ),
-            
+
             // Add top right overlay toggle if it is the first camera, just for visual parity with the mockup
             if (isPrimary)
               Positioned(
@@ -316,7 +316,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                         Container(
                           width: 28, height: 16,
                           decoration: BoxDecoration(
-                            color: _showOverlays ? _primaryFixedDim : Colors.grey[800], 
+                            color: _showOverlays ? _primaryFixedDim : Colors.grey[800],
                             borderRadius: BorderRadius.circular(8)
                           ),
                           child: AnimatedAlign(
@@ -362,7 +362,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                 ),
               ),
             ),
-            
+
             if (isPrimary)
               Positioned(
                 right: 16,
@@ -398,7 +398,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
             : _savedCameras.length <= 1
                 ? 1
                 : 2;
-        final spacing = 16.0;
+        const spacing = 16.0;
         final tileWidth = (constraints.maxWidth - spacing * (columns - 1)) / columns;
         final tileHeight = tileWidth * 9 / 16;
         final standardTileHeight = tileHeight.clamp(200.0, 400.0).toDouble();
@@ -540,7 +540,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
           ],
         ),
         const SizedBox(height: 24),
-        
+
         isMobile
             ? SizedBox(
                 height: _expandedCameraId == null ? 400 : 500,
@@ -689,7 +689,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
         child: Text('No recent detections.', style: TextStyle(color: _onSurfaceVariant)),
       );
     }
-    
+
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: _attendance.length,
@@ -703,7 +703,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
 
         // Use a mock role
         final mockRole = i % 2 == 0 ? 'Cardiology' : 'Nurse Ops';
-        
+
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: const BoxDecoration(
@@ -764,7 +764,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                   ),
                 ),
               ),
-              
+
               if (!r.isCheckedOut)
                 Padding(
                   padding: const EdgeInsets.only(top: 12.0),

@@ -60,7 +60,7 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
       provider.fetchHistory();
     });
     _scrollController.addListener(_scrollListener);
-    
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
@@ -651,7 +651,7 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
 
 class _MessageBubble extends StatelessWidget {
   final AgentMessage msg;
-  const _MessageBubble({super.key, required this.msg});
+  const _MessageBubble({required this.msg});
 
   // Aetheris colors inside bubble
   static const Color _primary = Color(0xFFffffff);

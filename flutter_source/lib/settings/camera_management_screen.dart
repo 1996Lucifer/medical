@@ -76,8 +76,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
       context: context,
       builder: (ctx) => Theme(
         data: ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: _bgBase,
-          dialogBackgroundColor: _surfaceContainer,
+          scaffoldBackgroundColor: _bgBase, dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer),
         ),
         child: StatefulBuilder(builder: (ctx, setD) {
           final ip = ipCtrl.text.trim();
@@ -157,7 +156,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                   decoration: BoxDecoration(
                     color: _bgBase,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                    border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -222,7 +221,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
       context: context,
       builder: (ctx) => Theme(
         data: ThemeData.dark().copyWith(
-          dialogBackgroundColor: _surfaceContainer,
+          dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer),
         ),
         child: StatefulBuilder(builder: (ctx, setD) {
           final ip = ipCtrl.text.trim();
@@ -298,7 +297,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                   decoration: BoxDecoration(
                     color: _bgBase,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                    border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -388,10 +387,10 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
+        const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text('Active Node Registry', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
               SizedBox(height: 8),
               Text('Centralized control for high-bandwidth RTSP surveillance assets. All feeds are currently routed through the Aegis Encryption Layer.', style: TextStyle(color: _textVariant, fontSize: 14)),
@@ -416,7 +415,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
       decoration: BoxDecoration(
         color: _surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isError ? color.withOpacity(0.3) : Colors.white.withOpacity(0.05)),
+        border: Border.all(color: isError ? color.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.05)),
       ),
       child: Column(
         children: [
@@ -433,7 +432,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
       decoration: BoxDecoration(
         color: _surfaceContainer,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -444,7 +443,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
               headingRowColor: WidgetStateProperty.all(_surfaceContainerLow),
               dataRowColor: WidgetStateProperty.resolveWith((states) {
                 if (states.contains(WidgetState.selected)) {
-                  return _tealAccent.withOpacity(0.1);
+                  return _tealAccent.withValues(alpha: 0.1);
                 }
                 return Colors.transparent;
               }),
@@ -470,7 +469,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                     DataCell(
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(color: _bgBase, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.white.withOpacity(0.1))),
+                        decoration: BoxDecoration(color: _bgBase, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.white.withValues(alpha: 0.1))),
                         child: Text(c['rtsp_url'] ?? '', style: const TextStyle(color: _textVariant, fontFamily: 'monospace', fontSize: 11)),
                       ),
                     ),
@@ -534,7 +533,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
           SizedBox(
             height: 400,
             child: Container(
-              decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.1))),
+              decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withValues(alpha: 0.1))),
               clipBehavior: Clip.hardEdge,
               child: CameraStreamView(cameraId: _previewCamera!['id'], mode: 'manage'),
             ),
@@ -550,19 +549,19 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
         Expanded(
           child: Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(16), border: Border.all(color: _tealAccent.withOpacity(0.2))),
+            decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(16), border: Border.all(color: _tealAccent.withValues(alpha: 0.2))),
             child: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: _tealAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(color: _tealAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(12)),
                   child: const Icon(Icons.security, color: _tealAccent),
                 ),
                 const SizedBox(width: 16),
-                Expanded(
+                const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text('Stream Integrity', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
                       Text('System-wide AES-256 encryption is active.', style: TextStyle(color: _textVariant, fontSize: 12)),
@@ -577,7 +576,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
         Expanded(
           child: Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withOpacity(0.05))),
+            decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withValues(alpha: 0.05))),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -585,7 +584,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Load Profile', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: _tealAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: _tealAccent.withOpacity(0.2))), child: const Text('STABLE', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold))),
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: _tealAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: _tealAccent.withValues(alpha: 0.2))), child: const Text('STABLE', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold))),
                   ],
                 ),
                 const SizedBox(height: 12),

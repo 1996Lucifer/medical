@@ -6,8 +6,6 @@ import 'package:audioplayers/audioplayers.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
-import 'package:provider/provider.dart';
-import '../providers/security_provider.dart';
 
 class SecurityDashboardScreen extends StatefulWidget {
   const SecurityDashboardScreen({super.key});
@@ -235,7 +233,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             ),
           ),
           Container(height: 1, color: Colors.white.withValues(alpha: 0.1)),
-          _alerts.isEmpty 
+          _alerts.isEmpty
           ? const Padding(
               padding: EdgeInsets.all(40.0),
               child: Center(child: Text('No active security alerts.', style: TextStyle(color: _onSurfaceVariant))),
@@ -250,7 +248,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                 final alert = _alerts[i];
                 final isCritical = alert['severity'] == 'critical';
                 final isResolved = alert['resolved'] == true;
-                
+
                 final Color alertColor = isResolved ? _onSurfaceVariant : (isCritical ? _error : _secondaryContainer);
                 final IconData alertIcon = isCritical ? Icons.security : Icons.masks;
 
@@ -446,7 +444,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width > 900;
-    
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: GlassBackground(

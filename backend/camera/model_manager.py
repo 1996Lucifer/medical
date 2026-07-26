@@ -30,7 +30,7 @@ class ModelManager:
         self._mp_hands = None
         self._mp_hands_lock = threading.Lock()
 
-        self._yolo_detector = None
+        self._yolo_detectors = {}
         self._yolo_lock = threading.Lock()
 
         self._ppe_detector = None

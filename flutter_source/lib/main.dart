@@ -56,7 +56,6 @@ class MyApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
         scaffoldBackgroundColor: Colors.transparent,
-        useMaterial3: true,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,

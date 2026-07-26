@@ -91,7 +91,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               boxShadow: [
-                BoxShadow(color: const Color(0xFF5ffbd6).withOpacity(0.1), blurRadius: 120, spreadRadius: 40)
+                BoxShadow(color: const Color(0xFF5ffbd6).withValues(alpha: 0.1), blurRadius: 120, spreadRadius: 40)
               ],
             ),
           ),
@@ -105,7 +105,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               boxShadow: [
-                BoxShadow(color: const Color(0xFF14d1ff).withOpacity(0.05), blurRadius: 100, spreadRadius: 40)
+                BoxShadow(color: const Color(0xFF14d1ff).withValues(alpha: 0.05), blurRadius: 100, spreadRadius: 40)
               ],
             ),
           ),
@@ -130,8 +130,8 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
           height: 72,
           padding: const EdgeInsets.symmetric(horizontal: 40),
           decoration: BoxDecoration(
-            color: _bgBase.withOpacity(0.6),
-            border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+            color: _bgBase.withValues(alpha: 0.6),
+            border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
@@ -143,9 +143,9 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       width: 256,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: _surfaceContainerHighest.withOpacity(0.5),
+                        color: _surfaceContainerHighest.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFF3c4a45).withOpacity(0.3)),
+                        border: Border.all(color: const Color(0xFF3c4a45).withValues(alpha: 0.3)),
                       ),
                       child: const TextField(
                         decoration: InputDecoration(
@@ -311,7 +311,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             elevation: 8,
-            shadowColor: const Color(0xFF5ffbd6).withOpacity(0.2),
+            shadowColor: const Color(0xFF5ffbd6).withValues(alpha: 0.2),
           ),
           icon: const Icon(Icons.person_add),
           label: const Text('Add New Staff', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -330,11 +330,11 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
         fillColor: _surfaceContainerLow,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.4)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.4)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.4)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.4)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -383,7 +383,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       decoration: BoxDecoration(
         color: _surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.4)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -433,7 +433,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
               Container(
                 height: 6,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  color: Colors.white.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(3),
                 ),
                 child: FractionallySizedBox(
@@ -445,7 +445,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       borderRadius: BorderRadius.circular(3),
                       boxShadow: [
                         BoxShadow(
-                          color: _tealAccent.withOpacity(0.3),
+                          color: _tealAccent.withValues(alpha: 0.3),
                           blurRadius: 8,
                           spreadRadius: 2,
                         )
@@ -463,7 +463,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       decoration: BoxDecoration(
                           color: _surfaceContainer,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withOpacity(0.05))),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.05))),
                       child: const Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -489,7 +489,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       decoration: BoxDecoration(
                           color: _surfaceContainer,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withOpacity(0.05))),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.05))),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -499,7 +499,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold)),
                           const SizedBox(height: 4),
-                          Text('${_staffList.length > 0 ? _staffList.length : 2840}',
+                          Text('${_staffList.isNotEmpty ? _staffList.length : 2840}',
                               style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 20,
@@ -514,9 +514,9 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                    color: _tealAccent.withOpacity(0.1),
+                    color: _tealAccent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _tealAccent.withOpacity(0.2))),
+                    border: Border.all(color: _tealAccent.withValues(alpha: 0.2))),
                 child: const Row(
                   children: [
                     Icon(Icons.circle, color: _tealAccent, size: 12),
@@ -610,7 +610,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator(color: _tealAccent));
     }
-    
+
     final displayList = _filteredStaffList;
 
     return LayoutBuilder(
@@ -644,7 +644,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       borderRadius: BorderRadius.circular(16),
       child: CustomPaint(
         painter: DashedRectPainter(
-          color: Colors.white.withOpacity(0.1),
+          color: Colors.white.withValues(alpha: 0.1),
           strokeWidth: 2,
           gap: 6,
           dash: 6,
@@ -699,7 +699,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                     decoration: BoxDecoration(
                       color: const Color(0xFF27354c),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                       image: photoUrl != null
                           ? DecorationImage(
                               image: NetworkImage(photoUrl),
@@ -727,8 +727,8 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
                               color: needsRescan
-                                  ? _critical.withOpacity(0.5)
-                                  : _tealAccent.withOpacity(0.5))),
+                                  ? _critical.withValues(alpha: 0.5)
+                                  : _tealAccent.withValues(alpha: 0.5))),
                       child: Text(needsRescan ? 'NEEDS RESCAN' : '99.8% MATCH',
                           style: TextStyle(
                               color: needsRescan ? _critical : _tealAccent,
@@ -760,13 +760,13 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                               horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
                               color: needsRescan
-                                  ? const Color(0xFF14d1ff).withOpacity(0.1)
-                                  : _tealAccent.withOpacity(0.1),
+                                  ? const Color(0xFF14d1ff).withValues(alpha: 0.1)
+                                  : _tealAccent.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                   color: needsRescan
-                                      ? const Color(0xFF14d1ff).withOpacity(0.2)
-                                      : _tealAccent.withOpacity(0.2))),
+                                      ? const Color(0xFF14d1ff).withValues(alpha: 0.2)
+                                      : _tealAccent.withValues(alpha: 0.2))),
                           child: Text(needsRescan ? 'PENDING' : 'VERIFIED',
                               style: TextStyle(
                                   color: needsRescan
@@ -787,7 +787,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                          color: _tealAccent.withOpacity(0.05),
+                          color: _tealAccent.withValues(alpha: 0.05),
                           borderRadius: BorderRadius.circular(4)),
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
@@ -873,7 +873,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       barrierDismissible: false,
       builder: (ctx) => Theme(
         data:
-            ThemeData.dark().copyWith(dialogBackgroundColor: _surfaceContainer),
+            ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
         child: StatefulBuilder(builder: (ctx, setD) {
           return AlertDialog(
             title: const Text('Onboard New Personnel',
@@ -892,7 +892,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: selectedRole,
+                  initialValue: selectedRole,
                   decoration: const InputDecoration(labelText: 'Role'),
                   items: ['Medical Staff', 'Head of Radiology', 'Oncology Lead', 'Security Specialist', 'Admin']
                       .map((r) => DropdownMenuItem(value: r, child: Text(r)))
@@ -1003,7 +1003,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => Theme(
-        data: ThemeData.dark().copyWith(dialogBackgroundColor: _surfaceContainer),
+        data: ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
             title: const Text('Edit Profile', style: TextStyle(color: Colors.white)),
@@ -1015,7 +1015,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                     decoration: const InputDecoration(labelText: 'Full Name')),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: selectedRole,
+                  initialValue: selectedRole,
                   decoration: const InputDecoration(labelText: 'Role'),
                   items: ['Medical Staff', 'Head of Radiology', 'Oncology Lead', 'Security Specialist', 'Admin']
                       .map((r) => DropdownMenuItem(value: r, child: Text(r)))
@@ -1061,7 +1061,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       context: context,
       builder: (ctx) => Theme(
         data:
-            ThemeData.dark().copyWith(dialogBackgroundColor: _surfaceContainer),
+            ThemeData.dark().copyWith(dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer)),
         child: AlertDialog(
           title:
               const Text('Revoke Access', style: TextStyle(color: _critical)),
@@ -1091,20 +1091,23 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
             .delete(ApiRoutes.staffMember(staffId));
         if (resp.statusCode == 200) {
           _fetchStaff();
-          if (mounted)
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                 content: Text('✓ Staff member revoked'),
                 backgroundColor: Colors.green));
+          }
         } else {
-          if (mounted)
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                 content: Text('Failed to delete: ${resp.statusCode}'),
                 backgroundColor: Colors.red));
+          }
         }
       } catch (e) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text('Error: $e'), backgroundColor: Colors.red));
+        }
       }
     }
   }
@@ -1116,11 +1119,11 @@ class StaffGlassCard extends StatelessWidget {
   final double borderRadius;
 
   const StaffGlassCard({
-    Key? key,
+    super.key,
     required this.child,
     this.padding = const EdgeInsets.all(24.0),
     this.borderRadius = 16.0,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1131,7 +1134,7 @@ class StaffGlassCard extends StatelessWidget {
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
-            color: const Color(0xFF112240).withOpacity(0.6),
+            color: const Color(0xFF112240).withValues(alpha: 0.6),
             border: const Border(
               top: BorderSide(color: Colors.white24),
               left: BorderSide(color: Colors.white24),
@@ -1388,7 +1391,7 @@ class _StaffDetailsViewState extends State<_StaffDetailsView> {
                         padding: const EdgeInsets.symmetric(
                             vertical: 4, horizontal: 8),
                         decoration: BoxDecoration(
-                          color: _bgBase.withOpacity(0.8),
+                          color: _bgBase.withValues(alpha: 0.8),
                           borderRadius: const BorderRadius.only(
                               bottomLeft: Radius.circular(12),
                               bottomRight: Radius.circular(12)),
@@ -1444,10 +1447,10 @@ class _StaffDetailsViewState extends State<_StaffDetailsView> {
               label: const Text('Start Live Interactive Setup',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _tealAccent.withOpacity(0.1),
+                backgroundColor: _tealAccent.withValues(alpha: 0.1),
                 foregroundColor: _tealAccent,
                 elevation: 0,
-                side: BorderSide(color: _tealAccent.withOpacity(0.3)),
+                side: BorderSide(color: _tealAccent.withValues(alpha: 0.3)),
               ),
             ),
           ),

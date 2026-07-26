@@ -148,7 +148,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withOpacity(0.5))),
+          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             children: [
               _buildToggleRow('Patient Flow Analytics', 'Ward and ER movement tracking.', true),
@@ -164,13 +164,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withOpacity(0.5))),
+          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              const Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
+                children: [
                   Text('AI SENSITIVITY LEVEL', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                   Text('85%', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
                 ],
@@ -182,7 +182,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   activeTrackColor: _tealAccent,
                   inactiveTrackColor: _surfaceContainerHigh,
                   thumbColor: _tealAccent,
-                  overlayColor: _tealAccent.withOpacity(0.2),
+                  overlayColor: _tealAccent.withValues(alpha: 0.2),
                 ),
                 child: Slider(value: 85, min: 0, max: 100, onChanged: (v) {}),
               ),
@@ -191,10 +191,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(color: _surfaceContainerHigh, borderRadius: BorderRadius.circular(8), border: Border.all(color: _outlineVariant.withOpacity(0.5))),
-                child: Row(
+                decoration: BoxDecoration(color: _surfaceContainerHigh, borderRadius: BorderRadius.circular(8), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: const [
+                  children: [
                     Text('30 Days (Standard Compliance)', style: TextStyle(color: Colors.white, fontSize: 14)),
                     Icon(Icons.expand_more, color: _textVariant, size: 20),
                   ],
@@ -213,7 +213,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       children: [
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withOpacity(0.5))),
+          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -223,7 +223,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   _buildSectionHeader(Icons.query_stats, 'Engine Visualization', noPadding: true),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(6), border: Border.all(color: _outlineVariant.withOpacity(0.5))),
+                    decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(6), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
                     child: Row(
                       children: [
                         Container(width: 8, height: 8, decoration: const BoxDecoration(color: _critical, shape: BoxShape.circle, boxShadow: [BoxShadow(color: _critical, blurRadius: 4)])),
@@ -251,7 +251,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
         const SizedBox(height: 32),
         Container(
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withOpacity(0.5))),
+          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -313,7 +313,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildStatBox(String title, String value, {Color? color}) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: _surfaceContainerHigh, borderRadius: BorderRadius.circular(8), border: Border.all(color: _outlineVariant.withOpacity(0.5))),
+      decoration: BoxDecoration(color: _surfaceContainerHigh, borderRadius: BorderRadius.circular(8), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -333,23 +333,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              _bar(0.45, _blueAccent.withOpacity(0.4)),
-              _bar(0.65, _blueAccent.withOpacity(0.6)),
+              _bar(0.45, _blueAccent.withValues(alpha: 0.4)),
+              _bar(0.65, _blueAccent.withValues(alpha: 0.6)),
               _bar(0.85, _tealAccent),
-              _bar(0.55, _blueAccent.withOpacity(0.5)),
-              _bar(0.40, _blueAccent.withOpacity(0.3)),
-              _bar(0.75, _blueAccent.withOpacity(0.7)),
+              _bar(0.55, _blueAccent.withValues(alpha: 0.5)),
+              _bar(0.40, _blueAccent.withValues(alpha: 0.3)),
+              _bar(0.75, _blueAccent.withValues(alpha: 0.7)),
               _bar(0.95, _tealAccent),
-              _bar(0.35, _blueAccent.withOpacity(0.2)),
-              _bar(0.60, _blueAccent.withOpacity(0.5)),
-              _bar(0.50, _blueAccent.withOpacity(0.4)),
+              _bar(0.35, _blueAccent.withValues(alpha: 0.2)),
+              _bar(0.60, _blueAccent.withValues(alpha: 0.5)),
+              _bar(0.50, _blueAccent.withValues(alpha: 0.4)),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        Row(
+        const Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
+          children: [
             Text('08:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
             Text('10:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
             Text('12:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
@@ -415,8 +415,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isAlert ? _critical.withOpacity(0.1) : _tealAccent.withOpacity(0.1),
-                  border: Border.all(color: isAlert ? _critical.withOpacity(0.3) : _tealAccent.withOpacity(0.3)),
+                  color: isAlert ? _critical.withValues(alpha: 0.1) : _tealAccent.withValues(alpha: 0.1),
+                  border: Border.all(color: isAlert ? _critical.withValues(alpha: 0.3) : _tealAccent.withValues(alpha: 0.3)),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(

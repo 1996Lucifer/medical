@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import '../patient_portal/patient_dashboard_screen.dart';
