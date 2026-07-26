@@ -1,12 +1,6 @@
-import 'dart:convert';
 import 'dart:ui';
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import '../main.dart' show GlassCard, GlassBackground;
-import '../network/api_routes.dart';
-import '../network/network_manager.dart';
 import 'rbac_mapper_screen.dart';
 import 'camera_management_screen.dart';
 import 'analytics_screen.dart';
@@ -20,18 +14,90 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // Aetheris colors
+  static const Color _primary = Color(0xFFffffff);
+  static const Color _onSurfaceVariant = Color(0xFFbacac3);
+  static const Color _primaryFixedDim = Color(0xFF38debb);
+  static const Color _surfaceContainerLowest = Color(0xFF010e24);
+
+  Widget _buildNavCard(
+      {required String title,
+      required String subtitle,
+      required IconData icon,
+      required VoidCallback onTap,
+      bool isPrimary = false}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: GlassCard(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: isPrimary
+                    ? _primaryFixedDim.withValues(alpha: 0.1)
+                    : _surfaceContainerLowest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: isPrimary
+                        ? _primaryFixedDim.withValues(alpha: 0.3)
+                        : Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: Icon(icon, color: isPrimary ? _primaryFixedDim : Colors.white, size: 28),
+            ),
+            const SizedBox(height: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: _primary)),
+                const SizedBox(height: 8),
+                Text(subtitle,
+                    style: const TextStyle(
+                        fontSize: 14, color: _onSurfaceVariant)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Text(isPrimary ? 'Configure' : 'Access',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isPrimary ? _primaryFixedDim : _onSurfaceVariant)),
+                const SizedBox(width: 8),
+                Icon(Icons.arrow_forward,
+                    size: 16,
+                    color: isPrimary ? _primaryFixedDim : _onSurfaceVariant)
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 768;
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text(
-          'Settings',
-          style:
-              TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          'Security Infrastructure',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
-        backgroundColor: Colors.white.withValues(alpha: 0.6),
+        backgroundColor: Colors.black.withValues(alpha: 0.3),
         elevation: 0,
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -41,125 +107,84 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(
-              color: Colors.black.withValues(alpha: 0.05), height: 1.0),
+          child: Container(color: Colors.white.withValues(alpha: 0.05), height: 1.0),
         ),
       ),
       body: GlassBackground(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800),
-              child: GlassCard(
-                padding: EdgeInsets.zero,
-                child: ListView(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 24.0 : 40.0,
+              vertical: isMobile ? 100.0 : 120.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('System Settings',
+                  style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      color: _primary)),
+              const SizedBox(height: 8),
+              const Text(
+                  'Configure AI recognition parameters, camera node clusters, and biometric staff access.',
+                  style: TextStyle(fontSize: 16, color: _onSurfaceVariant)),
+              const SizedBox(height: 40),
+              Expanded(
+                child: GridView.count(
+                  crossAxisCount: isMobile ? 1 : 2,
+                  crossAxisSpacing: 24,
+                  mainAxisSpacing: 24,
+                  childAspectRatio: isMobile ? 1.5 : 2.0,
                   children: [
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.teal.shade50,
-                        child: Icon(Icons.manage_accounts_rounded,
-                            color: Colors.teal.shade700),
-                      ),
-                      title: const Text(
-                        'Manage Staff',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A)),
-                      ),
-                      subtitle: const Text(
-                          'Add, remove, or update staff photos for AI recognition'),
-                      onTap: () {
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const ManageStaffScreen()));
-                      },
-                    ),
-                    const Divider(
-                        height: 1, thickness: 1, indent: 20, endIndent: 20),
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.teal.shade50,
-                        child: Icon(Icons.videocam_rounded,
-                            color: Colors.teal.shade700),
-                      ),
-                      title: const Text(
-                        'Manage Cameras',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A)),
-                      ),
-                      subtitle: const Text(
-                          'Add or remove registered RTSP camera sources'),
-                      onTap: () {
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    const CameraManagementScreen()));
-                      },
-                    ),
-                    const Divider(
-                        height: 1, thickness: 1, indent: 20, endIndent: 20),
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.teal.shade50,
-                        child: Icon(Icons.schema_rounded,
-                            color: Colors.teal.shade700),
-                      ),
-                      title: const Text(
-                        'Access Node Mapper',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A)),
-                      ),
-                      subtitle: const Text(
-                          'Visually map users and groups to permissions (RBAC)'),
-                      onTap: () {
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const RBACMapperScreen()));
-                      },
-                    ),
-                    const Divider(
-                        height: 1, thickness: 1, indent: 20, endIndent: 20),
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 8),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.teal.shade50,
-                        child: Icon(Icons.analytics_rounded,
-                            color: Colors.teal.shade700),
-                      ),
-                      title: const Text(
-                        'Analytics Dashboard',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A)),
-                      ),
-                      subtitle: const Text(
-                          'View daily attendance, total hours, and system events'),
-                      onTap: () {
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const AnalyticsScreen()));
-                      },
-                    ),
+                    _buildNavCard(
+                        title: 'Manage Staff Recognition',
+                        subtitle:
+                            'Add, remove, or update staff photos for AI facial recognition and tracking.',
+                        icon: Icons.badge,
+                        isPrimary: true,
+                        onTap: () {
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const ManageStaffScreen()));
+                        }),
+                    _buildNavCard(
+                        title: 'Node Cluster: Camera Streams',
+                        subtitle:
+                            'Add or remove registered RTSP camera sources and monitor connection statuses.',
+                        icon: Icons.videocam,
+                        onTap: () {
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const CameraManagementScreen()));
+                        }),
+                    _buildNavCard(
+                        title: 'Access Node Mapper',
+                        subtitle:
+                            'Visually map users and groups to permissions across different clinical zones.',
+                        icon: Icons.hub,
+                        onTap: () {
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const RBACMapperScreen()));
+                        }),
+                    _buildNavCard(
+                        title: 'Analytics Engine',
+                        subtitle:
+                            'View real-time efficiency metrics and AI detection logs for the entire facility.',
+                        icon: Icons.analytics,
+                        onTap: () {
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const AnalyticsScreen()));
+                        }),
                   ],
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),

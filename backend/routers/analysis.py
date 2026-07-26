@@ -31,6 +31,22 @@ async def analyze_medical_report(
     """
     try:
         content = await file.read()
+        
+        # Convert PDF to image if necessary
+        if file.filename and file.filename.lower().endswith(".pdf") or file.content_type == "application/pdf":
+            try:
+                import fitz
+                doc = fitz.open(stream=content, filetype="pdf")
+                if len(doc) > 0:
+                    page = doc.load_page(0)
+                    pix = page.get_pixmap()
+                    content = pix.tobytes("jpeg")
+                else:
+                    raise HTTPException(status_code=400, detail="Empty PDF file.")
+            except Exception as e:
+                print(f"Failed to parse PDF: {e}")
+                raise HTTPException(status_code=400, detail="Invalid PDF file.")
+
         base64_img = base64.b64encode(content).decode('utf-8')
 
         prompt = """

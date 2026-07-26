@@ -213,7 +213,7 @@ class LLMManager:
                     model = self.active_model
                 response = model.create_chat_completion(
                     messages=messages,
-                    max_tokens=16,
+                    max_tokens=self.current_max_tokens,
                     temperature=0.0,
                     # Do not stop on a newline: MedGemma often emits a
                     # leading newline before the actual YES/NO answer.

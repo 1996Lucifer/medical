@@ -1,7 +1,7 @@
 import cv2, os, numpy as np
 from ultralytics import YOLO
 img = cv2.imread('backend/t1.jpg')
-model_path = '/Users/dj/Projects/medical_agent/backend/models/best_openvino_model'
+model_path = '/Users/dj/Projects/medical_agent/backend/models/openvino'
 yolo_track = YOLO(model_path, task='detect')
 yolo_detect = YOLO(model_path, task='detect')
 

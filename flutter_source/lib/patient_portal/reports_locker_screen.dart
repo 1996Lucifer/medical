@@ -77,7 +77,7 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
                           ),
                           child: const Icon(Icons.document_scanner, color: Colors.blue),
                         ),
-                        title: Text("Medical Report", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        title: const Text("Medical Report", style: TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(DateFormat.yMMMd().add_jm().format(date)),
                         children: [
                           Padding(

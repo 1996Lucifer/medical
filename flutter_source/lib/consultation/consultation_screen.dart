@@ -1,19 +1,26 @@
 import 'dart:convert';
+import 'dart:io' as io;
+import 'dart:typed_data';
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:record/record.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+
+import '../main.dart' show GlassBackground, GlassCard;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
-import 'report_analysis_view.dart';
-import '../main.dart' show GlassBackground, GlassCard;
 import '../storage/secure_storage_service.dart';
+import 'report_analysis_view.dart';
 import 'soap_note_view.dart';
-import 'package:provider/provider.dart';
-import '../providers/consultation_provider.dart';
 
 class ConsultationScreen extends StatefulWidget {
   const ConsultationScreen({super.key});
@@ -22,17 +29,31 @@ class ConsultationScreen extends StatefulWidget {
   State<ConsultationScreen> createState() => _ConsultationScreenState();
 }
 
-class _ConsultationScreenState extends State<ConsultationScreen> {
+class _ConsultationScreenState extends State<ConsultationScreen>
+    with SingleTickerProviderStateMixin {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final AudioRecorder _audioRecorder = AudioRecorder();
   TextEditingController _patientNameController = TextEditingController();
   bool _ownsPatientNameController = true;
-  final String _transcription = "";
 
   final ImagePicker _imagePicker = ImagePicker();
 
   bool _isRecording = false;
-  bool _isProcessing = false;
+bool _isProcessing = false;
+  bool _isTranscribing = false;
+  
+  String? _recordedAudioPath;
+  String? _transcriptionText;
+  
+  Uint8List? _uploadedAudioBytes;
+  String? _uploadedAudioFilename;
+  
+  Timer? _recordTimer;
+  int _recordDuration = 0;
+  
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false;
+  final TextEditingController _transcriptController = TextEditingController();
 
   Map<String, dynamic>? _currentNote;
   Map<String, dynamic>? _currentReport;
@@ -40,19 +61,42 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   List<Map<String, dynamic>> _savedNotes = [];
   List<String> _availablePatients = [];
 
+  // Aetheris Colors
+  static const Color _primary = Color(0xFFffffff);
+  static const Color _onSurfaceVariant = Color(0xFFbacac3);
+  static const Color _primaryFixedDim = Color(0xFF38debb);
+  static const Color _surfaceContainerHighest = Color(0xFF27354c);
+  static const Color _surfaceContainerLowest = Color(0xFF010e24);
+
+  late AnimationController _pulseController;
+
   @override
   void initState() {
     super.initState();
     _loadSavedNotes();
     _fetchPatients();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    
+    _audioPlayer.onPlayerComplete.listen((_) {
+      if (mounted) {
+        setState(() => _isPlaying = false);
+      }
+    });
   }
 
   @override
   void dispose() {
     _audioRecorder.dispose();
+    _audioPlayer.dispose();
+    _recordTimer?.cancel();
+    _transcriptController.dispose();
     if (_ownsPatientNameController) {
       _patientNameController.dispose();
     }
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -94,6 +138,12 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     _scaffoldKey.currentState?.openEndDrawer();
   }
 
+  String _formatDuration(int seconds) {
+    final minutes = (seconds / 60).floor();
+    final remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _startRecording() async {
     if (_patientNameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -107,8 +157,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         String? path;
         if (!kIsWeb) {
           final dir = await getApplicationDocumentsDirectory();
-          path =
-              '${dir.path}/consultation_${DateTime.now().millisecondsSinceEpoch}.m4a';
+          path = '${dir.path}/consultation_${DateTime.now().millisecondsSinceEpoch}.m4a';
         }
         await _audioRecorder.start(const RecordConfig(), path: path ?? '');
 
@@ -116,6 +165,17 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
           _isRecording = true;
           _currentNote = null;
           _currentReport = null;
+          _recordedAudioPath = null;
+          _uploadedAudioBytes = null;
+          _uploadedAudioFilename = null;
+          _transcriptionText = null;
+          _recordDuration = 0;
+        });
+
+        _recordTimer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
+          setState(() {
+            _recordDuration++;
+          });
         });
       }
     } catch (e) {
@@ -125,39 +185,96 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     }
   }
 
-  Future<void> _stopRecordingAndProcess() async {
+  Future<void> _stopRecording() async {
+    _recordTimer?.cancel();
     try {
       final pathOrUrl = await _audioRecorder.stop();
       setState(() {
         _isRecording = false;
-        _isProcessing = true;
+        if (pathOrUrl != null) {
+          _recordedAudioPath = pathOrUrl;
+        }
       });
-
-      if (pathOrUrl != null) {
-        await _uploadAudioForAnalysis(pathOrUrl);
-      } else {
-        setState(() => _isProcessing = false);
-      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error stopping recording: $e')),
       );
-      setState(() => _isProcessing = false);
+    }
+  }
+  
+  Future<void> _uploadAudioFile() async {
+    if (_patientNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter patient name first')),
+      );
+      return;
+    }
+
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'flac'],
+        withData: kIsWeb,
+      );
+      if (result == null || result.files.isEmpty) return;
+      
+      final file = result.files.first;
+      setState(() {
+        if (kIsWeb) {
+          _uploadedAudioBytes = file.bytes;
+          _uploadedAudioFilename = file.name;
+          _recordedAudioPath = null;
+        } else {
+          _recordedAudioPath = file.path;
+          _uploadedAudioBytes = null;
+          _uploadedAudioFilename = null;
+        }
+        _recordDuration = 0;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error uploading audio: $e')),
+      );
+    }
+  }
+  
+  void _discardAudio() {
+    setState(() {
+      _recordedAudioPath = null;
+      _uploadedAudioBytes = null;
+      _uploadedAudioFilename = null;
+      _transcriptionText = null;
+      _recordDuration = 0;
+    });
+  }
+
+  Future<void> _playAudio() async {
+    if (_recordedAudioPath == null && _uploadedAudioBytes == null) return;
+    if (_isPlaying) {
+      await _audioPlayer.pause();
+      setState(() => _isPlaying = false);
+    } else {
+      if (kIsWeb && _uploadedAudioBytes != null) {
+        await _audioPlayer.play(BytesSource(_uploadedAudioBytes!));
+      } else if (_recordedAudioPath != null) {
+        await _audioPlayer.play(kIsWeb ? UrlSource(_recordedAudioPath!) : DeviceFileSource(_recordedAudioPath!));
+      }
+      setState(() => _isPlaying = true);
     }
   }
 
-  Future<void> _uploadAudioForAnalysis(String pathOrUrl) async {
+  Future<void> _transcribeAudio() async {
+    if (_recordedAudioPath == null && _uploadedAudioBytes == null) return;
+    setState(() => _isTranscribing = true);
     try {
-      final request = NetworkManager.instance.multipartRequest('POST',
-          '${ApiRoutes.baseUrl}/api/consultations?patient_name=${Uri.encodeComponent(_patientNameController.text.trim())}');
-
-      if (kIsWeb) {
-        final response = await http.get(Uri.parse(pathOrUrl));
-        request.files.add(http.MultipartFile.fromBytes(
-            'file', response.bodyBytes,
-            filename: 'audio.webm'));
-      } else {
-        request.files.add(await http.MultipartFile.fromPath('file', pathOrUrl));
+      final request = NetworkManager.instance.multipartRequest('POST', '${ApiRoutes.baseUrl}/api/transcribe');
+      if (kIsWeb && _uploadedAudioBytes != null) {
+        request.files.add(http.MultipartFile.fromBytes('file', _uploadedAudioBytes!, filename: _uploadedAudioFilename ?? 'audio.webm'));
+      } else if (kIsWeb && _recordedAudioPath != null) {
+        final response = await http.get(Uri.parse(_recordedAudioPath!));
+        request.files.add(http.MultipartFile.fromBytes('file', response.bodyBytes, filename: 'audio.webm'));
+      } else if (_recordedAudioPath != null) {
+        request.files.add(await http.MultipartFile.fromPath('file', _recordedAudioPath!));
       }
 
       final streamedResponse = await request.send();
@@ -165,29 +282,162 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-
-        await SecureStorageService.instance
-            .savePatientNote(_patientNameController.text.trim(), data);
-        _loadSavedNotes();
-        _openDrawerWithNote(data);
+        setState(() {
+          _transcriptionText = data['transcript'];
+          _transcriptController.text = _transcriptionText ?? '';
+          _isTranscribing = false;
+        });
       } else {
-        throw Exception(
-            'Server error: ${response.statusCode} - ${response.body}');
+        throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('AI Processing failed: $e')),
+      setState(() => _isTranscribing = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Transcription failed: $e')));
+    }
+  }
+
+  Future<void> _generateSummary() async {
+    if (_transcriptController.text.trim().isEmpty) return;
+    setState(() => _isProcessing = true);
+    try {
+      final response = await NetworkManager.instance.post(
+        '${ApiRoutes.baseUrl}/api/consultations/generate',
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'patient_name': _patientNameController.text.trim(),
+          'transcript': _transcriptController.text.trim(),
+        }),
       );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        await SecureStorageService.instance.savePatientNote(_patientNameController.text.trim(), data);
+        _loadSavedNotes();
+        _openDrawerWithNote(data);
+        _patientNameController.clear();
+        setState(() {
+          _recordedAudioPath = null;
+          _uploadedAudioBytes = null;
+          _uploadedAudioFilename = null;
+          _transcriptionText = null;
+          _recordDuration = 0;
+        });
+      } else {
+        throw Exception('Server error: ${response.statusCode}');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI Processing failed: $e')));
     } finally {
       setState(() => _isProcessing = false);
     }
   }
 
-  Future<void> _captureAndAnalyzeImage() async {
+  Future<void> _deleteConsultation(int? consultationId, String patientName) async {
+    if (consultationId == null) return;
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: _surfaceContainerHighest,
+        title: const Text('Delete Consultation', style: TextStyle(color: Colors.white)),
+        content: const Text('Are you sure you want to delete this consultation? This action cannot be undone.', style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: _onSurfaceVariant)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
     try {
-      final XFile? image =
-          await _imagePicker.pickImage(source: ImageSource.camera);
-      if (image == null) return;
+      final response = await NetworkManager.instance.delete(
+        '${ApiRoutes.baseUrl}/api/consultations/$consultationId',
+      );
+      if (response.statusCode == 200) {
+        await SecureStorageService.instance.deleteNoteById(consultationId);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Consultation deleted')));
+        _loadSavedNotes();
+        if (_currentNote != null && _currentNote!['id'] == consultationId) {
+          setState(() => _currentNote = null);
+        }
+        _scaffoldKey.currentState?.closeEndDrawer();
+      } else {
+        throw Exception('Server error: ${response.statusCode}');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
+    }
+  }
+
+  Future<void> _showFileOptionsAndAnalyze() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _surfaceContainerHighest,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: Colors.white),
+                title: const Text('Take Photo', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _processPickedFile(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder, color: Colors.white),
+                title: const Text('Choose File (Image/PDF)', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _processPickedFile(null);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _processPickedFile(ImageSource? source) async {
+    try {
+      Uint8List? fileBytes;
+      String? fileName;
+
+      if (source != null) {
+        final XFile? image = await _imagePicker.pickImage(source: source);
+        if (image == null) return;
+        fileBytes = await image.readAsBytes();
+        fileName = image.name;
+      } else {
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+          withData: true,
+        );
+        if (result == null || result.files.isEmpty) return;
+        fileBytes = result.files.first.bytes;
+        fileName = result.files.first.name;
+        
+        if (fileBytes == null && result.files.first.path != null) {
+          fileBytes = await io.File(result.files.first.path!).readAsBytes();
+        }
+      }
+
+      if (fileBytes == null) return;
 
       setState(() {
         _isProcessing = true;
@@ -200,9 +450,8 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         request.fields['patient_name'] = _patientNameController.text.trim();
       }
 
-      final bytes = await image.readAsBytes();
       request.files.add(
-          http.MultipartFile.fromBytes('file', bytes, filename: image.name));
+          http.MultipartFile.fromBytes('file', fileBytes, filename: fileName ?? 'file'));
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -214,7 +463,6 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         Map<String, dynamic> reportData = responseData['data'] ?? responseData;
 
         if (requiresName) {
-          // Ask for patient name via dialog
           final String? enteredName = await showDialog<String>(
             context: context,
             barrierDismissible: false,
@@ -222,24 +470,33 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               final TextEditingController nameController =
                   TextEditingController();
               return AlertDialog(
-                title: const Text('Patient Name Required'),
+                backgroundColor: _surfaceContainerHighest,
+                title: const Text('Patient Name Required',
+                    style: TextStyle(color: Colors.white)),
                 content: TextField(
                   controller: nameController,
+                  style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
                       hintText: "Enter Patient Name",
+                      hintStyle: TextStyle(color: Colors.white54),
                       helperText:
-                          "The AI could not confidently extract the name from the image."),
+                          "The AI could not confidently extract the name from the image.",
+                      helperStyle: TextStyle(color: Colors.white38)),
                   autofocus: true,
                 ),
                 actions: <Widget>[
                   TextButton(
-                    child: const Text('Cancel'),
+                    child: const Text('Cancel',
+                        style: TextStyle(color: Colors.white70)),
                     onPressed: () {
                       Navigator.of(context).pop(null);
                     },
                   ),
                   ElevatedButton(
-                    child: const Text('Save'),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: _primaryFixedDim),
+                    child: const Text('Save',
+                        style: TextStyle(color: Colors.black)),
                     onPressed: () {
                       if (nameController.text.trim().isNotEmpty) {
                         Navigator.of(context).pop(nameController.text.trim());
@@ -252,11 +509,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
           );
 
           if (enteredName == null) {
-            // User cancelled
             return;
           }
 
-          // Call the save endpoint
           reportData['patient_name'] = enteredName;
           final saveResponse = await NetworkManager.instance.post(
             '${ApiRoutes.baseUrl}/api/analysis/save_report',
@@ -267,13 +522,11 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
           if (saveResponse.statusCode == 200) {
             final savedData = jsonDecode(saveResponse.body);
             reportData = savedData;
-            _patientNameController.text =
-                enteredName; // Fill the main textfield for convenience
+            _patientNameController.text = enteredName;
           } else {
             throw Exception('Failed to save report: ${saveResponse.body}');
           }
         } else {
-          // Automatically update the text field with the extracted/provided name
           _patientNameController.text = reportData['patient_name'] ?? '';
         }
 
@@ -282,6 +535,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
             .savePatientNote(finalName, reportData);
         _loadSavedNotes();
         _openDrawerWithReport(reportData);
+        _patientNameController.clear();
       } else {
         throw Exception(
             'Server error: ${response.statusCode} - ${response.body}');
@@ -296,85 +550,84 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   }
 
   Widget _buildPatientCard(Map<String, dynamic> note, bool isReport) {
-    return Card(
-      elevation: 8,
-      shadowColor: Colors.black12,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () {
-          if (isReport) {
-            _openDrawerWithReport(note);
-          } else {
-            _openDrawerWithNote(note);
-          }
-        },
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              colors: isReport
-                  ? [Colors.blue.shade50, Colors.white]
-                  : [Colors.teal.shade50, Colors.white],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            border: Border.all(color: Colors.white, width: 2),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor:
-                        isReport ? Colors.blue.shade100 : Colors.teal.shade100,
-                    child: Icon(isReport ? Icons.analytics : Icons.description,
-                        color: isReport ? Colors.blue : Colors.teal, size: 28),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      note['patient_name'] ?? 'Unknown Patient',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                          color: Color(0xFF1E293B)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(note['date']?.substring(0, 10) ?? '',
-                      style: const TextStyle(
-                          color: Colors.black54, fontWeight: FontWeight.w600)),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        if (isReport) {
+          _openDrawerWithReport(note);
+        } else {
+          _openDrawerWithNote(note);
+        }
+      },
+      child: GlassCard(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: isReport
+                        ? Colors.blueAccent.withValues(alpha: 0.1)
+                        : _primaryFixedDim.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                    border: Border.all(
                         color: isReport
-                            ? Colors.blue.shade200
-                            : Colors.teal.shade200,
-                        borderRadius: BorderRadius.circular(20)),
-                    child: Text(isReport ? 'AI Report' : 'SOAP Note',
-                        style: TextStyle(
-                            color: isReport
-                                ? Colors.blue.shade900
-                                : Colors.teal.shade900,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
-                  )
-                ],
-              )
-            ],
-          ),
+                            ? Colors.blueAccent.withValues(alpha: 0.3)
+                            : _primaryFixedDim.withValues(alpha: 0.3)),
+                  ),
+                  child: Icon(isReport ? Icons.analytics : Icons.description,
+                      color: isReport ? Colors.blueAccent : _primaryFixedDim,
+                      size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    note['patient_name'] ?? 'Unknown Patient',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: _primary),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (Provider.of<AuthProvider>(context, listen: false).role == 'superadmin' && !isReport)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    tooltip: 'Delete Consultation',
+                    onPressed: () => _deleteConsultation(note['id'], note['patient_name'] ?? ''),
+                  ),
+              ],
+            ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(note['date']?.substring(0, 10) ?? '',
+                    style: const TextStyle(
+                        color: _onSurfaceVariant, fontWeight: FontWeight.w600)),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                      color: isReport
+                          ? Colors.blueAccent.withValues(alpha: 0.2)
+                          : _primaryFixedDim.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20)),
+                  child: Text(isReport ? 'AI Report' : 'SOAP Note',
+                      style: TextStyle(
+                          color:
+                              isReport ? Colors.blueAccent : _primaryFixedDim,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
+                )
+              ],
+            )
+          ],
         ),
       ),
     );
@@ -382,41 +635,36 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final consultationProvider = context.watch<ConsultationProvider>();
     return Scaffold(
       key: _scaffoldKey,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text(
-          'Clinical Copilot',
-          style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF0F172A),
-              fontSize: 24),
+          'Medical Consultation',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
-        backgroundColor: Colors.white.withValues(alpha: 0.6),
+        backgroundColor: Colors.black.withValues(alpha: 0.3),
         elevation: 0,
         actions: const [
-          SizedBox
-              .shrink(), // Hides the default hamburger menu for the endDrawer
+          SizedBox.shrink(),
         ],
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: Container(color: Colors.transparent),
           ),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
           child: Container(
-              color: Colors.black.withValues(alpha: 0.05), height: 1.0),
+              color: Colors.white.withValues(alpha: 0.05), height: 1.0),
         ),
       ),
       endDrawer: Drawer(
         width: MediaQuery.of(context).size.width > 800
             ? 600
             : MediaQuery.of(context).size.width * 0.85,
-        backgroundColor: const Color(0xFFF8FAFC).withValues(alpha: 0.95),
+        backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.95),
         elevation: 24,
         shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.horizontal(left: Radius.circular(32))),
@@ -432,25 +680,33 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                         style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFF0F172A))),
+                            color: _primary)),
                     Container(
-                      decoration: const BoxDecoration(
-                          color: Colors.black12, shape: BoxShape.circle),
+                      decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          shape: BoxShape.circle),
                       child: IconButton(
                         icon: const Icon(Icons.close_rounded,
-                            color: Colors.black87),
+                            color: Colors.white),
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                     )
                   ],
                 ),
               ),
-              const Divider(height: 1, thickness: 1),
+              Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: Colors.white.withValues(alpha: 0.1)),
               if (_currentNote != null)
                 Expanded(
                     child: SingleChildScrollView(
                         padding: const EdgeInsets.all(24),
-                        child: SoapNoteView(noteData: _currentNote!)))
+                        child: SoapNoteView(
+                          noteData: _currentNote!,
+                          isSuperAdmin: Provider.of<AuthProvider>(context, listen: false).role == 'superadmin',
+                          onDelete: () => _deleteConsultation(_currentNote!['id'], _currentNote!['patient_name'] ?? ''),
+                        )))
               else if (_currentReport != null)
                 Expanded(
                     child: SingleChildScrollView(
@@ -469,14 +725,14 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               constraints: const BoxConstraints(maxWidth: 1400),
               child: Column(
                 children: [
-                  const SizedBox(height: 80), // For AppBar
+                  const SizedBox(height: 100),
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final isDesktop = constraints.maxWidth > 800;
 
                         final leftTile = GlassCard(
-                          padding: const EdgeInsets.all(24.0),
+                          padding: const EdgeInsets.all(32.0),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -484,13 +740,11 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                 'Record Consultation\n& Analyze Reports',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                    fontSize: 20,
+                                    fontSize: 24,
                                     fontWeight: FontWeight.w800,
-                                    color: Color(0xFF0F172A)),
+                                    color: _primary),
                               ),
-                              const SizedBox(height: 24),
-
-                              // Patient Name Autocomplete
+                              const SizedBox(height: 32),
                               Autocomplete<String>(
                                 optionsBuilder:
                                     (TextEditingValue textEditingValue) {
@@ -515,7 +769,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                       shape: RoundedRectangleBorder(
                                           borderRadius:
                                               BorderRadius.circular(16)),
-                                      color: Colors.white,
+                                      color: _surfaceContainerHighest,
                                       child: ConstrainedBox(
                                         constraints: const BoxConstraints(
                                             maxHeight: 250, maxWidth: 350),
@@ -538,8 +792,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                                         fontSize: 16,
                                                         fontWeight:
                                                             FontWeight.w600,
-                                                        color:
-                                                            Color(0xFF0F172A))),
+                                                        color: _primary)),
                                               ),
                                             );
                                           },
@@ -557,41 +810,37 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                     }
                                     _patientNameController = controller;
                                     _patientNameController.addListener(() {
-                                      setState(
-                                          () {}); // Rebuild to filter the grid
+                                      setState(() {});
                                     });
                                   }
                                   return Container(
                                     decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                        boxShadow: [
-                                          BoxShadow(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.05),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 4))
-                                        ]),
+                                      color: _surfaceContainerLowest.withValues(
+                                          alpha: 0.5),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.1)),
+                                    ),
                                     child: TextField(
                                       controller: controller,
                                       focusNode: focusNode,
                                       style: const TextStyle(
                                           fontSize: 18,
-                                          fontWeight: FontWeight.w500),
+                                          fontWeight: FontWeight.w500,
+                                          color: _primary),
                                       decoration: InputDecoration(
                                           labelText:
                                               'Patient Name (Search or Create New)',
                                           labelStyle: const TextStyle(
-                                              color: Colors.black54),
+                                              color: _onSurfaceVariant),
                                           border: OutlineInputBorder(
                                               borderRadius:
                                                   BorderRadius.circular(16),
                                               borderSide: BorderSide.none),
                                           prefixIcon: const Icon(
                                               Icons.person_search_rounded,
-                                              color: Colors.teal),
-                                          filled: true,
-                                          fillColor: Colors.white,
+                                              color: _primaryFixedDim),
                                           contentPadding:
                                               const EdgeInsets.symmetric(
                                                   horizontal: 24,
@@ -601,20 +850,140 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                   );
                                 },
                               ),
-
-                              const SizedBox(height: 24),
-
+                              const SizedBox(height: 40),
                               if (_isProcessing)
-                                const Column(
+                                Column(
                                   children: [
-                                    CircularProgressIndicator(
-                                        color: Colors.teal, strokeWidth: 3),
-                                    SizedBox(height: 20),
-                                    Text('Processing with Gemini AI...',
+                                    const CircularProgressIndicator(
+                                        color: _primaryFixedDim,
+                                        strokeWidth: 3),
+                                    const SizedBox(height: 20),
+                                    FadeTransition(
+                                      opacity: _pulseController,
+                                      child: const Text(
+                                          'Processing with Aegis AI...',
+                                          style: TextStyle(
+                                              color: _primaryFixedDim,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600)),
+                                    ),
+                                  ],
+                                )
+                              else if (_isTranscribing)
+                                Column(
+                                  children: [
+                                    const CircularProgressIndicator(
+                                        color: _primaryFixedDim,
+                                        strokeWidth: 3),
+                                    const SizedBox(height: 20),
+                                    FadeTransition(
+                                      opacity: _pulseController,
+                                      child: const Text(
+                                          'Transcribing Audio...',
+                                          style: TextStyle(
+                                              color: _primaryFixedDim,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600)),
+                                    ),
+                                  ],
+                                )
+                              else if (_transcriptionText != null)
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    const Text('Edit Transcript',
                                         style: TextStyle(
-                                            color: Colors.black54,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600)),
+                                            color: _primary,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16)),
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: _surfaceContainerLowest.withValues(alpha: 0.5),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                                      ),
+                                      child: TextField(
+                                        controller: _transcriptController,
+                                        maxLines: 8,
+                                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                                        decoration: const InputDecoration(
+                                            border: InputBorder.none,
+                                            contentPadding: EdgeInsets.all(16)),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: _discardAudio,
+                                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                          label: const Text('Discard', style: TextStyle(color: Colors.redAccent)),
+                                        ),
+                                        ElevatedButton.icon(
+                                          onPressed: _generateSummary,
+                                          style: ElevatedButton.styleFrom(
+                                              backgroundColor: _primaryFixedDim,
+                                              foregroundColor: Colors.black,
+                                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+                                          icon: const Icon(Icons.auto_awesome),
+                                          label: const Text('Generate Summary',
+                                              style: TextStyle(fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                )
+                              else if (_recordedAudioPath != null || _uploadedAudioBytes != null)
+                                Column(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: _surfaceContainerLowest,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          IconButton(
+                                            icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                                                color: _primaryFixedDim, size: 40),
+                                            onPressed: _playAudio,
+                                          ),
+                                          const SizedBox(width: 16),
+                                          Text('Audio Recorded (${_formatDuration(_recordDuration)})',
+                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 24),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: _discardAudio,
+                                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                          label: const Text('Discard', style: TextStyle(color: Colors.redAccent)),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: _discardAudio,
+                                          icon: const Icon(Icons.replay, color: _onSurfaceVariant),
+                                          label: const Text('Retake', style: TextStyle(color: _onSurfaceVariant)),
+                                        ),
+                                        ElevatedButton.icon(
+                                          onPressed: _transcribeAudio,
+                                          style: ElevatedButton.styleFrom(
+                                              backgroundColor: _primaryFixedDim,
+                                              foregroundColor: Colors.black,
+                                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+                                          icon: const Icon(Icons.text_fields),
+                                          label: const Text('Transcribe',
+                                              style: TextStyle(fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
                                   ],
                                 )
                               else
@@ -622,78 +991,91 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                   children: [
                                     GestureDetector(
                                       onTap: _isRecording
-                                          ? _stopRecordingAndProcess
+                                          ? _stopRecording
                                           : _startRecording,
                                       child: AnimatedContainer(
                                         duration:
                                             const Duration(milliseconds: 300),
-                                        width: 80,
-                                        height: 80,
+                                        width: 90,
+                                        height: 90,
                                         decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            colors: _isRecording
-                                                ? [
-                                                    Colors.redAccent,
-                                                    Colors.red.shade900
-                                                  ]
-                                                : [
-                                                    Colors.tealAccent.shade400,
-                                                    Colors.teal.shade700
-                                                  ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          ),
+                                          color: _isRecording
+                                              ? Colors.redAccent
+                                                  .withValues(alpha: 0.2)
+                                              : _primaryFixedDim.withValues(
+                                                  alpha: 0.1),
                                           shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: _isRecording
+                                                ? Colors.redAccent
+                                                : _primaryFixedDim,
+                                            width: 2,
+                                          ),
                                           boxShadow: [
                                             BoxShadow(
-                                                color: (_isRecording
-                                                        ? Colors.red
-                                                        : Colors.teal)
-                                                    .withValues(alpha: 0.4),
-                                                blurRadius:
-                                                    _isRecording ? 24 : 16,
-                                                spreadRadius:
-                                                    _isRecording ? 4 : 0,
-                                                offset: const Offset(0, 8)),
+                                              color: (_isRecording
+                                                      ? Colors.redAccent
+                                                      : _primaryFixedDim)
+                                                  .withValues(alpha: 0.3),
+                                              blurRadius:
+                                                  _isRecording ? 30 : 20,
+                                              spreadRadius:
+                                                  _isRecording ? 10 : 0,
+                                            ),
                                           ],
                                         ),
                                         child: Icon(
                                             _isRecording
                                                 ? Icons.stop_rounded
                                                 : Icons.mic_rounded,
-                                            color: Colors.white,
+                                            color: _isRecording
+                                                ? Colors.redAccent
+                                                : _primaryFixedDim,
                                             size: 40),
                                       ),
                                     ),
                                     const SizedBox(height: 16),
-                                    const Text('Record Audio',
+                                    Text(
+                                        _isRecording
+                                            ? 'Recording... ${_formatDuration(_recordDuration)}'
+                                            : 'Record Audio',
                                         style: TextStyle(
                                             fontWeight: FontWeight.bold,
-                                            color: Colors.black54)),
-                                    const SizedBox(height: 24),
+                                            color: _isRecording
+                                                ? Colors.redAccent
+                                                : _onSurfaceVariant)),
+                                    if (!_isRecording) ...[
+                                      const SizedBox(height: 8),
+                                      TextButton.icon(
+                                        onPressed: _uploadAudioFile,
+                                        icon: const Icon(Icons.upload_file, color: _primaryFixedDim, size: 20),
+                                        label: const Text('Upload Audio File', style: TextStyle(color: _primaryFixedDim)),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 32),
                                     ElevatedButton.icon(
                                       onPressed: _isRecording
                                           ? null
-                                          : _captureAndAnalyzeImage,
+                                          : _showFileOptionsAndAnalyze,
                                       icon: const Icon(
                                           Icons.document_scanner_rounded,
-                                          size: 24),
-                                      label: const Text('Analyze Report',
+                                          size: 20),
+                                      label: const Text('Analyze Report (Image/PDF)',
                                           style: TextStyle(
-                                              fontSize: 16,
+                                              fontSize: 14,
                                               fontWeight: FontWeight.w700)),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor:
-                                            Colors.blueAccent.shade700,
-                                        foregroundColor: Colors.white,
-                                        elevation: 8,
-                                        shadowColor: Colors.blueAccent
-                                            .withValues(alpha: 0.5),
+                                            _surfaceContainerLowest,
+                                        foregroundColor: _primary,
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 24, vertical: 16),
                                         shape: RoundedRectangleBorder(
                                             borderRadius:
                                                 BorderRadius.circular(16)),
+                                        side: BorderSide(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.2)),
                                       ),
                                     ),
                                   ],
@@ -721,41 +1103,45 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                                   horizontal: 8.0, vertical: 8.0),
                               child: Text('Recent Patient Records',
                                   style: TextStyle(
-                                      fontSize: 22,
+                                      fontSize: 24,
                                       fontWeight: FontWeight.w900,
-                                      color: Color(0xFF0F172A))),
+                                      color: _primary)),
                             ),
-                            Expanded(
-                              child: filteredNotes.isEmpty
-                                  ? Center(
+                            const SizedBox(height: 16),
+                            filteredNotes.isEmpty
+                                ? Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(top: 40.0),
                                       child: Text(
                                           searchQuery.isEmpty
                                               ? 'No patient records found. Start a consultation!'
                                               : 'No records found for this patient.',
                                           style: const TextStyle(
-                                              color: Colors.black54,
-                                              fontSize: 16)))
-                                  : GridView.builder(
-                                      padding: const EdgeInsets.only(
-                                          bottom: 40, top: 8),
-                                      gridDelegate:
-                                          SliverGridDelegateWithMaxCrossAxisExtent(
-                                        maxCrossAxisExtent:
-                                            isDesktop ? 350 : 300,
-                                        mainAxisSpacing: 16,
-                                        crossAxisSpacing: 16,
-                                        childAspectRatio: 1.3,
-                                      ),
-                                      itemCount: filteredNotes.length,
-                                      itemBuilder: (context, index) {
-                                        final note = filteredNotes[index];
-                                        final isReport =
-                                            note.containsKey('key_findings');
-                                        return _buildPatientCard(
-                                            note, isReport);
-                                      },
+                                              color: _onSurfaceVariant,
+                                              fontSize: 16)),
+                                    ))
+                                : GridView.builder(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.only(
+                                        bottom: 40, top: 8),
+                                    gridDelegate:
+                                        SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent:
+                                          isDesktop ? 350 : 300,
+                                      mainAxisSpacing: 24,
+                                      crossAxisSpacing: 24,
+                                      childAspectRatio: 1.3,
                                     ),
-                            ),
+                                    itemCount: filteredNotes.length,
+                                    itemBuilder: (context, index) {
+                                      final note = filteredNotes[index];
+                                      final isReport =
+                                          note.containsKey('key_findings');
+                                      return _buildPatientCard(
+                                          note, isReport);
+                                    },
+                                  ),
                           ],
                         );
 
@@ -763,19 +1149,25 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              SizedBox(width: 400, child: leftTile),
-                              const SizedBox(width: 32),
-                              Expanded(child: rightTile),
+                              SizedBox(width: 450, child: leftTile),
+                              const SizedBox(width: 40),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  child: rightTile,
+                                ),
+                              ),
                             ],
                           );
                         } else {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              leftTile,
-                              const SizedBox(height: 24),
-                              Expanded(child: rightTile),
-                            ],
+                          return SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                leftTile,
+                                const SizedBox(height: 32),
+                                rightTile,
+                              ],
+                            ),
                           );
                         }
                       },

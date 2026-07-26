@@ -95,7 +95,7 @@ MIN_PERSON_HEIGHT_PX = 80
 PPE_YOLO_MODEL = "best.fp16.onnx"
 PPE_YOLO_OPENVINO_DIR = "openvino"
 PPE_DETECTION_INTERVAL_FRAMES = 1
-PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.10
+PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.70
 PPE_EVIDENCE_TTL_FRAMES = 1
 # Three detector passes are about 1.5s at the CPU profile; use a longer window
 # because hands can leave the frame while staff are moving naturally.

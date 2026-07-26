@@ -20,22 +20,22 @@ class ModelManager:
     def _init_manager(self):
         self._face_app = None
         self._face_lock = threading.Lock()
-        
+
         self._mp_holistic = None
         self._mp_lock = threading.Lock()
-        
+
         self._mp_face_mesh = None
         self._mp_face_mesh_lock = threading.Lock()
-        
+
         self._mp_hands = None
         self._mp_hands_lock = threading.Lock()
-        
-        self._yolo_detector = None
+
+        self._yolo_detectors = {}
         self._yolo_lock = threading.Lock()
 
         self._ppe_detector = None
         self._ppe_lock = threading.Lock()
-        
+
         self._tts_model = None
         self._tts_lock = threading.Lock()
 
@@ -51,7 +51,6 @@ class ModelManager:
                         available = ort.get_available_providers()
                         preferred = [
                             "CUDAExecutionProvider",
-                            "CoreMLExecutionProvider",
                             "OpenVINOExecutionProvider",
                             "CPUExecutionProvider",
                         ]
@@ -62,7 +61,6 @@ class ModelManager:
                         name="buffalo_l",
                         root="~/.insightface",
                         providers=providers,
-                        allowed_modules=["detection", "recognition"],
                     )
                     if config:
                         self._face_app.prepare(
@@ -102,48 +100,43 @@ class ModelManager:
         """
         return None
 
-    def get_yolo_detector(self):
+    def get_yolo_detector(self, camera_id="default"):
         """
         Load YOLO detector for multi-person detection and ByteTrack tracking.
         Prefers the OpenVINO model (which includes person detection) to avoid ONNX CPU fallback.
+        Creates a distinct YOLO instance per camera_id so internal ByteTrack tracker state is isolated.
         """
-        # Do NOT return get_ppe_detector() here.
-        # Ultralytics YOLO mutates internal predictor state when yolo.track(classes=[0]) is called,
-        # which permanently breaks PPE detection if the same instance is used for both!
-
-        if self._yolo_detector is None:
+        if camera_id not in self._yolo_detectors:
             with self._yolo_lock:
-                if self._yolo_detector is None:
-                    print("[ModelManager] Lazy loading YOLO11n...")
+                if camera_id not in self._yolo_detectors:
+                    print(f"[ModelManager] Lazy loading YOLO11n for camera {camera_id}...")
                     try:
                         from ultralytics import YOLO
                         from camera.vision_constants import YOLO_MODEL
                         models_dir = os.path.abspath(
                             os.path.join(os.path.dirname(__file__), "..", "models")
                         )
-                        openvino_ppe = os.path.join(models_dir, "best_openvino_model")
                         onnx_path = os.path.join(models_dir, YOLO_MODEL)
 
-                        if os.path.exists(openvino_ppe):
-                            print(f"[ModelManager] Loading OpenVINO YOLO tracker from {openvino_ppe}...")
-                            self._yolo_detector = YOLO(openvino_ppe, task="detect")
-                        elif os.path.exists(onnx_path):
-                            self._yolo_detector = YOLO(onnx_path)
+                        if os.path.exists(onnx_path):
+                            self._yolo_detectors[camera_id] = YOLO(onnx_path)
                         else:
                             print(f"[ModelManager] {YOLO_MODEL} not found in models/. Downloading...")
-                            self._yolo_detector = YOLO(YOLO_MODEL)
+                            self._yolo_detectors[camera_id] = YOLO(YOLO_MODEL)
                         try:
-                            self._yolo_detector.fuse()
+                            self._yolo_detectors[camera_id].fuse()
                         except Exception:
                             pass
-                        print("[ModelManager] YOLO11n loaded successfully.")
+                        print(f"[ModelManager] YOLO11n loaded successfully for camera {camera_id}.")
                     except ImportError:
                         print("[ModelManager] Failed to load YOLO (ultralytics not installed)")
-                        self._yolo_detector = False
+                        self._yolo_detectors[camera_id] = False
                     except Exception as e:
-                        print(f"[ModelManager] Failed to load YOLO: {e}")
-                        self._yolo_detector = False
-        return self._yolo_detector if self._yolo_detector is not False else None
+                        print(f"[ModelManager] Failed to load YOLO for camera {camera_id}: {e}")
+                        self._yolo_detectors[camera_id] = False
+                        
+        model = self._yolo_detectors.get(camera_id)
+        return model if model is not False else None
 
     def get_ppe_detector(self):
         """Load the lightweight detector trained for masks and gloves (prefer OpenVINO on CPU)."""
@@ -160,18 +153,8 @@ class ModelManager:
                         models_dir = os.path.abspath(
                             os.path.join(os.path.dirname(__file__), "..", "models")
                         )
-                        openvino_dir = os.path.join(models_dir, PPE_YOLO_OPENVINO_DIR)
-                        best_ov_dir = os.path.join(models_dir, "best_openvino_model")
+                        target_ov = os.path.join(models_dir, "best_openvino_model")
                         onnx_path = os.path.join(models_dir, PPE_YOLO_MODEL)
-
-                        # Ensure Ultralytics _openvino_model directory structure is available
-                        if not os.path.exists(best_ov_dir) and os.path.exists(openvino_dir):
-                            try:
-                                os.symlink(openvino_dir, best_ov_dir)
-                            except Exception:
-                                pass
-
-                        target_ov = best_ov_dir if os.path.exists(best_ov_dir) else openvino_dir
 
                         # Prefer OpenVINO model for real-time CPU performance if available
                         if os.path.exists(target_ov):

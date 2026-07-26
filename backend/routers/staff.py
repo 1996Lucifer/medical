@@ -19,9 +19,23 @@ ws_router = APIRouter(prefix="/api/staff", tags=["staff_ws"])
 class StaffResponse(BaseModel):
     id: int
     name: str
+    role: Optional[str] = "Medical Staff"
     photo_count: int = 0
     photo_url: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
+
+class StaffActivityResponse(BaseModel):
+    id: int
+    title: str
+    subtitle: str
+    color: str
+    created_at: datetime.datetime
+    model_config = ConfigDict(from_attributes=True)
+
+def _log_activity(db: Session, title: str, subtitle: str, color: str):
+    db_activity = models.StaffActivity(title=title, subtitle=subtitle, color=color)
+    db.add(db_activity)
+    db.commit()
 
 
 class StaffPhotoResponse(BaseModel):
@@ -35,6 +49,7 @@ class StaffPhotoResponse(BaseModel):
 
 class StaffUpdate(BaseModel):
     name: str
+    role: Optional[str] = "Medical Staff"
 
 
 def load_staff_list(db: Session) -> list:
@@ -46,9 +61,9 @@ def load_staff_list(db: Session) -> list:
     staff_list = []
     for s in staff_records:
         if s.embedding:
-            staff_list.append({"name": s.name, "embedding": s.embedding, "upper_embedding": s.upper_embedding})
+            staff_list.append({"id": s.id, "name": s.name, "embedding": s.embedding, "upper_embedding": s.upper_embedding})
         for photo in s.photos:
-            staff_list.append({"name": s.name, "embedding": photo.embedding, "upper_embedding": photo.upper_embedding})
+            staff_list.append({"id": s.id, "name": s.name, "embedding": photo.embedding, "upper_embedding": photo.upper_embedding})
     return staff_list
 
 def update_global_embeddings(db: Session):
@@ -62,10 +77,10 @@ def update_global_embeddings(db: Session):
 
 @router.post("", response_model=StaffResponse)
 async def register_staff(
-    name: str, file: Optional[UploadFile] = None, db: Session = Depends(get_db)
+    name: str, role: Optional[str] = "Medical Staff", file: Optional[UploadFile] = None, db: Session = Depends(get_db)
 ):
     """Register a new staff member with an optional first face photo."""
-    db_staff = models.Staff(name=name)
+    db_staff = models.Staff(name=name, role=role)
     filename = None
     
     if file is not None:
@@ -101,12 +116,15 @@ async def register_staff(
     db.commit()
     db.refresh(db_staff)
     
+    _log_activity(db, "New Staff Onboarded", f"{name} was registered as {role}.", "green")
+    
     if file is not None:
         update_global_embeddings(db)
 
     return StaffResponse(
         id=db_staff.id, 
         name=db_staff.name, 
+        role=db_staff.role,
         photo_count=1 if file is not None else 0, 
         photo_url=f"/{db_staff.photo_path}" if db_staff.photo_path else None
     )
@@ -218,14 +236,18 @@ def update_staff(staff_id: int, body: StaffUpdate, db: Session = Depends(get_db)
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found.")
     staff.name = body.name
+    staff.role = body.role
     db.commit()
     db.refresh(staff)
+    
+    _log_activity(db, "Profile Updated", f"{staff.name} role changed to {staff.role}.", "orange")
     
     photo_url = f"/{staff.photo_path}" if staff.photo_path else None
     
     return StaffResponse(
         id=staff.id, 
         name=staff.name, 
+        role=staff.role,
         photo_count=len(staff.photos) + (1 if staff.embedding is not None else 0),
         photo_url=photo_url
     )
@@ -250,8 +272,11 @@ def delete_staff(staff_id: int, db: Session = Depends(get_db)):
         if p.photo_path and os.path.exists(p.photo_path):
             os.remove(p.photo_path)
             
+    name = staff.name
     db.delete(staff)
     db.commit()
+    
+    _log_activity(db, "Access Revoked", f"{name}'s access was revoked.", "red")
     
     update_global_embeddings(db)
     return {"status": "deleted"}
@@ -264,14 +289,26 @@ def get_staff(db: Session = Depends(get_db)):
     for s in staff_records:
         count = 1 if s.embedding is not None else 0
         count += len(s.photos)
+        
         photo_url = f"/{s.photo_path}" if s.photo_path else None
+        if not photo_url:
+            front_photo = next((p for p in s.photos if p.label == 'front'), None)
+            if front_photo and front_photo.photo_path:
+                photo_url = f"/{front_photo.photo_path}"
+                
         result.append(StaffResponse(
             id=s.id, 
             name=s.name, 
+            role=s.role,
             photo_count=count,
             photo_url=photo_url
         ))
     return result
+
+@router.get("/activity", response_model=List[StaffActivityResponse])
+def get_activity(db: Session = Depends(get_db)):
+    activities = db.query(models.StaffActivity).order_by(models.StaffActivity.created_at.desc()).limit(10).all()
+    return activities
 
 
 @router.post("/{staff_id}/video_setup")
@@ -556,7 +593,11 @@ async def live_setup_ws(websocket: WebSocket, staff_id: int, db: Session = Depen
     except WebSocketDisconnect:
         print("[LiveSetup] Client disconnected")
     except Exception as e:
+        import traceback
+        traceback_str = traceback.format_exc()
         print(f"[LiveSetup] Error: {e}")
+        with open("/tmp/backend_err.txt", "w") as f:
+            f.write(traceback_str)
         try:
             await websocket.close(code=1011)
         except:

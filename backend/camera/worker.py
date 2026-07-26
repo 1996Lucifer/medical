@@ -279,43 +279,97 @@ class CameraWorker:
         zone_type = ev.get("zone_type", "observation")
         is_verified = bool(ev.get("is_verified", False))
 
+        # Check PPE
         has_mask = bool(ev.get("has_mask", False))
         has_left = bool(ev.get("has_left_glove", False))
         has_right = bool(ev.get("has_right_glove", False))
         has_gloves = bool(ev.get("has_gloves", False)) or (has_left and has_right) or (has_left or has_right)
-
-        m_text = "MASK ✓" if has_mask else "NO MASK ❌"
-        g_text = "GLOVES ✓" if has_gloves else "NO GLOVES ❌"
-        ppe_status = f"{m_text} | {g_text}"
-
+        
+        status = ""
         if name == "Unknown":
             color = (0, 0, 255)
-            status = f"UNAUTHORIZED ({ppe_status})"
-        elif zone_type == ZONE_TYPE_RESTRICTED:
+            status = "UNAUTHORIZED"
+        elif zone_type == "restricted":
             if is_verified or (has_mask and has_gloves):
                 color = (0, 255, 0)
-                status = f"VERIFIED ✓ ({ppe_status})"
+                status = "VERIFIED"
             else:
                 color = (0, 0, 255)
-                status = f"RESTRICTED VIOLATION 🚨 ({ppe_status})"
+                status = "RESTRICTED VIOLATION"
         elif is_verified:
             color = (0, 255, 0)
-            status = f"VERIFIED ✓ ({ppe_status})"
+            status = "VERIFIED"
         else:
             if not has_mask or not has_gloves:
                 color = (0, 165, 255) if (has_mask or has_gloves) else (0, 0, 255)
             else:
                 color = (0, 255, 0)
-            status = ppe_status
 
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        label = f"#{ev.get('tid', '')} {name}".strip()
+        # 1) Draw main bounding box with corner styling
+        thickness = 2
+        length = 15
+        # Top-left
+        cv2.line(frame, (x1, y1), (x1 + length, y1), color, thickness)
+        cv2.line(frame, (x1, y1), (x1, y1 + length), color, thickness)
+        # Top-right
+        cv2.line(frame, (x2, y1), (x2 - length, y1), color, thickness)
+        cv2.line(frame, (x2, y1), (x2, y1 + length), color, thickness)
+        # Bottom-left
+        cv2.line(frame, (x1, y2), (x1 + length, y2), color, thickness)
+        cv2.line(frame, (x1, y2), (x1, y2 - length), color, thickness)
+        # Bottom-right
+        cv2.line(frame, (x2, y2), (x2 - length, y2), color, thickness)
+        cv2.line(frame, (x2, y2), (x2, y2 - length), color, thickness)
+        # Faint full rectangle
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 1)
+        cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+
+        # 2) Draw tracing arrow based on velocity
+        vx = ev.get("track_vx_sec", 0.0)
+        vy = ev.get("track_vy_sec", 0.0)
+        speed = (vx**2 + vy**2)**0.5
+        if speed > 20.0:  # Only draw if moving noticeably
+            cx, cy = int((x1 + x2)/2), int(y2)
+            # Arrow points in direction of travel (vx, vy are pixels/sec, let's draw a half-second vector)
+            end_x = int(cx + vx * 0.5)
+            end_y = int(cy + vy * 0.5)
+            # Cyan arrow for tracing
+            cv2.arrowedLine(frame, (cx, cy), (end_x, end_y), (255, 255, 0), 2, tipLength=0.2)
+
+        # 3) UI Label panel
+        tid = ev.get('tid', '')
         score = float(ev.get("score", 0.0) or 0.0)
+        label_title = f"{name}"
+        if str(tid) != "" and str(tid) != "-1":
+            label_title += f" ID: {tid}"
+        label_subtitle = ""
         if score > 0:
-            label += f" {score:.0%}"
-        cv2.putText(frame, label, (x1, max(0, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            label_subtitle += f"Conf: {score:.0%}"
         if status:
-            cv2.putText(frame, status, (x1, min(frame.shape[0] - 5, y2 + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+            label_subtitle += f" | {status}"
+        
+        # Calculate text size for background box
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        title_size = cv2.getTextSize(label_title, font, 0.6, 2)[0]
+        sub_size = cv2.getTextSize(label_subtitle, font, 0.45, 1)[0]
+        box_w = max(title_size[0], sub_size[0]) + 10
+        box_h = title_size[1] + sub_size[1] + 15
+        
+        # Draw glassmorphism box (semi-transparent filled rect)
+        panel_y1 = max(0, y1 - box_h - 10)
+        panel_y2 = panel_y1 + box_h
+        panel_x1 = x1
+        panel_x2 = panel_x1 + box_w
+        
+        p_overlay = frame.copy()
+        cv2.rectangle(p_overlay, (panel_x1, panel_y1), (panel_x2, panel_y2), (40, 40, 40), -1)
+        cv2.rectangle(p_overlay, (panel_x1, panel_y1), (panel_x2, panel_y2), color, 1)
+        cv2.addWeighted(p_overlay, 0.7, frame, 0.3, 0, frame)
+        
+        cv2.putText(frame, label_title, (panel_x1 + 5, panel_y1 + title_size[1] + 5), font, 0.6, (255, 255, 255), 1)
+        if label_subtitle:
+            cv2.putText(frame, label_subtitle, (panel_x1 + 5, panel_y2 - 5), font, 0.45, color, 1)
 
     # ── Background thread ─────────────────────────────────────────────────────
 
@@ -511,7 +565,7 @@ class CameraWorker:
                         for ppe in ppe_events:
                             bbox = ppe["bbox"]
                             label = f"{ppe['class']} {ppe.get('score', 0):.0%}"
-                            color = (255, 255, 0) # Cyan for PPE
+                            color = (0, 0, 255) if "improper" in ppe['class'] else (255, 255, 0)
                             cv2.rectangle(
                                 processed,
                                 (bbox[0], bbox[1]),
@@ -586,31 +640,7 @@ class CameraWorker:
                     h, w = processed.shape[:2]
 
                     # Keep camera identity visible in every view and snapshot.
-                    camera_label = f"Camera {camera_id}"
-                    if camera_name:
-                        camera_label += f" - {camera_name}"
-                    cv2.rectangle(processed, (8, 8), (min(w - 8, 520), 38), (0, 0, 0), -1)
-                    cv2.putText(
-                        processed,
-                        camera_label,
-                        (16, 29),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.62,
-                        (255, 255, 255),
-                        2,
-                        cv2.LINE_AA,
-                    )
-                    cv2.rectangle(manage_frame, (8, 8), (min(w - 8, 520), 38), (0, 0, 0), -1)
-                    cv2.putText(
-                        manage_frame,
-                        camera_label,
-                        (16, 29),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.62,
-                        (255, 255, 255),
-                        2,
-                        cv2.LINE_AA,
-                    )
+                    # Removed top black bar and title as per request
 
                     # --- TAMPER DETECTION ---
                     if is_ai_active and frame_count > 60:
@@ -928,9 +958,21 @@ class CameraWorker:
                             manage_overlay, 0.25, manage_frame, 0.75, 0, manage_frame
                         )
 
+                        zone_counts = {z_name: 0 for z_name, _, _ in parsed_rois}
+                        for ev in face_events:
+                            z_n, _ = get_zone_for_bbox(ev["bbox"])
+                            if z_n in zone_counts:
+                                zone_counts[z_n] += 1
+
+                        chip_x = 180
+                        chip_y = 16
                         for z_name, z_type, pts in parsed_rois:
                             effective_cam_name = f"{camera_name} - {z_name}"
                             is_alert = is_zone_alerted(effective_cam_name)
+                            count = zone_counts[z_name]
+                            if count > 2:
+                                is_alert = True  # High occupancy threshold
+
                             border_color = (0, 0, 255) if is_alert else (255, 200, 0)
 
                             # Draw on AI processed frame
@@ -941,17 +983,25 @@ class CameraWorker:
                                 color=border_color,
                                 thickness=2 if is_alert else 1,
                             )
-                            cv2.putText(
-                                processed,
-                                z_name,
-                                (pts[0][0][0], pts[0][0][1] - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.7,
-                                border_color,
-                                1,
-                            )
+                            
+                            # Draw zone chip at the top of the AI processed frame
+                            label = f"{z_name.upper()} | Occ: {count}"
+                            if is_alert and count > 2:
+                                label = f"HIGH OCCUPANCY ({count}) - {z_name.upper()}"
+                            
+                            font = cv2.FONT_HERSHEY_SIMPLEX
+                            text_size = cv2.getTextSize(label, font, 0.45, 1)[0]
+                            
+                            # Dark background box with colored border for the chip
+                            cv2.rectangle(processed, (chip_x, chip_y), (chip_x + text_size[0] + 16, chip_y + text_size[1] + 12), (0, 0, 0), -1)
+                            cv2.rectangle(processed, (chip_x, chip_y), (chip_x + text_size[0] + 16, chip_y + text_size[1] + 12), border_color, 1)
+                            # White text
+                            cv2.putText(processed, label, (chip_x + 8, chip_y + text_size[1] + 6), font, 0.45, (255, 255, 255), 1)
 
-                            # Draw on Manage frame
+                            # Increment chip_x for the next zone chip
+                            chip_x += text_size[0] + 24
+
+                            # Draw on Manage frame (basic outline only + name on boundary)
                             cv2.polylines(
                                 manage_frame,
                                 [pts],
@@ -959,11 +1009,14 @@ class CameraWorker:
                                 color=border_color,
                                 thickness=2 if is_alert else 1,
                             )
+                            px, py = pts[0][0][0], pts[0][0][1] - 10
+                            # Ensure text doesn't clip off the top of the frame for manage mode
+                            py = max(20, py)
                             cv2.putText(
                                 manage_frame,
                                 z_name,
-                                (pts[0][0][0], pts[0][0][1] - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX,
+                                (px, py),
+                                font,
                                 0.7,
                                 border_color,
                                 1,

@@ -1,8 +1,7 @@
-import 'dart:async';
-import 'dart:typed_data';
-
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:http/http.dart' as http;
 import '../network/api_routes.dart';
 
 class CameraStreamView extends StatefulWidget {
@@ -10,138 +9,118 @@ class CameraStreamView extends StatefulWidget {
   final BoxFit fit;
   final String mode;
 
-  const CameraStreamView(
-      {super.key,
-      required this.cameraId,
-      this.fit = BoxFit.contain,
-      this.mode = 'ai'});
+  const CameraStreamView({
+    super.key,
+    required this.cameraId,
+    this.fit = BoxFit.contain,
+    this.mode = 'ai',
+  });
 
   @override
   State<CameraStreamView> createState() => _CameraStreamViewState();
 }
 
 class _CameraStreamViewState extends State<CameraStreamView> {
+  RTCPeerConnection? _peerConnection;
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   bool _isConnected = false;
   bool _isConnecting = true;
-  Uint8List? _frameBytes;
-  WebSocketChannel? _channel;
-  StreamSubscription? _sub;
   String? _errorMessage;
-  Timer? _reconnectTimer;
-  String? _lastDisconnectReason;
 
   @override
   void initState() {
     super.initState();
-    print('CameraStreamView INIT: ${widget.cameraId}');
-    _connectStream();
+    _initRenderer();
+    _connectWebRTC();
+  }
+
+  Future<void> _initRenderer() async {
+    await _localRenderer.initialize();
   }
 
   @override
   void didUpdateWidget(CameraStreamView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraId != widget.cameraId ||
-        oldWidget.mode != widget.mode) {
+    if (oldWidget.cameraId != widget.cameraId || oldWidget.mode != widget.mode) {
       _disconnect();
-      _connectStream();
+      _connectWebRTC();
     }
   }
 
-  Future<void> _connectStream() async {
+  Future<void> _connectWebRTC() async {
     setState(() {
       _isConnecting = true;
       _errorMessage = null;
-      _lastDisconnectReason = null;
     });
 
-    final wsUri =
-        Uri.parse(ApiRoutes.cameraWs(widget.cameraId, mode: widget.mode));
     try {
-      _channel = WebSocketChannel.connect(wsUri);
-      await _channel!.ready;
-      if (!mounted) return;
-      setState(() {
-        _isConnected = true;
+      _peerConnection = await createPeerConnection({
+        'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}],
       });
-      _sub = _channel!.stream.listen(
-        (data) {
+
+      _peerConnection?.onTrack = (event) {
+        if (event.track.kind == 'video') {
+          _localRenderer.srcObject = event.streams[0];
+          setState(() {
+            _isConnected = true;
+            _isConnecting = false;
+          });
+        }
+      };
+
+      _peerConnection?.onIceConnectionState = (state) {
+        if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
           if (mounted) {
-            setState(() {
-              _isConnecting = false;
-              try {
-                _frameBytes = data is Uint8List
-                    ? data
-                    : Uint8List.fromList(data as List<int>);
-              } catch (e) {
-                _lastDisconnectReason = "Data cast error: $e";
-              }
-            });
+            _disconnect();
+            _connectWebRTC(); // Reconnect
           }
-        },
-        onError: (e) {
-          if (mounted) {
-            setState(() {
-              _errorMessage = 'Error: $e';
-              _lastDisconnectReason = 'Error: $e';
-              _isConnected = false;
-              _isConnecting = false;
-            });
-            _scheduleReconnect();
-          }
-        },
-        onDone: () {
-          if (mounted) {
-            setState(() {
-              _lastDisconnectReason =
-                  'onDone called. Close code: ${_channel?.closeCode}, reason: ${_channel?.closeReason}';
-              _isConnected = false;
-              _isConnecting = false;
-            });
-            _scheduleReconnect();
-          }
-        },
+        }
+      };
+      
+      // We must add a transceiver to receive video
+      await _peerConnection?.addTransceiver(
+        kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+        init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
       );
+
+      RTCSessionDescription offer = await _peerConnection!.createOffer();
+      await _peerConnection!.setLocalDescription(offer);
+
+      final response = await http.post(
+        Uri.parse(ApiRoutes.webrtcOffer(widget.cameraId, mode: 'webrtc_${widget.mode}')),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'sdp': offer.sdp, 'type': offer.type}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        RTCSessionDescription answer = RTCSessionDescription(data['sdp'], data['type']);
+        await _peerConnection!.setRemoteDescription(answer);
+      } else {
+        throw Exception('Failed to connect to WebRTC backend');
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
+          _errorMessage = e.toString();
           _isConnecting = false;
-          _errorMessage = 'Could not connect: $e';
-          _lastDisconnectReason = 'Connect catch: $e';
+          _isConnected = false;
         });
-        _scheduleReconnect();
       }
     }
-  }
-
-  void _scheduleReconnect() {
-    _reconnectTimer?.cancel();
-    if (!mounted) return;
-    _reconnectTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) {
-        _disconnect();
-        _connectStream();
-      }
-    });
   }
 
   Future<void> _disconnect() async {
-    _reconnectTimer?.cancel();
-    await _sub?.cancel();
-    await _channel?.sink.close();
-    _sub = null;
-    _channel = null;
-    if (mounted) {
-      setState(() {
-        _isConnected = false;
-        _frameBytes = null;
-      });
-    }
+    await _peerConnection?.close();
+    _peerConnection = null;
+    _localRenderer.srcObject = null;
   }
 
   @override
   void dispose() {
     _disconnect();
-    print('CameraStreamView DISPOSE: ${widget.cameraId}');
+    _localRenderer.dispose();
     super.dispose();
   }
 
@@ -149,41 +128,25 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   Widget build(BuildContext context) {
     if (_errorMessage != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child:
-              Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-        ),
+        child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
       );
     }
-    if (_frameBytes != null) {
-      return Image.memory(
-        _frameBytes!,
-        fit: widget.fit,
-        gaplessPlayback: true,
+    if (_isConnected) {
+      return RTCVideoView(
+        _localRenderer,
+        objectFit: widget.fit == BoxFit.cover
+            ? RTCVideoViewObjectFit.RTCVideoViewObjectFitCover
+            : RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
       );
     }
-    if (_isConnecting) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Connecting to stream...',
-                style: TextStyle(color: Colors.white70)),
-          ],
-        ),
-      );
-    }
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Text(
-          'Stream offline\nReason: ${_lastDisconnectReason ?? "Unknown"}',
-          style: const TextStyle(color: Colors.white70),
-          textAlign: TextAlign.center,
-        ),
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('Connecting WebRTC...', style: TextStyle(color: Colors.white70)),
+        ],
       ),
     );
   }

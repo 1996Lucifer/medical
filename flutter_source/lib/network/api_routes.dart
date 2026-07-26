@@ -22,6 +22,8 @@ class ApiRoutes {
   static String camera(int id) => '$baseUrl/api/cameras/$id';
   static String cameraWs(int id, {String mode = 'ai'}) =>
       '$wsBaseUrl/api/ws/camera?camera_id=$id&mode=$mode';
+  static String webrtcOffer(int id, {String mode = 'webrtc_ai'}) =>
+      '$baseUrl/api/webrtc/offer?camera_id=$id&mode=$mode';
   static String cameraRois(int id) => '$baseUrl/api/cameras/$id/rois';
   static String deleteCameraRoi(int id) => '$baseUrl/api/cameras/rois/$id';
   static String get allUniqueRois => '$baseUrl/api/cameras/rois/all/unique';
@@ -47,8 +49,11 @@ class ApiRoutes {
   static String get securityRulesSync => '$baseUrl/api/security/rules/sync';
   static String deleteSecurityRule(int id) => '$baseUrl/api/security/rules/$id';
 
-  // Staff
+  // Analytics
+  static String adminDashboard() => '$baseUrl/api/analytics/dashboard';
+
   static String get staff => '$baseUrl/api/staff';
+  static String get staffActivity => '$baseUrl/api/staff/activity';
   static String staffSearch(String name) =>
       '$baseUrl/api/staff?name=${Uri.encodeComponent(name)}';
   static String staffMember(int id) => '$baseUrl/api/staff/$id';

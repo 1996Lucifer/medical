@@ -124,6 +124,7 @@ class Staff(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
+    role = Column(String, nullable=True, default='Medical Staff')
     embedding = Column(Vector(512))  # Primary (first) photo embedding
     upper_embedding = Column(Vector(512), nullable=True) # Upper 45% mask tracking embedding
     photo_path = Column(String, nullable=True) # Path to the saved photo file
@@ -152,6 +153,13 @@ class StaffPhoto(Base):
 
     staff = relationship("Staff", back_populates="photos")
 
+class StaffActivity(Base):
+    __tablename__ = "staff_activity"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    subtitle = Column(String, nullable=False)
+    color = Column(String, nullable=False) # e.g. "green", "orange", "red"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Camera(Base):
     """
