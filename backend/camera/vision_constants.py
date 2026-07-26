@@ -34,22 +34,30 @@ CPU_CONFIG = {
 
 def get_runtime_vision_config(available_providers=None):
     """
-    Pick conservative runtime settings for the active inference backend.
-    CPU stays intentionally small so camera streaming remains responsive.
+    Pick runtime settings for the active inference backend.
+    Automatically enables GPU high-performance profile if CUDA or Apple Silicon (MPS/CoreML) is detected.
     """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return CUDA_CONFIG
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return COREML_CONFIG
+    except Exception:
+        pass
+
     if available_providers is None:
         try:
             import onnxruntime as ort
-
             available_providers = ort.get_available_providers()
         except Exception:
             available_providers = []
 
     if "CUDAExecutionProvider" in available_providers:
         return CUDA_CONFIG
-    # CoreML may be installed in ONNX Runtime without being used by the
-    # InsightFace models. In that case InsightFace falls back to CPU, so use
-    # the small CPU profile instead of feeding it 1920px/640px frames.
+    if "CoreMLExecutionProvider" in available_providers:
+        return COREML_CONFIG
+
     return CPU_CONFIG
 
 

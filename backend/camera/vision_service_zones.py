@@ -18,7 +18,7 @@ import asyncio
 import time
 from typing import Dict, List, Optional, Tuple
 
-from camera.model_manager import ModelManager
+from camera.model_manager import ModelManager, get_best_device
 from camera.compliance_engine import compliance_engine
 
 from camera.vision_constants import (
@@ -57,7 +57,8 @@ class VisionServiceZones:
         self.camera_name = camera_name
         self.debug_zones = os.getenv("VISION_DEBUG", "0") == "1"
 
-        # Determine optimal backend config for InsightFace
+        # Determine optimal device and backend config
+        self.device = get_best_device()
         self.runtime_config = get_runtime_vision_config()
         self.config = {
             "ctx_id": self.runtime_config["ctx_id"],
@@ -65,7 +66,7 @@ class VisionServiceZones:
         }
         self.yolo_imgsz = (
             YOLO_CPU_IMGSZ
-            if self.runtime_config["backend"] == "cpu"
+            if self.runtime_config["backend"] == "cpu" and self.device == "cpu"
             else YOLO_GPU_IMGSZ
         )
 
@@ -503,6 +504,7 @@ class VisionServiceZones:
                 frame,
                 conf=PPE_DETECTION_CONFIDENCE_THRESHOLD,
                 imgsz=self.yolo_imgsz,
+                device=self.device,
                 verbose=False,
             )
             boxes = results[0].boxes if results else None
@@ -702,6 +704,7 @@ class VisionServiceZones:
             conf=YOLO_CONFIDENCE_THRESHOLD,
             classes=[YOLO_PERSON_CLASS],
             imgsz=self.yolo_imgsz,
+            device=self.device,
             verbose=False,
         )
 

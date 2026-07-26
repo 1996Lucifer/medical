@@ -19,6 +19,15 @@ from services.llm_manager import llm_manager
 
 whisper_model = None
 
+def _get_whisper_device():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda", "float16"
+    except Exception:
+        pass
+    return "cpu", "int8"
+
 # Create database tables and vector extension
 with engine.connect() as conn:
     conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -115,7 +124,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
         with open(temp_file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         if whisper_model is None:
-            whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+            w_dev, w_type = _get_whisper_device()
+            whisper_model = WhisperModel("base", device=w_dev, compute_type=w_type)
         print(f"Transcribing audio from {temp_file_path} using Faster-Whisper...")
         segments, info = whisper_model.transcribe(temp_file_path, beam_size=5, vad_filter=True)
         transcript_part = " ".join([segment.text for segment in segments]).strip()
@@ -188,8 +198,8 @@ async def upload_audio(
 
         # Load whisper model lazily
         if whisper_model is None:
-            # CPU with int8 is highly optimized in faster-whisper (CTranslate2) and works great on Apple Silicon too
-            whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+            w_dev, w_type = _get_whisper_device()
+            whisper_model = WhisperModel("base", device=w_dev, compute_type=w_type)
 
         # Transcribe audio using faster-whisper model
         print(f"Transcribing audio from {temp_file_path} using Faster-Whisper...")
