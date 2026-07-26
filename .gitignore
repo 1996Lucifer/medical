@@ -14,9 +14,18 @@ __pycache__/
 # Temporary files created by the application
 temp_*
 
-# Model weights
+# Model weights and directories
+models/
+backend/models/
+backend/uploads/
+weights/
 *.pt
-yolov8n.pt
+*.gguf
+*.onnx
+*.bin
+*.safetensors
+*.engine
+*.task
 
 # MacOS
 .DS_Store
@@ -25,7 +34,7 @@ yolov8n.pt
 .vscode/
 .idea/
 
-# Flutter/Dart (assuming flutter_source has its own, but just in case)
+# Flutter/Dart
 .dart_tool/
 .packages
 build/
@@ -35,11 +44,9 @@ build/
 /flutter_source/.dart_tool/
 *.log
 
-# C/C++ (if any OpenCV builds happen)
+# C/C++
 *.o
 *.so
 
 # Jupyter Notebook
 .ipynb_checkpoints
-
-models/
