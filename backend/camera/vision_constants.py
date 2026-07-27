@@ -93,13 +93,13 @@ VLM_GLOVE_PROMPT = "Look closely at the hands. Are there blue, white, or nitrile
 
 # --- YOLO Detection ---
 YOLO_MODEL = "yolo11n.onnx"
-YOLO_CONFIDENCE_THRESHOLD = 0.40
+YOLO_CONFIDENCE_THRESHOLD = 0.65
 YOLO_PERSON_CLASS = 0  # COCO class ID for 'person'
 YOLO_CPU_IMGSZ = 416
 YOLO_GPU_IMGSZ = 640
-# Reject implausibly thin "person" boxes (common chair/door-edge false positives).
-MIN_PERSON_ASPECT_RATIO = 0.18
-MIN_PERSON_HEIGHT_PX = 80
+# Reject implausibly thin or wide "person" boxes (common chair/door-edge false positives).
+MIN_PERSON_ASPECT_RATIO = 0.20
+MIN_PERSON_HEIGHT_PX = 100
 PPE_YOLO_MODEL = "best.fp16.onnx"
 PPE_YOLO_OPENVINO_DIR = "openvino"
 PPE_DETECTION_INTERVAL_FRAMES = 1

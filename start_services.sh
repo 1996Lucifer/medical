@@ -8,7 +8,13 @@ if [ -f "/workspace/backend/.env" ]; then
     source /workspace/backend/.env
     set +a
 fi
-export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@medical-db:5432/medical_agent}"
+# Inside Docker with network_mode: host, we must connect to the host's port 5433
+if [ -f /.dockerenv ] || [ -f /proc/1/cgroup ]; then
+    export DOCKER_CONTAINER=1
+    export DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5433/medical_agent"
+else
+    export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5433/medical_agent}"
+fi
 
 echo "Database URL configured: $DATABASE_URL"
 
@@ -18,7 +24,7 @@ if [ -d "/workspace/backend" ]; then
     (
         cd /workspace/backend
         python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
-    ) >> /workspace/backend/uvicorn.log 2>&1 &
+    ) &
     BACKEND_PID=$!
 else
     echo "Warning: /workspace/backend not found!"

@@ -8,7 +8,7 @@ google-genai
 pydantic
 opencv-python
 insightface
-onnxruntime==1.26.0
+onnxruntime-gpu
 aiortc>=1.8.0
 av>=12.0.0
 pgvector
@@ -20,3 +20,12 @@ sentence-transformers
 ultralytics>=8.3.0
 openvino>=2024.0.0
 psutil>=5.9.0
+bcrypt
+pyjwt
+passlib
+pyttsx3
+websockets
+lapx
+kittentts
+soundfile
+llama-cpp-python

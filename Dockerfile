@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpulse0 \
     libasound2 \
     espeak \
+    espeak-ng \
+    libespeak-ng-dev \
     x11-apps \
     lsof \
     && rm -rf /var/lib/apt/lists/*
@@ -50,10 +52,11 @@ RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://
 # Install Python backend dependencies
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt || true
-RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy psycopg2-binary python-multipart python-dotenv google-genai pydantic opencv-python onnxruntime aiortc av pgvector easyocr pymupdf sentence-transformers ultralytics psutil bcrypt pyjwt passlib pyttsx3 websockets faster-whisper openvino lapx
+RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy psycopg2-binary python-multipart python-dotenv google-genai pydantic opencv-python insightface onnxruntime-gpu aiortc av pgvector easyocr pymupdf sentence-transformers ultralytics psutil bcrypt pyjwt passlib pyttsx3 websockets faster-whisper openvino lapx kittentts soundfile
+RUN pip install --no-cache-dir https://github.com/jllllll/llama-cpp-python-cuBLAS-wheels/releases/download/wheels/llama_cpp_python-0.2.2%2Bcu120-cp310-cp310-manylinux_2_31_x86_64.whl
 
 # Install Flutter SDK
-RUN git clone https://github.com:flutter/flutter.git -b stable --depth 1 /opt/flutter && \
+RUN git clone https://github.com/flutter/flutter.git -b stable --depth 1 /opt/flutter && \
     flutter config --enable-web && \
     flutter doctor --suppress-analytics
 

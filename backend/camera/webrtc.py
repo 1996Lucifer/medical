@@ -3,6 +3,7 @@ import fractions
 import time
 from aiortc import VideoStreamTrack
 import av
+import cv2
 
 class CameraVideoStreamTrack(VideoStreamTrack):
     """
@@ -31,8 +32,13 @@ class CameraVideoStreamTrack(VideoStreamTrack):
                 # Re-send the last frame to keep the WebRTC connection stable
                 frame_np = self.last_frame
 
-        # Convert numpy array (BGR from OpenCV) into a PyAV VideoFrame
-        video_frame = av.VideoFrame.from_ndarray(frame_np, format="bgr24")
+        if len(frame_np.shape) == 2:
+            frame_np = cv2.cvtColor(frame_np, cv2.COLOR_GRAY2RGB)
+        elif frame_np.shape[2] == 3:
+            frame_np = cv2.cvtColor(frame_np, cv2.COLOR_BGR2RGB)
+
+        # Convert numpy array into a PyAV VideoFrame (RGB24 format)
+        video_frame = av.VideoFrame.from_ndarray(frame_np, format="rgb24")
         video_frame.pts = pts
         video_frame.time_base = time_base
 

@@ -206,14 +206,14 @@ class ModelManager:
                         model = None
                         if os.path.exists(onnx_path):
                             print(f"[ModelManager] Loading PPE YOLO model from {onnx_path} on device '{device}'...")
-                            model = YOLO(onnx_path)
+                            model = YOLO(onnx_path, task="detect")
                         elif os.path.exists(target_ov):
                             print(f"[ModelManager] Loading OpenVINO PPE YOLO model from {target_ov}...")
                             try:
                                 model = YOLO(target_ov, task="detect")
                             except Exception as ov_err:
                                 print(f"[ModelManager] OpenVINO load failed ({ov_err}), falling back to ONNX ({onnx_path})...")
-                                model = YOLO(onnx_path)
+                                model = YOLO(onnx_path, task="detect")
 
                         if model and device != "cpu" and hasattr(model, "to"):
                             try:
@@ -240,9 +240,8 @@ class ModelManager:
                 if self._tts_model is None:
                     print("[ModelManager] Lazy loading KittenTTS...")
                     try:
-                        import camera.audio_constants as audio_const
                         from kittentts import KittenTTS
-                        self._tts_model = KittenTTS(audio_const.KITTEN_TTS_MODEL)
+                        self._tts_model = KittenTTS()
                         print("[ModelManager] KittenTTS model loaded successfully.")
                     except Exception as e:
                         print(f"[ModelManager] Failed to load KittenTTS: {e}")

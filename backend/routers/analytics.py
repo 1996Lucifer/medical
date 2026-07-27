@@ -81,18 +81,20 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
     """
     # 1. System Health (Environment-agnostic)
     cpu_percent = psutil.cpu_percent(interval=0.1)
+    ram_percent = psutil.virtual_memory().percent
     
-    # GPU Utilization
+    # GPU Utilization (Compute)
     gpu_percent = 0.0
     try:
-        if torch.cuda.is_available():
-            # Crude approximation for CUDA using memory
-            allocated = torch.cuda.memory_allocated()
-            reserved = torch.cuda.memory_reserved()
-            if reserved > 0:
-                gpu_percent = (allocated / reserved) * 100
+        import subprocess
+        # Get actual compute utilization from nvidia-smi
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            gpu_percent = float(result.stdout.strip().split('\n')[0])
         elif torch.backends.mps.is_available():
-            # Apple Silicon mock based on active cameras / models
             cameras_count = db.query(models.Camera).count()
             gpu_percent = min(15.0 * cameras_count + cpu_percent * 0.2, 95.0)
     except Exception:
@@ -101,6 +103,7 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
     system_health = {
         "cpu_utilization": round(cpu_percent, 1),
         "gpu_utilization": round(gpu_percent, 1),
+        "ram_utilization": round(ram_percent, 1),
         "active_node": "Aegis Node Alpha",
         "model_status": {
             "name": "Model Llama-X4",

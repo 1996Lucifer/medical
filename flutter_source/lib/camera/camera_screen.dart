@@ -332,36 +332,36 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
               ),
 
             // Bottom controls for visual parity with mockup
-            Positioned(
-              bottom: 16,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(width: 8, height: 8, color: _primaryFixedDim),
-                        const SizedBox(width: 16),
-                        const Icon(Icons.arrow_back_ios, size: 12, color: Colors.white70),
-                        const SizedBox(width: 16),
-                        const Icon(Icons.play_circle_outline, size: 20, color: _primaryFixedDim),
-                        const SizedBox(width: 16),
-                        const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.white70),
-                        const SizedBox(width: 16),
-                        const Icon(Icons.photo_outlined, size: 16, color: Colors.white70),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            // Positioned(
+            //   bottom: 16,
+            //   left: 0,
+            //   right: 0,
+            //   child: IgnorePointer(
+            //     child: Center(
+            //       child: Container(
+            //         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            //         decoration: BoxDecoration(
+            //           color: Colors.black.withValues(alpha: 0.6),
+            //           borderRadius: BorderRadius.circular(8),
+            //         ),
+            //         child: Row(
+            //           mainAxisSize: MainAxisSize.min,
+            //           children: [
+            //             Container(width: 8, height: 8, color: _primaryFixedDim),
+            //             const SizedBox(width: 16),
+            //             const Icon(Icons.arrow_back_ios, size: 12, color: Colors.white70),
+            //             const SizedBox(width: 16),
+            //             const Icon(Icons.play_circle_outline, size: 20, color: _primaryFixedDim),
+            //             const SizedBox(width: 16),
+            //             const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.white70),
+            //             const SizedBox(width: 16),
+            //             const Icon(Icons.photo_outlined, size: 16, color: Colors.white70),
+            //           ],
+            //         ),
+            //       ),
+            //     ),
+            //   ),
+            // ),
 
             if (isPrimary)
               Positioned(

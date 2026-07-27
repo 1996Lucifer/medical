@@ -202,7 +202,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
     final cards = [
       _buildGPUCard(),
       _buildCPUCard(),
-      _buildModelCard(),
+      _buildRAMCard(),
     ];
 
     if (!isDesktop) {
@@ -286,71 +286,32 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
     );
   }
 
-  Widget _buildModelCard() {
-    final modelStatus = _systemHealth?['model_status'] ?? {};
-    final modelName = modelStatus['name'] ?? 'Model Llama-X4';
-    final state = modelStatus['state'] ?? 'ACTIVE';
-    final progress = modelStatus['progress'] ?? 94;
-    final latency = modelStatus['latency_ms'] ?? 12;
+  Widget _buildRAMCard() {
+    final ramValue = (_systemHealth?['ram_utilization'] ?? 0.0) as num;
+    final nodeName = _systemHealth?['active_node'] ?? 'NODE_01';
     
     return _buildStatCard(
-      borderColor: _tealAccent.withValues(alpha: 0.3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  _buildIconBox(Icons.data_usage, _tealAccent, bgOpacity: 0.0),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(modelName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      const Text('Optimizing Weights', style: TextStyle(color: _tealAccent, fontSize: 11)),
-                    ],
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: _tealAccent, borderRadius: BorderRadius.circular(4)),
-                child: Text(state.toString().toUpperCase(), style: const TextStyle(color: Color(0xFF00382d), fontSize: 10, fontWeight: FontWeight.bold)),
-              ),
+              _buildIconBox(Icons.storage, _cyanAccent),
+              _buildNodePill(nodeName),
             ],
-          ),
-          const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Optimization Progress', style: TextStyle(color: _textVariant, fontSize: 11)),
-              Text('$progress%', style: const TextStyle(color: _textVariant, fontSize: 11)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: List.generate(
-              6,
-              (index) => Expanded(
-                child: Container(
-                  margin: const EdgeInsets.only(right: 4),
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: index < (progress / 100 * 6).ceil() ? _tealAccent : _surfaceBright,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-            ),
           ),
           const SizedBox(height: 24),
-          Row(
+          Text('${ramValue.toStringAsFixed(1)}%', style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+          const Text('RAM UTILIZATION', style: TextStyle(color: _textVariant, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+          const SizedBox(height: 16),
+          LinearProgressIndicator(value: (ramValue / 100).clamp(0.0, 1.0), backgroundColor: _surfaceBright, color: _cyanAccent, minHeight: 4, borderRadius: BorderRadius.circular(2)),
+          const SizedBox(height: 16),
+          const Row(
             children: [
-              const Icon(Icons.bolt, color: _tealAccent, size: 16),
-              const SizedBox(width: 8),
-              Text('Inference latency: ${latency}ms', style: const TextStyle(color: _tealAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+              Icon(Icons.data_usage, color: _textVariant, size: 14),
+              SizedBox(width: 8),
+              Text('Live memory tracking active', style: TextStyle(color: _textVariant, fontSize: 11)),
             ],
           ),
         ],

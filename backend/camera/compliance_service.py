@@ -142,9 +142,9 @@ class ComplianceService:
                     details={"warning": warning}
                 )
 
-                # Attempt to speak on Camera Speaker, fallback to System Server Speaker
-                from camera.audio_service import audio_service
-                audio_service.speak(camera_name, warning)
+                # Audio speaking disabled for PPE violations (no mask/gloves)
+                # from camera.audio_service import audio_service
+                # audio_service.speak(camera_name, warning)
 
         return result
 

@@ -17,7 +17,7 @@ usage() {
     echo "  start         Start docker containers"
     echo "  stop          Stop docker containers"
     echo "  status        Check container and HTTP service status"
-    echo "  logs          View live logs of medial-agent container"
+    echo "  logs          View live backend + flutter logs from medial-agent"
     echo "  db-shell      Open interactive psql shell inside PostgreSQL database"
     echo ""
 }
@@ -74,8 +74,12 @@ case "${1:-}" in
         ;;
 
     logs)
-        echo "=== Streaming Logs for medial-agent ==="
-        docker logs -f medial-agent
+        echo "=== Streaming Logs for medial-agent (backend + flutter) ==="
+        echo "Press Ctrl+C to stop"
+        trap 'kill $(jobs -p) 2>/dev/null; exit 0' INT TERM
+        docker logs -f medial-agent 2>&1 &
+        docker exec medial-agent tail -F /workspace/backend/uvicorn.log 2>/dev/null &
+        wait
         ;;
 
     db-shell)

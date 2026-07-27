@@ -38,7 +38,7 @@ with engine.connect() as conn:
 
 models.Base.metadata.create_all(bind=engine)
 
-load_dotenv()
+load_dotenv(override=False)
 
 from camera import routes as camera_routes
 from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients, rbac, agent, patient_portal

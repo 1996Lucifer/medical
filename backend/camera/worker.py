@@ -869,8 +869,9 @@ class CameraWorker:
                                             },
                                         )
                                         set_zone_alert(effective_cam_name, duration_sec=5.0)
-                                        from camera.audio_service import audio_service
-                                        audio_service.speak(camera_url, warning, vendor="tapo")
+                                        # Audio speaking disabled for PPE violations (no mask/gloves)
+                                        # from camera.audio_service import audio_service
+                                        # audio_service.speak(camera_url, warning, vendor="tapo")
 
                     for ev in equipment_events:
                         zone_name, _ = get_zone_for_bbox(ev["bbox"])

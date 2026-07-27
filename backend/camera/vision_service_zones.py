@@ -69,6 +69,15 @@ class VisionServiceZones:
             if self.runtime_config["backend"] == "cpu" and self.device == "cpu"
             else YOLO_GPU_IMGSZ
         )
+        print(
+            f"[VisionServiceZones] Using backend: {self.runtime_config['label']} (device: '{self.device}')"
+        )
+        print(
+            f"  det_size={self.config['det_size']}  "
+            f"frame_width={self.runtime_config.get('frame_width', 640)}  "
+            f"fps={self.runtime_config.get('target_fps', 15)}  "
+            f"yolo_imgsz={self.yolo_imgsz}"
+        )
 
         # Staff identity data
         self.staff_names: List[str] = []
@@ -218,6 +227,8 @@ class VisionServiceZones:
                 if self.debug_zones and name != "Unknown":
                     print(f"[ZoneDebug] {name} at {bbox} IN ZONE: {zone_name} ({zone_type})")
                 return zone_name, zone_type
+
+        return None, ZONE_TYPE_OBSERVATION
 
     def _update_human_tracks(self, current_detections: List[dict]) -> List[dict]:
         """
@@ -538,10 +549,12 @@ class VisionServiceZones:
             for track_id, _ in tracked_people
         }
         try:
+            # best.fp16.onnx has static ONNX input shape of 640x640
+            ppe_imgsz = 640
             results = detector(
                 frame,
                 conf=PPE_DETECTION_CONFIDENCE_THRESHOLD,
-                imgsz=self.yolo_imgsz,
+                imgsz=ppe_imgsz,
                 device=self.device,
                 verbose=False,
             )
@@ -562,18 +575,16 @@ class VisionServiceZones:
                         )
                 return evidence_by_track
 
-            names = (
-                detector.names
-                if hasattr(detector, "names") and detector.names
-                else {
-                    0: "person",
-                    1: "mask",
-                    2: "face_shield",
-                    3: "gloves",
-                    4: "gown",
-                    5: "goggles",
-                }
-            )
+            # ONNX export loses class names and generates class0-class999.
+            # Force the correct PPE mapping.
+            names = {
+                0: "person",
+                1: "mask",
+                2: "face_shield",
+                3: "gloves",
+                4: "gown",
+                5: "goggles",
+            }
             self._last_ppe_boxes = []
             for detection in boxes:
                 cls_id = int(detection.cls[0])
@@ -740,6 +751,11 @@ class VisionServiceZones:
 
         current_detections = []
         for face in faces:
+            det_conf = float(getattr(face, "det_score", 0.90))
+            # InsightFace SCRFD can hallucinate faces in clothes/books at lower confidences
+            if det_conf < 0.65:
+                continue
+
             fx1, fy1, fx2, fy2 = map(int, face.bbox)
             fw_box = max(1, fx2 - fx1)
             fh_box = max(1, fy2 - fy1)

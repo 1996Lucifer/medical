@@ -66,7 +66,6 @@ class LLMManager:
 
         try:
             from llama_cpp import Llama
-            from llama_cpp.llama_chat_format import Llava15ChatHandler
 
             # Unload current model to free up memory
             if self.active_model is not None:
@@ -82,8 +81,12 @@ class LLMManager:
             if target_name == "MedGemma":
                 mmproj_path = os.path.join(os.path.dirname(__file__), "..", "models", "mmproj-F16.gguf")
                 if os.path.exists(mmproj_path):
-                    print("🖼️  Found mmproj file for MedGemma. Enabling vision chat handler...")
-                    chat_handler = Llava15ChatHandler(clip_model_path=mmproj_path)
+                    try:
+                        from llama_cpp.llama_chat_format import Llava15ChatHandler
+                        print("🖼️  Found mmproj file for MedGemma. Enabling vision chat handler...")
+                        chat_handler = Llava15ChatHandler(clip_model_path=mmproj_path)
+                    except ImportError:
+                        print("⚠️ Llava15ChatHandler not available in this llama-cpp-python version. Vision disabled.")
             
             cpu_count = os.cpu_count() or 4
             n_gpu_layers = -1 if self.hardware_type in ("Apple Silicon", "Nvidia GPU") else 0
