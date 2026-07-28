@@ -81,7 +81,6 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
   static const Color _error = Color(0xFFffb4ab);
 
   late AnimationController _pulseController;
-  final int _primaryCameraIndex = 0;
   bool _showOverlays = true;
 
   @override
@@ -608,40 +607,6 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
       ),
     );
 
-    Widget topNavBar = Padding(
-      padding: const EdgeInsets.only(bottom: 24.0),
-      child: Row(
-        children: [
-          const Text('Aegis AI Command', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(width: 24),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: _surfaceContainerHigh.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                Container(width: 8, height: 8, decoration: const BoxDecoration(color: _primaryFixedDim, shape: BoxShape.circle, boxShadow: [BoxShadow(color: _primaryFixedDim, blurRadius: 4)])),
-                const SizedBox(width: 8),
-                const Text('Core AI: Optimal', style: TextStyle(color: _primaryFixedDim, fontSize: 12, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          const Text('48.2 TFLOPS Processing', style: TextStyle(color: _onSurfaceVariant, fontSize: 12)),
-          const Spacer(),
-          const Icon(Icons.notifications_none, color: _onSurfaceVariant, size: 20),
-          const SizedBox(width: 16),
-          const Icon(Icons.settings_outlined, color: _onSurfaceVariant, size: 20),
-          const SizedBox(width: 16),
-          const Icon(Icons.view_agenda_outlined, color: _onSurfaceVariant, size: 20),
-          const SizedBox(width: 16),
-          const CircleAvatar(radius: 14, backgroundColor: _primaryFixedDim, child: Icon(Icons.person, size: 18, color: Color(0xFF041329))),
-        ],
-      ),
-    );
-
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: GlassBackground(
@@ -650,12 +615,12 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!isMobile) topNavBar,
+
               Expanded(
                 child: isMobile
                     ? ListView(
                         children: [
-                          if (isMobile) topNavBar,
+
                           cameraPanel,
                           const SizedBox(height: 24),
                           SizedBox(height: 500, child: attendancePanel),

@@ -150,7 +150,7 @@ class ModelManager:
                     print(f"[ModelManager] Lazy loading YOLO11n for camera '{camera_id}' on device '{device}'...")
                     try:
                         from ultralytics import YOLO
-                        from camera.vision_constants import YOLO_MODEL
+                        from camera.constants.vision_constants import YOLO_MODEL
                         models_dir = os.path.abspath(
                             os.path.join(os.path.dirname(__file__), "..", "models")
                         )
@@ -193,7 +193,7 @@ class ModelManager:
                     device = get_best_device()
                     try:
                         from ultralytics import YOLO
-                        from camera.vision_constants import (
+                        from camera.constants.vision_constants import (
                             PPE_YOLO_MODEL,
                         )
 

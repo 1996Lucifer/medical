@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+
 import '../network/api_routes.dart';
 
 const Color _bgBase = Color(0xFF041329);
@@ -21,7 +23,8 @@ class LiveFaceSetupScreen extends StatefulWidget {
   State<LiveFaceSetupScreen> createState() => _LiveFaceSetupScreenState();
 }
 
-class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTickerProviderStateMixin {
+class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
+    with SingleTickerProviderStateMixin {
   CameraController? _controller;
   WebSocketChannel? _channel;
   Timer? _timer;
@@ -52,7 +55,8 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
         if (_cameras.isEmpty) throw Exception('No cameras found');
 
         // Try to start with front camera if available
-        _currentCameraIndex = _cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.front);
+        _currentCameraIndex = _cameras
+            .indexWhere((c) => c.lensDirection == CameraLensDirection.front);
         if (_currentCameraIndex == -1) _currentCameraIndex = 0;
       }
 
@@ -82,7 +86,8 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
 
   Future<void> _switchCamera() async {
     if (_cameras.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No other cameras found')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No other cameras found')));
       return;
     }
 
@@ -109,7 +114,8 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
 
         setState(() {
           _currentInstruction = data['instruction'] ?? '';
-          _completedAngles = (data['completed'] as List<dynamic>).cast<String>();
+          _completedAngles =
+              (data['completed'] as List<dynamic>).cast<String>();
 
           if (data['status'] == 'complete') {
             _isComplete = true;
@@ -136,7 +142,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
 
     // Start streaming frames
     _timer = Timer.periodic(const Duration(milliseconds: 600), (t) async {
-      if (_isComplete || _controller == null || !_controller!.value.isInitialized || _controller!.value.isTakingPicture) {
+      if (_isComplete ||
+          _controller == null ||
+          !_controller!.value.isInitialized ||
+          _controller!.value.isTakingPicture) {
         return;
       }
 
@@ -164,8 +173,12 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: isDone ? _tealAccent.withValues(alpha: 0.1) : _surfaceContainerHigh,
-        border: Border.all(color: isDone ? _tealAccent.withValues(alpha: 0.5) : _outlineVariant.withValues(alpha: 0.3)),
+        color:
+            isDone ? _tealAccent.withValues(alpha: 0.1) : _surfaceContainerHigh,
+        border: Border.all(
+            color: isDone
+                ? _tealAccent.withValues(alpha: 0.5)
+                : _outlineVariant.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -196,7 +209,8 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
     return Scaffold(
       backgroundColor: _bgBase,
       appBar: AppBar(
-        title: const Text('Staff Biometric Registration', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Staff Biometric Registration',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -245,7 +259,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: _tealAccent.withValues(alpha: 0.2)),
           boxShadow: [
-            BoxShadow(color: _tealAccent.withValues(alpha: 0.05), blurRadius: 30, spreadRadius: 5),
+            BoxShadow(
+                color: _tealAccent.withValues(alpha: 0.05),
+                blurRadius: 30,
+                spreadRadius: 5),
           ],
         ),
         clipBehavior: Clip.hardEdge,
@@ -267,7 +284,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                 width: 280,
                 height: 340,
                 decoration: BoxDecoration(
-                  border: Border.all(color: _tealAccent.withValues(alpha: 0.4), width: 1, style: BorderStyle.solid),
+                  border: Border.all(
+                      color: _tealAccent.withValues(alpha: 0.4),
+                      width: 1,
+                      style: BorderStyle.solid),
                   borderRadius: BorderRadius.circular(32),
                 ),
                 child: Stack(
@@ -277,33 +297,40 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                       child: Container(
                         margin: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          border: Border.all(color: _tealAccent.withValues(alpha: 0.2), width: 2),
+                          border: Border.all(
+                              color: _tealAccent.withValues(alpha: 0.2),
+                              width: 2),
                           borderRadius: BorderRadius.circular(24),
                         ),
                       ),
                     ),
                     // Scanning line animation
                     AnimatedBuilder(
-                      animation: _scanController,
-                      builder: (context, child) {
-                        return Positioned(
-                          top: _scanController.value * 320,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            height: 2,
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Colors.transparent, _tealAccent, Colors.transparent],
-                              ),
-                              boxShadow: [
-                                BoxShadow(color: _tealAccent, blurRadius: 10, spreadRadius: 2)
-                              ]
+                        animation: _scanController,
+                        builder: (context, child) {
+                          return Positioned(
+                            top: _scanController.value * 320,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              height: 2,
+                              decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.transparent,
+                                      _tealAccent,
+                                      Colors.transparent
+                                    ],
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                        color: _tealAccent,
+                                        blurRadius: 10,
+                                        spreadRadius: 2)
+                                  ]),
                             ),
-                          ),
-                        );
-                      }
-                    ),
+                          );
+                        }),
                     // Match Text
                     Positioned(
                       top: -14,
@@ -311,14 +338,20 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                       right: 0,
                       child: Center(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
                           decoration: BoxDecoration(
                             color: _tealAccent,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Text(
                             'SUBJECT_DETECTED',
-                            style: TextStyle(color: _bgBase, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1, fontFamily: 'monospace'),
+                            style: TextStyle(
+                                color: _bgBase,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
+                                fontFamily: 'monospace'),
                           ),
                         ),
                       ),
@@ -329,10 +362,20 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
             ),
 
             // Corners
-            Positioned(top: 32, left: 32, child: _buildCorner(top: true, left: true)),
-            Positioned(top: 32, right: 32, child: _buildCorner(top: true, left: false)),
-            Positioned(bottom: 32, left: 32, child: _buildCorner(top: false, left: true)),
-            Positioned(bottom: 32, right: 32, child: _buildCorner(top: false, left: false)),
+            Positioned(
+                top: 32, left: 32, child: _buildCorner(top: true, left: true)),
+            Positioned(
+                top: 32,
+                right: 32,
+                child: _buildCorner(top: true, left: false)),
+            Positioned(
+                bottom: 32,
+                left: 32,
+                child: _buildCorner(top: false, left: true)),
+            Positioned(
+                bottom: 32,
+                right: 32,
+                child: _buildCorner(top: false, left: false)),
 
             // Mock Monospace Stats
             Positioned(
@@ -355,7 +398,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                 children: [
                   _buildMonoText('LAT: 40.7128 N'),
                   _buildMonoText('LONG: 74.0060 W'),
-                  _buildMonoText('NODE: AEGIS_CAM_04'),
+                  _buildMonoText('NODE: LOCAL_CAM_04'),
                 ],
               ),
             ),
@@ -371,10 +414,18 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
       height: 40,
       decoration: BoxDecoration(
         border: Border(
-          top: top ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
-          bottom: !top ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
-          left: left ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
-          right: !left ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2) : BorderSide.none,
+          top: top
+              ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2)
+              : BorderSide.none,
+          bottom: !top
+              ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2)
+              : BorderSide.none,
+          left: left
+              ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2)
+              : BorderSide.none,
+          right: !left
+              ? BorderSide(color: _tealAccent.withValues(alpha: 0.6), width: 2)
+              : BorderSide.none,
         ),
       ),
     );
@@ -383,7 +434,11 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
   Widget _buildMonoText(String text) {
     return Text(
       text,
-      style: TextStyle(color: _tealAccent.withValues(alpha: 0.8), fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+      style: TextStyle(
+          color: _tealAccent.withValues(alpha: 0.8),
+          fontSize: 10,
+          fontFamily: 'monospace',
+          fontWeight: FontWeight.bold),
     );
   }
 
@@ -408,20 +463,31 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                     color: _tealAccent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.fingerprint, color: _tealAccent, size: 28),
+                  child: const Icon(Icons.fingerprint,
+                      color: _tealAccent, size: 28),
                 ),
                 const SizedBox(width: 16),
                 const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Live AI Enrollment', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                    Text('Follow the prompts to configure access.', style: TextStyle(color: _textVariant, fontSize: 14)),
+                    Text('Live AI Enrollment',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold)),
+                    Text('Follow the prompts to configure access.',
+                        style: TextStyle(color: _textVariant, fontSize: 14)),
                   ],
                 ),
               ],
             ),
             const SizedBox(height: 48),
-            const Text('CURRENT INSTRUCTION', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            const Text('CURRENT INSTRUCTION',
+                style: TextStyle(
+                    color: _tealAccent,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5)),
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
@@ -429,15 +495,24 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
               decoration: BoxDecoration(
                 color: _surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _outlineVariant.withValues(alpha: 0.3)),
+                border:
+                    Border.all(color: _outlineVariant.withValues(alpha: 0.3)),
               ),
               child: Text(
                 _currentInstruction,
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600),
               ),
             ),
             const SizedBox(height: 32),
-            const Text('BIOMETRIC PROGRESS', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            const Text('BIOMETRIC PROGRESS',
+                style: TextStyle(
+                    color: _tealAccent,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.5)),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
@@ -458,14 +533,19 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen> with SingleTi
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                  border:
+                      Border.all(color: Colors.green.withValues(alpha: 0.3)),
                 ),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.check_circle, color: Colors.green),
                     SizedBox(width: 12),
-                    Text('Biometric Profile Completed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text('Biometric Profile Completed',
+                        style: TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16)),
                   ],
                 ),
               ),

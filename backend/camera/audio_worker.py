@@ -31,7 +31,7 @@ def _audio_worker_process(input_queue, output_queue):
                 text = req["text"]
                 req_id = req["req_id"]
                 
-                import camera.audio_constants as audio_const
+                import camera.constants.audio_constants as audio_const
                 audio_np = tts.generate(text, speed=audio_const.DEFAULT_TTS_SPEED)
                 
                 import io

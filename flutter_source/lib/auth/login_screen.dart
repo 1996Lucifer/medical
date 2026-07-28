@@ -6,6 +6,7 @@ import '../main.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import '../providers/auth_provider.dart';
+import '../providers/site_config_provider.dart';
 import '../patient_portal/patient_dashboard_screen.dart' as patient_portal;
 
 class LoginScreen extends StatefulWidget {
@@ -91,31 +92,51 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: _primaryFixedDim.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.3), width: 1),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _primaryFixedDim.withValues(alpha: 0.2),
-                            blurRadius: 20,
-                            spreadRadius: 2,
-                          )
-                        ]
-                      ),
-                      child: const Icon(Icons.shield, size: 56, color: _primaryFixedDim),
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Aegis Hospital AI',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        color: _primary,
-                        letterSpacing: -0.5,
-                      ),
+                    Consumer<SiteConfigProvider>(
+                      builder: (context, siteConfig, _) {
+                        return Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: _primaryFixedDim.withValues(alpha: 0.1),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.3), width: 1),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _primaryFixedDim.withValues(alpha: 0.2),
+                                    blurRadius: 20,
+                                    spreadRadius: 2,
+                                  )
+                                ]
+                              ),
+                              child: siteConfig.fullLogoUrl != null
+                                ? ClipOval(
+                                    child: Image.network(
+                                      siteConfig.fullLogoUrl!,
+                                      width: 120,
+                                      height: 120,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                        const Icon(Icons.shield, size: 120, color: _primaryFixedDim),
+                                    ),
+                                  )
+                                : const Icon(Icons.shield, size: 120, color: _primaryFixedDim),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              siteConfig.hospitalName,
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w700,
+                                color: _primary,
+                                letterSpacing: -0.5,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 8),
                     const Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/site_config_provider.dart';
 
 class SharedAppDrawer extends StatelessWidget {
   final int currentIndex;
@@ -64,7 +65,7 @@ class SharedAppDrawer extends StatelessWidget {
     if (auth.hasPermission('view_settings')) {
       destinations.add(const NavigationDestination(
         icon: Icon(Icons.settings_system_daydream_outlined),
-        label: 'System Health',
+        label: 'Settings',
       ));
     }
 
@@ -85,17 +86,37 @@ class SharedAppDrawer extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.all(24.0),
-            child: Row(
-              children: [
-                Icon(Icons.shield, color: tealAccent, size: 28),
-                SizedBox(width: 12),
-                Text(
-                  'Aegis Hospital AI',
-                  style: TextStyle(color: tealAccent, fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ],
+          Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Consumer<SiteConfigProvider>(
+              builder: (context, siteConfig, _) {
+                return Row(
+                  children: [
+                    if (siteConfig.fullLogoUrl != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          siteConfig.fullLogoUrl!,
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(Icons.shield, color: tealAccent, size: 64),
+                        ),
+                      )
+                    else
+                      const Icon(Icons.shield, color: tealAccent, size: 64),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        siteConfig.hospitalName,
+                        style: const TextStyle(color: tealAccent, fontSize: 18, fontWeight: FontWeight.bold),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           Padding(
@@ -154,14 +175,14 @@ class SharedAppDrawer extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Icon((dest.icon as Icon).icon, color: isActive ? tealAccent : textVariant, size: 20),
+                        Icon((dest.icon as Icon).icon, color: isActive ? tealAccent : textVariant, size: 24),
                         const SizedBox(width: 16),
                         Text(
                           dest.label,
                           style: TextStyle(
                             color: isActive ? tealAccent : textVariant,
                             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                            fontSize: 14,
+                            fontSize: 15,
                           ),
                         ),
                       ],

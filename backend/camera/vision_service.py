@@ -6,7 +6,7 @@ import os
 import onnxruntime as ort
 from camera.model_manager import ModelManager
 
-from camera.vision_constants import (
+from camera.constants.vision_constants import (
     REJECTION_THRESHOLD,
     MIN_FACE_SIZE,
     get_runtime_vision_config,

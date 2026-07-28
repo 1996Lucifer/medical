@@ -1,6 +1,15 @@
-# Constants for Vision Service and Camera Worker
+"""
+vision_constants.py
+This file defines the configuration constants for the AI Vision Engine,
+including model paths, hardware backend settings, confidence thresholds,
+and logic-timing constants (like cooldowns and cache TTLs).
+"""
 
-# --- Vision Compute Backend Settings ---
+# ==========================================
+# Vision Compute Backend Settings
+# These profiles define the resolution, target framerate, and engine backend
+# based on the underlying hardware (NVIDIA GPU, Apple Silicon, or CPU).
+# ==========================================
 CUDA_CONFIG = {
     "backend": "cuda",
     "ctx_id": 0,
@@ -61,7 +70,10 @@ def get_runtime_vision_config(available_providers=None):
     return CPU_CONFIG
 
 
-# --- Facial Recognition ---
+# ==========================================
+# Facial Recognition & Tracking
+# Thresholds and cache timers for identifying staff and tracking Unknowns.
+# ==========================================
 REJECTION_THRESHOLD = 0.35
 UPPER_FACE_REJECTION_THRESHOLD = 0.38
 UPPER_FACE_HEIGHT_RATIO = 0.48
@@ -70,28 +82,45 @@ IDENTITY_REFRESH_FRAMES = 25
 UNKNOWN_IDENTITY_RETRY_FRAMES = 15
 IDENTITY_CACHE_TTL_FRAMES = 90
 
-# --- Security Alerts ---
+# ==========================================
+# Security Alerts & Cooldowns
+# Wait times (in seconds) between triggering similar events to prevent spam.
+# ==========================================
 UNKNOWN_PERSON_GRACE_PERIOD_SEC = 3.0
 TAMPER_ALERT_COOLDOWN_SEC = 10.0
 WARNING_ALERT_COOLDOWN_SEC = 10.0
 EMERGENCY_ALERT_COOLDOWN_SEC = 15.0
 
-# --- Tamper Detection ---
+# ==========================================
+# Camera Tamper Detection
+# Statistical thresholds for detecting when a camera is covered or blinded.
+# ==========================================
 TAMPER_STD_THRESHOLD = 35.0
 TAMPER_MEAN_THRESHOLD = 20.0
 TAMPER_LAPLACIAN_THRESHOLD = 50.0
 
-# --- Visualization ---
+# ==========================================
+# Visualization & Drawing
+# Master toggles for drawing debugging info like the skeletal pose.
+# ==========================================
 DRAW_POSE_SKELETON = True
 
-# --- Zone-Based Compliance ---
+# ==========================================
+# Zone-Based Compliance & VLM Prompts
+# Configurations for the localized Verification and Restricted zones, including
+# the exact natural language prompts fed to the VLM (MedGemma) to verify PPE.
+# ==========================================
 VERIFICATION_EXPIRY_SEC = 120  # 2 minutes
 VERIFICATION_CONFIDENCE_THRESHOLD = 0.7
 # VLM Prompts for PPE Verification
 VLM_MASK_PROMPT = "Look closely at the face. Is there a blue or white surgical mask clearly covering the nose and mouth? If the face is bare, answer NO. Answer only YES or NO."
 VLM_GLOVE_PROMPT = "Look closely at the hands. Are there blue, white, or nitrile medical examination gloves covering the hands? If the hands are bare skin, or if you cannot see hands, answer NO. Answer only YES or NO."
 
-# --- YOLO Detection ---
+# ==========================================
+# YOLO Object Detection (Person & Equipment)
+# Settings for the primary object detectors including image size, confidence, 
+# and temporal persistence filters.
+# ==========================================
 YOLO_MODEL = "yolo11n.onnx"
 YOLO_CONFIDENCE_THRESHOLD = 0.65
 YOLO_PERSON_CLASS = 0  # COCO class ID for 'person'
@@ -109,7 +138,10 @@ PPE_EVIDENCE_TTL_FRAMES = 1
 # because hands can leave the frame while staff are moving naturally.
 PPE_REVOCATION_MISSED_SAMPLES = 6
 
-# --- Zone Processing ---
+# ==========================================
+# Zone Processing Types
+# Enum-like constants for different area designations in the hospital layout.
+# ==========================================
 ZONE_TYPE_OBSERVATION = "observation"
 ZONE_TYPE_VERIFICATION = "verification"
 ZONE_TYPE_RESTRICTED = "restricted"

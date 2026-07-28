@@ -12,14 +12,22 @@ class ContextBuilder:
         else:
             if rows:
                 context += "--- Query Results ---\n"
-                for i, row in enumerate(rows):
+                max_rows = 15
+                for i, row in enumerate(rows[:max_rows]):
                     row_str = " | ".join([f"{k}: {v}" for k, v in row.items()])
+                    if len(row_str) > 600:
+                        row_str = row_str[:600] + "... [truncated]"
                     context += f"- Row {i+1}: {row_str}\n"
+                if len(rows) > max_rows:
+                    context += f"- ...and {len(rows) - max_rows} more rows not shown due to context limits.\n"
                     
             if vector_chunks:
                 context += "\n--- Knowledge Documents ---\n"
-                for i, chunk in enumerate(vector_chunks):
-                    context += f"- Chunk {i+1}: {chunk}\n"
+                for i, chunk in enumerate(vector_chunks[:3]):
+                    chunk_str = str(chunk)
+                    if len(chunk_str) > 500:
+                        chunk_str = chunk_str[:500] + "... [truncated]"
+                    context += f"- Chunk {i+1}: {chunk_str}\n"
                     
         if memory_facts:
             context += "\n--- LONG-TERM MEMORY FACTS ABOUT USER ---\n"
@@ -32,7 +40,10 @@ class ContextBuilder:
             context += "\n--- CHAT HISTORY ---\n"
             for msg in history:
                 role = msg["role"].upper()
-                context += f"{role}: {msg['content']}\n"
+                content = str(msg.get('content', ''))
+                if len(content) > 1000:
+                    content = content[:1000] + "... [truncated]"
+                context += f"{role}: {content}\n"
                 
         return context
 

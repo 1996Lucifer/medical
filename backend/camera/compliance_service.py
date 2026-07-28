@@ -4,7 +4,7 @@ import os
 import json
 import base64
 import asyncio
-import camera.compliance_constants as comp_const
+import camera.constants.compliance_constants as comp_const
 from services.llm_manager import llm_manager
 
 class ComplianceService:
@@ -123,7 +123,7 @@ class ComplianceService:
             set_zone_alert(camera_name, duration_sec=comp_const.DEFAULT_ALERT_DURATION_SEC)
             
             import time
-            from camera.vision_constants import WARNING_ALERT_COOLDOWN_SEC
+            from camera.constants.vision_constants import WARNING_ALERT_COOLDOWN_SEC
             now = time.time()
             last_time = self._last_warning_time.get(camera_name, 0)
             

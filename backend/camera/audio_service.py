@@ -5,7 +5,7 @@ import tempfile
 import time
 from urllib.parse import urlparse
 import abc
-import camera.audio_constants as audio_const
+import camera.constants.audio_constants as audio_const
 from camera.audio_worker import audio_process_manager
 class CameraAudioProvider(abc.ABC):
     @abc.abstractmethod

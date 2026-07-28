@@ -44,7 +44,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           .then((resp) {
         if (resp.statusCode == 200) {
           final Map<String, dynamic> data = jsonDecode(resp.body);
-          final Map<String, dynamic> raw = data.containsKey('summary') ? data['summary'] as Map<String, dynamic> : data;
+          final Map<String, dynamic> raw = data.containsKey('summary')
+              ? data['summary'] as Map<String, dynamic>
+              : data;
           _attendanceSummary =
               raw.map((k, v) => MapEntry(k, v as List<dynamic>));
         }
@@ -71,7 +73,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Scaffold(
       backgroundColor: _bgBase,
       appBar: AppBar(
-        title: const Text('Analytics Engine Configuration', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        title: const Text('Analytics Engine Configuration',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -83,9 +86,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: _textVariant,
                 side: const BorderSide(color: _outlineVariant),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
-              child: const Text('DIAGNOSTICS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1)),
+              child: const Text('DIAGNOSTICS',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      letterSpacing: 1)),
             ),
           ),
           Padding(
@@ -93,11 +101,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             child: ElevatedButton.icon(
               onPressed: _fetchData,
               icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('REFRESH', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1)),
+              label: const Text('REFRESH',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      letterSpacing: 1)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _tealAccent,
                 foregroundColor: _bgBase,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
             ),
           ),
@@ -112,7 +125,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Fine-tune real-time efficiency metrics and configure AI detection parameters for secure facility monitoring.', style: TextStyle(color: _textVariant, fontSize: 16)),
+                    const Text(
+                        'Fine-tune real-time efficiency metrics and configure AI detection parameters for secure facility monitoring.',
+                        style: TextStyle(color: _textVariant, fontSize: 16)),
                     const SizedBox(height: 32),
                     LayoutBuilder(builder: (context, constraints) {
                       if (constraints.maxWidth > 900) {
@@ -148,14 +163,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+          decoration: BoxDecoration(
+              color: _surfaceContainer,
+              borderRadius: BorderRadius.circular(16),
+              border:
+                  Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             children: [
-              _buildToggleRow('Patient Flow Analytics', 'Ward and ER movement tracking.', true),
+              _buildToggleRow('Patient Flow Analytics',
+                  'Ward and ER movement tracking.', true),
               const SizedBox(height: 16),
-              _buildToggleRow('Staff Efficiency Tracking', 'Response times and shift loads.', true),
+              _buildToggleRow('Staff Efficiency Tracking',
+                  'Response times and shift loads.', true),
               const SizedBox(height: 16),
-              _buildToggleRow('Resource Allocation AI', 'Predictive supply management.', false),
+              _buildToggleRow('Resource Allocation AI',
+                  'Predictive supply management.', false),
             ],
           ),
         ),
@@ -164,15 +186,28 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+          decoration: BoxDecoration(
+              color: _surfaceContainer,
+              borderRadius: BorderRadius.circular(16),
+              border:
+                  Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('AI SENSITIVITY LEVEL', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                  Text('85%', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                  Text('AI SENSITIVITY LEVEL',
+                      style: TextStyle(
+                          color: _tealAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5)),
+                  Text('85%',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -187,15 +222,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: Slider(value: 85, min: 0, max: 100, onChanged: (v) {}),
               ),
               const SizedBox(height: 24),
-              const Text('RETENTION POLICY', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+              const Text('RETENTION POLICY',
+                  style: TextStyle(
+                      color: _tealAccent,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5)),
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(color: _surfaceContainerHigh, borderRadius: BorderRadius.circular(8), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                    color: _surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: _outlineVariant.withValues(alpha: 0.5))),
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('30 Days (Standard Compliance)', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    Text('30 Days (Standard Compliance)',
+                        style: TextStyle(color: Colors.white, fontSize: 14)),
                     Icon(Icons.expand_more, color: _textVariant, size: 20),
                   ],
                 ),
@@ -213,22 +259,45 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       children: [
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+          decoration: BoxDecoration(
+              color: _surfaceContainer,
+              borderRadius: BorderRadius.circular(16),
+              border:
+                  Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildSectionHeader(Icons.query_stats, 'Engine Visualization', noPadding: true),
+                  _buildSectionHeader(Icons.query_stats, 'Engine Visualization',
+                      noPadding: true),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(6), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: _surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: _outlineVariant.withValues(alpha: 0.5))),
                     child: Row(
                       children: [
-                        Container(width: 8, height: 8, decoration: const BoxDecoration(color: _critical, shape: BoxShape.circle, boxShadow: [BoxShadow(color: _critical, blurRadius: 4)])),
+                        Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                                color: _critical,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(color: _critical, blurRadius: 4)
+                                ])),
                         const SizedBox(width: 8),
-                        const Text('LIVE TRANSMISSION', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                        const Text('LIVE TRANSMISSION',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.5)),
                       ],
                     ),
                   ),
@@ -241,9 +310,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 children: [
                   Expanded(child: _buildStatBox('Efficiency', '94.2%')),
                   const SizedBox(width: 16),
-                  Expanded(child: _buildStatBox('Latency', '24ms', color: _blueAccent)),
+                  Expanded(
+                      child:
+                          _buildStatBox('Latency', '24ms', color: _blueAccent)),
                   const SizedBox(width: 16),
-                  Expanded(child: _buildStatBox('Anomalies', '2', color: _critical)),
+                  Expanded(
+                      child: _buildStatBox('Anomalies', '2', color: _critical)),
                 ],
               )
             ],
@@ -251,7 +323,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
         const SizedBox(height: 32),
         Container(
-          decoration: BoxDecoration(color: _surfaceContainer, borderRadius: BorderRadius.circular(16), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+          decoration: BoxDecoration(
+              color: _surfaceContainer,
+              borderRadius: BorderRadius.circular(16),
+              border:
+                  Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -260,8 +336,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildSectionHeader(Icons.list_alt, 'Intelligence Feed & Audit Logs', noPadding: true),
-                    const Text('FULL AUDIT', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                    _buildSectionHeader(
+                        Icons.list_alt, 'Intelligence Feed & Audit Logs',
+                        noPadding: true),
+                    const Text('FULL AUDIT',
+                        style: TextStyle(
+                            color: _tealAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5)),
                   ],
                 ),
               ),
@@ -274,12 +357,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildSectionHeader(IconData icon, String title, {bool noPadding = false}) {
+  Widget _buildSectionHeader(IconData icon, String title,
+      {bool noPadding = false}) {
     return Row(
       children: [
         Icon(icon, color: _tealAccent, size: 20),
         const SizedBox(width: 8),
-        Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(title,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold)),
       ],
     );
   }
@@ -292,19 +380,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+              Text(title,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14)),
               const SizedBox(height: 2),
-              Text(subtitle, style: const TextStyle(color: _textVariant, fontSize: 12)),
+              Text(subtitle,
+                  style: const TextStyle(color: _textVariant, fontSize: 12)),
             ],
           ),
         ),
         Container(
           width: 44,
           height: 24,
-          decoration: BoxDecoration(color: isToggled ? _tealAccent : _surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(
+              color: isToggled ? _tealAccent : _surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12)),
           padding: const EdgeInsets.all(2),
           alignment: isToggled ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(width: 20, height: 20, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+          child: Container(
+              width: 20,
+              height: 20,
+              decoration: const BoxDecoration(
+                  color: Colors.white, shape: BoxShape.circle)),
         )
       ],
     );
@@ -313,13 +412,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _buildStatBox(String title, String value, {Color? color}) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: _surfaceContainerHigh, borderRadius: BorderRadius.circular(8), border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
+      decoration: BoxDecoration(
+          color: _surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _outlineVariant.withValues(alpha: 0.5))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title.toUpperCase(), style: const TextStyle(color: _textVariant, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+          Text(title.toUpperCase(),
+              style: const TextStyle(
+                  color: _textVariant,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5)),
           const SizedBox(height: 4),
-          Text(value, style: TextStyle(color: color ?? _tealAccent, fontSize: 24, fontWeight: FontWeight.bold)),
+          Text(value,
+              style: TextStyle(
+                  color: color ?? _tealAccent,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -350,11 +461,36 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         const Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('08:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            Text('10:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            Text('12:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            Text('14:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-            Text('16:00', style: TextStyle(color: _textVariant, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+            Text('08:00',
+                style: TextStyle(
+                    color: _textVariant,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1)),
+            Text('10:00',
+                style: TextStyle(
+                    color: _textVariant,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1)),
+            Text('12:00',
+                style: TextStyle(
+                    color: _textVariant,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1)),
+            Text('14:00',
+                style: TextStyle(
+                    color: _textVariant,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1)),
+            Text('16:00',
+                style: TextStyle(
+                    color: _textVariant,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1)),
           ],
         )
       ],
@@ -370,7 +506,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           child: Container(
             decoration: BoxDecoration(
               color: color,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(4)),
             ),
           ),
         ),
@@ -382,18 +519,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (_recentEvents.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(32.0),
-        child: Center(child: Text('No system events recorded yet.', style: TextStyle(color: _textVariant))),
+        child: Center(
+            child: Text('No system events recorded yet.',
+                style: TextStyle(color: _textVariant))),
       );
     }
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _recentEvents.length > 5 ? 5 : _recentEvents.length,
-      separatorBuilder: (context, index) => const Divider(height: 1, color: _outlineVariant),
+      separatorBuilder: (context, index) =>
+          const Divider(height: 1, color: _outlineVariant),
       itemBuilder: (context, index) {
         final event = _recentEvents[index];
         final type = event['event_type'];
-        final isAlert = type == 'UnknownFaceDetected' || type == 'CameraOffline' || type == 'SecurityAlert';
+        final isAlert = type == 'UnknownFaceDetected' ||
+            type == 'CameraOffline' ||
+            type == 'SecurityAlert';
 
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
@@ -401,27 +543,48 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             children: [
               SizedBox(
                 width: 70,
-                child: Text(event['timestamp']?.split('T').last.substring(0, 8) ?? '00:00:00', style: const TextStyle(color: _textVariant, fontSize: 12, fontFamily: 'monospace')),
+                child: Text(
+                    event['timestamp']?.split('T').last.substring(0, 8) ??
+                        '00:00:00',
+                    style: const TextStyle(
+                        color: _textVariant,
+                        fontSize: 12,
+                        fontFamily: 'monospace')),
               ),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(type, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                    Text('${event['camera_name'] ?? 'System Hub'}', style: const TextStyle(color: _textVariant, fontSize: 11)),
+                    Text(type,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14)),
+                    Text('${event['camera_name'] ?? 'System Hub'}',
+                        style:
+                            const TextStyle(color: _textVariant, fontSize: 11)),
                   ],
                 ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isAlert ? _critical.withValues(alpha: 0.1) : _tealAccent.withValues(alpha: 0.1),
-                  border: Border.all(color: isAlert ? _critical.withValues(alpha: 0.3) : _tealAccent.withValues(alpha: 0.3)),
+                  color: isAlert
+                      ? _critical.withValues(alpha: 0.1)
+                      : _tealAccent.withValues(alpha: 0.1),
+                  border: Border.all(
+                      color: isAlert
+                          ? _critical.withValues(alpha: 0.3)
+                          : _tealAccent.withValues(alpha: 0.3)),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   isAlert ? 'PENDING' : 'VERIFIED',
-                  style: TextStyle(color: isAlert ? _critical : _tealAccent, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1),
+                  style: TextStyle(
+                      color: isAlert ? _critical : _tealAccent,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1),
                 ),
               ),
             ],

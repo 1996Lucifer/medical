@@ -17,6 +17,8 @@ class SecurityRulesEngine:
         self._check_restricted_access(event_type, camera_id, camera_name, confidence, details)
         self._check_unknown_face_offhours(event_type, camera_id, camera_name, confidence, details)
         self._check_ppe_compliance(event_type, camera_id, camera_name, confidence, details)
+        self._check_ppe_violation(event_type, camera_id, camera_name, confidence, details)
+        self._check_unauthorized_entry(event_type, camera_id, camera_name, confidence, details)
 
     def _check_theft_rule(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
         """
@@ -184,6 +186,81 @@ class SecurityRulesEngine:
                 
         except Exception as e:
             print(f"[RulesEngine] Error in PPE compliance rule: {e}")
+        finally:
+            db.close()
+
+    def _check_ppe_violation(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
+        if event_type != "PPEViolation":
+            return
+            
+        if not camera_id:
+            return
+
+        db: Session = SessionLocal()
+        try:
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+            staff_name = details.get("staff_name", "Unknown Person")
+            
+            import json
+            
+            alert_details = {
+                "reason": details.get("warning", "PPE Violation"),
+                "staff_name": staff_name,
+                "confidence": confidence,
+                "snapshot_path": details.get("snapshot_path")
+            }
+            
+            alert = models.SecurityAlert(
+                rule_name="PPE Violation",
+                severity="high",
+                camera_id=camera_id,
+                details=json.dumps(alert_details),
+                timestamp=now
+            )
+            db.add(alert)
+            db.commit()
+            print(f"[Security] 🚨 PPE ALERT: {staff_name} at {camera_name}!")
+            
+            self._broadcast_alert(alert, camera_name)
+        except Exception as e:
+            print(f"[RulesEngine] Error in PPE violation rule: {e}")
+        finally:
+            db.close()
+
+    def _check_unauthorized_entry(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
+        if event_type != "UnauthorizedEntry":
+            return
+            
+        if not camera_id:
+            return
+
+        db: Session = SessionLocal()
+        try:
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+            
+            import json
+            
+            alert_details = {
+                "reason": details.get("alert", "Unauthorized person detected"),
+                "staff_name": "Unknown",
+                "confidence": confidence,
+                "snapshot_path": details.get("snapshot_path")
+            }
+            
+            alert = models.SecurityAlert(
+                rule_name="Unauthorized Entry",
+                severity="critical",
+                camera_id=camera_id,
+                details=json.dumps(alert_details),
+                timestamp=now
+            )
+            db.add(alert)
+            db.commit()
+            print(f"[Security] 🚨 UNAUTHORIZED ENTRY ALERT: Unknown person at {camera_name}!")
+            
+            self._broadcast_alert(alert, camera_name)
+        except Exception as e:
+            print(f"[RulesEngine] Error in unauthorized entry rule: {e}")
         finally:
             db.close()
 

@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from camera.vision_constants import VERIFICATION_EXPIRY_SEC
+from camera.constants.vision_constants import VERIFICATION_EXPIRY_SEC
 
 
 @dataclass

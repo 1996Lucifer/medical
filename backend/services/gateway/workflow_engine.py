@@ -58,17 +58,14 @@ class WorkflowEngine:
                 print(f"[WorkflowEngine] Failed to retrieve memory facts: {e}")
 
         # 6. LLM Formatting & Generation
-        if strategy == "SQL" and not rows:
-            response = "No matching records found."
+        context = context_builder.build_context(rows, vector_chunks, history, memory_facts)
+        final_prompt = f"{context}\nUSER QUESTION:\n{message}"
+        
+        # Pass to LLM
+        if base64_img:
+            response = llm_manager.generate_with_image(base64_img, final_prompt, is_clinical=True)
         else:
-            context = context_builder.build_context(rows, vector_chunks, history, memory_facts)
-            final_prompt = f"{context}\nUSER QUESTION:\n{message}"
-            
-            # Pass to LLM
-            if base64_img:
-                response = llm_manager.generate_with_image(base64_img, final_prompt, is_clinical=True)
-            else:
-                response = llm_manager.generate(final_prompt, is_clinical=is_clinical)
+            response = llm_manager.generate(final_prompt, is_clinical=is_clinical)
 
         # Record metrics
         metrics_tracker.log_interaction({

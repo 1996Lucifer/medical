@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../main.dart' show GlassCard;
 
 class ReportAnalysisView extends StatelessWidget {
@@ -33,9 +34,7 @@ class ReportAnalysisView extends StatelessWidget {
               Text(
                 'Patient: $patientName',
                 style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: _primary),
+                    fontSize: 24, fontWeight: FontWeight.bold, color: _primary),
               ),
               Text(
                 date.substring(0, 10), // just the date part
@@ -51,7 +50,10 @@ class ReportAnalysisView extends StatelessWidget {
               SizedBox(width: 8),
               Text(
                 'Key Findings',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blueAccent),
               ),
             ],
           ),
@@ -62,11 +64,13 @@ class ReportAnalysisView extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.blueAccent.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
+              border:
+                  Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
             ),
             child: Text(
               keyFindings,
-              style: const TextStyle(fontSize: 16, height: 1.6, color: _primary),
+              style:
+                  const TextStyle(fontSize: 16, height: 1.6, color: _primary),
             ),
           ),
           const SizedBox(height: 32),
@@ -76,7 +80,10 @@ class ReportAnalysisView extends StatelessWidget {
               SizedBox(width: 8),
               Text(
                 'Identified Abnormalities',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orangeAccent),
               ),
             ],
           ),
@@ -87,11 +94,13 @@ class ReportAnalysisView extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.orangeAccent.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3)),
+              border:
+                  Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3)),
             ),
             child: Text(
               abnormalities,
-              style: const TextStyle(fontSize: 16, height: 1.6, color: _primary),
+              style:
+                  const TextStyle(fontSize: 16, height: 1.6, color: _primary),
             ),
           ),
           const SizedBox(height: 32),
@@ -101,7 +110,10 @@ class ReportAnalysisView extends StatelessWidget {
               SizedBox(width: 8),
               Text(
                 'Clinical Recommendations',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryFixedDim),
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryFixedDim),
               ),
             ],
           ),
@@ -112,11 +124,13 @@ class ReportAnalysisView extends StatelessWidget {
             decoration: BoxDecoration(
               color: _primaryFixedDim.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.3)),
+              border:
+                  Border.all(color: _primaryFixedDim.withValues(alpha: 0.3)),
             ),
             child: Text(
               recommendations,
-              style: const TextStyle(fontSize: 16, height: 1.6, color: _primary),
+              style:
+                  const TextStyle(fontSize: 16, height: 1.6, color: _primary),
             ),
           ),
         ],

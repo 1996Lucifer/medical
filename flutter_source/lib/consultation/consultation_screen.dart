@@ -1,23 +1,24 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:typed_data';
 import 'dart:ui';
-import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:frontend/providers/site_config_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
+import 'package:record/record.dart';
 
 import '../main.dart' show GlassBackground, GlassCard;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import '../providers/auth_provider.dart';
 import '../storage/secure_storage_service.dart';
 import 'report_analysis_view.dart';
 import 'soap_note_view.dart';
@@ -39,18 +40,18 @@ class _ConsultationScreenState extends State<ConsultationScreen>
   final ImagePicker _imagePicker = ImagePicker();
 
   bool _isRecording = false;
-bool _isProcessing = false;
+  bool _isProcessing = false;
   bool _isTranscribing = false;
-  
+
   String? _recordedAudioPath;
   String? _transcriptionText;
-  
+
   Uint8List? _uploadedAudioBytes;
   String? _uploadedAudioFilename;
-  
+
   Timer? _recordTimer;
   int _recordDuration = 0;
-  
+
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isPlaying = false;
   final TextEditingController _transcriptController = TextEditingController();
@@ -79,7 +80,7 @@ bool _isProcessing = false;
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
-    
+
     _audioPlayer.onPlayerComplete.listen((_) {
       if (mounted) {
         setState(() => _isPlaying = false);
@@ -157,7 +158,8 @@ bool _isProcessing = false;
         String? path;
         if (!kIsWeb) {
           final dir = await getApplicationDocumentsDirectory();
-          path = '${dir.path}/consultation_${DateTime.now().millisecondsSinceEpoch}.m4a';
+          path =
+              '${dir.path}/consultation_${DateTime.now().millisecondsSinceEpoch}.m4a';
         }
         await _audioRecorder.start(const RecordConfig(), path: path ?? '');
 
@@ -201,7 +203,7 @@ bool _isProcessing = false;
       );
     }
   }
-  
+
   Future<void> _uploadAudioFile() async {
     if (_patientNameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -217,7 +219,7 @@ bool _isProcessing = false;
         withData: kIsWeb,
       );
       if (result == null || result.files.isEmpty) return;
-      
+
       final file = result.files.first;
       setState(() {
         if (kIsWeb) {
@@ -237,7 +239,7 @@ bool _isProcessing = false;
       );
     }
   }
-  
+
   void _discardAudio() {
     setState(() {
       _recordedAudioPath = null;
@@ -257,7 +259,9 @@ bool _isProcessing = false;
       if (kIsWeb && _uploadedAudioBytes != null) {
         await _audioPlayer.play(BytesSource(_uploadedAudioBytes!));
       } else if (_recordedAudioPath != null) {
-        await _audioPlayer.play(kIsWeb ? UrlSource(_recordedAudioPath!) : DeviceFileSource(_recordedAudioPath!));
+        await _audioPlayer.play(kIsWeb
+            ? UrlSource(_recordedAudioPath!)
+            : DeviceFileSource(_recordedAudioPath!));
       }
       setState(() => _isPlaying = true);
     }
@@ -267,14 +271,20 @@ bool _isProcessing = false;
     if (_recordedAudioPath == null && _uploadedAudioBytes == null) return;
     setState(() => _isTranscribing = true);
     try {
-      final request = NetworkManager.instance.multipartRequest('POST', '${ApiRoutes.baseUrl}/api/transcribe');
+      final request = NetworkManager.instance
+          .multipartRequest('POST', '${ApiRoutes.baseUrl}/api/transcribe');
       if (kIsWeb && _uploadedAudioBytes != null) {
-        request.files.add(http.MultipartFile.fromBytes('file', _uploadedAudioBytes!, filename: _uploadedAudioFilename ?? 'audio.webm'));
+        request.files.add(http.MultipartFile.fromBytes(
+            'file', _uploadedAudioBytes!,
+            filename: _uploadedAudioFilename ?? 'audio.webm'));
       } else if (kIsWeb && _recordedAudioPath != null) {
         final response = await http.get(Uri.parse(_recordedAudioPath!));
-        request.files.add(http.MultipartFile.fromBytes('file', response.bodyBytes, filename: 'audio.webm'));
+        request.files.add(http.MultipartFile.fromBytes(
+            'file', response.bodyBytes,
+            filename: 'audio.webm'));
       } else if (_recordedAudioPath != null) {
-        request.files.add(await http.MultipartFile.fromPath('file', _recordedAudioPath!));
+        request.files.add(
+            await http.MultipartFile.fromPath('file', _recordedAudioPath!));
       }
 
       final streamedResponse = await request.send();
@@ -292,7 +302,8 @@ bool _isProcessing = false;
       }
     } catch (e) {
       setState(() => _isTranscribing = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Transcription failed: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Transcription failed: $e')));
     }
   }
 
@@ -311,7 +322,8 @@ bool _isProcessing = false;
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        await SecureStorageService.instance.savePatientNote(_patientNameController.text.trim(), data);
+        await SecureStorageService.instance
+            .savePatientNote(_patientNameController.text.trim(), data);
         _loadSavedNotes();
         _openDrawerWithNote(data);
         _patientNameController.clear();
@@ -326,25 +338,31 @@ bool _isProcessing = false;
         throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI Processing failed: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('AI Processing failed: $e')));
     } finally {
       setState(() => _isProcessing = false);
     }
   }
 
-  Future<void> _deleteConsultation(int? consultationId, String patientName) async {
+  Future<void> _deleteConsultation(
+      int? consultationId, String patientName) async {
     if (consultationId == null) return;
-    
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _surfaceContainerHighest,
-        title: const Text('Delete Consultation', style: TextStyle(color: Colors.white)),
-        content: const Text('Are you sure you want to delete this consultation? This action cannot be undone.', style: TextStyle(color: Colors.white70)),
+        title: const Text('Delete Consultation',
+            style: TextStyle(color: Colors.white)),
+        content: const Text(
+            'Are you sure you want to delete this consultation? This action cannot be undone.',
+            style: TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: _onSurfaceVariant)),
+            child: const Text('Cancel',
+                style: TextStyle(color: _onSurfaceVariant)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
@@ -363,7 +381,8 @@ bool _isProcessing = false;
       );
       if (response.statusCode == 200) {
         await SecureStorageService.instance.deleteNoteById(consultationId);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Consultation deleted')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Consultation deleted')));
         _loadSavedNotes();
         if (_currentNote != null && _currentNote!['id'] == consultationId) {
           setState(() => _currentNote = null);
@@ -373,7 +392,8 @@ bool _isProcessing = false;
         throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
     }
   }
 
@@ -391,7 +411,8 @@ bool _isProcessing = false;
             children: [
               ListTile(
                 leading: const Icon(Icons.camera_alt, color: Colors.white),
-                title: const Text('Take Photo', style: TextStyle(color: Colors.white)),
+                title: const Text('Take Photo',
+                    style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(context);
                   _processPickedFile(ImageSource.camera);
@@ -399,7 +420,8 @@ bool _isProcessing = false;
               ),
               ListTile(
                 leading: const Icon(Icons.folder, color: Colors.white),
-                title: const Text('Choose File (Image/PDF)', style: TextStyle(color: Colors.white)),
+                title: const Text('Choose File (Image/PDF)',
+                    style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(context);
                   _processPickedFile(null);
@@ -431,7 +453,7 @@ bool _isProcessing = false;
         if (result == null || result.files.isEmpty) return;
         fileBytes = result.files.first.bytes;
         fileName = result.files.first.name;
-        
+
         if (fileBytes == null && result.files.first.path != null) {
           fileBytes = await io.File(result.files.first.path!).readAsBytes();
         }
@@ -450,8 +472,8 @@ bool _isProcessing = false;
         request.fields['patient_name'] = _patientNameController.text.trim();
       }
 
-      request.files.add(
-          http.MultipartFile.fromBytes('file', fileBytes, filename: fileName ?? 'file'));
+      request.files.add(http.MultipartFile.fromBytes('file', fileBytes,
+          filename: fileName ?? 'file'));
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -595,11 +617,15 @@ bool _isProcessing = false;
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (Provider.of<AuthProvider>(context, listen: false).role == 'superadmin' && !isReport)
+                if (Provider.of<AuthProvider>(context, listen: false).role ==
+                        'superadmin' &&
+                    !isReport)
                   IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    icon: const Icon(Icons.delete_outline,
+                        color: Colors.redAccent),
                     tooltip: 'Delete Consultation',
-                    onPressed: () => _deleteConsultation(note['id'], note['patient_name'] ?? ''),
+                    onPressed: () => _deleteConsultation(
+                        note['id'], note['patient_name'] ?? ''),
                   ),
               ],
             ),
@@ -635,6 +661,7 @@ bool _isProcessing = false;
 
   @override
   Widget build(BuildContext context) {
+    final siteConfig = context.watch<SiteConfigProvider>();
     return Scaffold(
       key: _scaffoldKey,
       extendBodyBehindAppBar: true,
@@ -704,8 +731,13 @@ bool _isProcessing = false;
                         padding: const EdgeInsets.all(24),
                         child: SoapNoteView(
                           noteData: _currentNote!,
-                          isSuperAdmin: Provider.of<AuthProvider>(context, listen: false).role == 'superadmin',
-                          onDelete: () => _deleteConsultation(_currentNote!['id'], _currentNote!['patient_name'] ?? ''),
+                          isSuperAdmin:
+                              Provider.of<AuthProvider>(context, listen: false)
+                                      .role ==
+                                  'superadmin',
+                          onDelete: () => _deleteConsultation(
+                              _currentNote!['id'],
+                              _currentNote!['patient_name'] ?? ''),
                         )))
               else if (_currentReport != null)
                 Expanded(
@@ -860,9 +892,9 @@ bool _isProcessing = false;
                                     const SizedBox(height: 20),
                                     FadeTransition(
                                       opacity: _pulseController,
-                                      child: const Text(
-                                          'Processing with Aegis AI...',
-                                          style: TextStyle(
+                                      child: Text(
+                                          'Processing with ${siteConfig.agentName}...',
+                                          style: const TextStyle(
                                               color: _primaryFixedDim,
                                               fontSize: 16,
                                               fontWeight: FontWeight.w600)),
@@ -878,8 +910,7 @@ bool _isProcessing = false;
                                     const SizedBox(height: 20),
                                     FadeTransition(
                                       opacity: _pulseController,
-                                      child: const Text(
-                                          'Transcribing Audio...',
+                                      child: const Text('Transcribing Audio...',
                                           style: TextStyle(
                                               color: _primaryFixedDim,
                                               fontSize: 16,
@@ -889,7 +920,8 @@ bool _isProcessing = false;
                                 )
                               else if (_transcriptionText != null)
                                 Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
                                     const Text('Edit Transcript',
                                         style: TextStyle(
@@ -899,14 +931,18 @@ bool _isProcessing = false;
                                     const SizedBox(height: 8),
                                     Container(
                                       decoration: BoxDecoration(
-                                        color: _surfaceContainerLowest.withValues(alpha: 0.5),
+                                        color: _surfaceContainerLowest
+                                            .withValues(alpha: 0.5),
                                         borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                                        border: Border.all(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.1)),
                                       ),
                                       child: TextField(
                                         controller: _transcriptController,
                                         maxLines: 8,
-                                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                                        style: const TextStyle(
+                                            color: Colors.white, fontSize: 14),
                                         decoration: const InputDecoration(
                                             border: InputBorder.none,
                                             contentPadding: EdgeInsets.all(16)),
@@ -914,28 +950,37 @@ bool _isProcessing = false;
                                     ),
                                     const SizedBox(height: 20),
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
                                       children: [
                                         TextButton.icon(
                                           onPressed: _discardAudio,
-                                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                          label: const Text('Discard', style: TextStyle(color: Colors.redAccent)),
+                                          icon: const Icon(Icons.delete_outline,
+                                              color: Colors.redAccent),
+                                          label: const Text('Discard',
+                                              style: TextStyle(
+                                                  color: Colors.redAccent)),
                                         ),
                                         ElevatedButton.icon(
                                           onPressed: _generateSummary,
                                           style: ElevatedButton.styleFrom(
                                               backgroundColor: _primaryFixedDim,
                                               foregroundColor: Colors.black,
-                                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 24,
+                                                      vertical: 12)),
                                           icon: const Icon(Icons.auto_awesome),
                                           label: const Text('Generate Summary',
-                                              style: TextStyle(fontWeight: FontWeight.bold)),
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold)),
                                         ),
                                       ],
                                     ),
                                   ],
                                 )
-                              else if (_recordedAudioPath != null || _uploadedAudioBytes != null)
+                              else if (_recordedAudioPath != null ||
+                                  _uploadedAudioBytes != null)
                                 Column(
                                   children: [
                                     Container(
@@ -945,42 +990,61 @@ bool _isProcessing = false;
                                         borderRadius: BorderRadius.circular(16),
                                       ),
                                       child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
                                         children: [
                                           IconButton(
-                                            icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                                                color: _primaryFixedDim, size: 40),
+                                            icon: Icon(
+                                                _isPlaying
+                                                    ? Icons.pause_circle_filled
+                                                    : Icons.play_circle_fill,
+                                                color: _primaryFixedDim,
+                                                size: 40),
                                             onPressed: _playAudio,
                                           ),
                                           const SizedBox(width: 16),
-                                          Text('Audio Recorded (${_formatDuration(_recordDuration)})',
-                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                          Text(
+                                              'Audio Recorded (${_formatDuration(_recordDuration)})',
+                                              style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold)),
                                         ],
                                       ),
                                     ),
                                     const SizedBox(height: 24),
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
                                       children: [
                                         TextButton.icon(
                                           onPressed: _discardAudio,
-                                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                          label: const Text('Discard', style: TextStyle(color: Colors.redAccent)),
+                                          icon: const Icon(Icons.delete_outline,
+                                              color: Colors.redAccent),
+                                          label: const Text('Discard',
+                                              style: TextStyle(
+                                                  color: Colors.redAccent)),
                                         ),
                                         TextButton.icon(
                                           onPressed: _discardAudio,
-                                          icon: const Icon(Icons.replay, color: _onSurfaceVariant),
-                                          label: const Text('Retake', style: TextStyle(color: _onSurfaceVariant)),
+                                          icon: const Icon(Icons.replay,
+                                              color: _onSurfaceVariant),
+                                          label: const Text('Retake',
+                                              style: TextStyle(
+                                                  color: _onSurfaceVariant)),
                                         ),
                                         ElevatedButton.icon(
                                           onPressed: _transcribeAudio,
                                           style: ElevatedButton.styleFrom(
                                               backgroundColor: _primaryFixedDim,
                                               foregroundColor: Colors.black,
-                                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 24,
+                                                      vertical: 12)),
                                           icon: const Icon(Icons.text_fields),
                                           label: const Text('Transcribe',
-                                              style: TextStyle(fontWeight: FontWeight.bold)),
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold)),
                                         ),
                                       ],
                                     ),
@@ -1048,8 +1112,11 @@ bool _isProcessing = false;
                                       const SizedBox(height: 8),
                                       TextButton.icon(
                                         onPressed: _uploadAudioFile,
-                                        icon: const Icon(Icons.upload_file, color: _primaryFixedDim, size: 20),
-                                        label: const Text('Upload Audio File', style: TextStyle(color: _primaryFixedDim)),
+                                        icon: const Icon(Icons.upload_file,
+                                            color: _primaryFixedDim, size: 20),
+                                        label: const Text('Upload Audio File',
+                                            style: TextStyle(
+                                                color: _primaryFixedDim)),
                                       ),
                                     ],
                                     const SizedBox(height: 32),
@@ -1060,7 +1127,8 @@ bool _isProcessing = false;
                                       icon: const Icon(
                                           Icons.document_scanner_rounded,
                                           size: 20),
-                                      label: const Text('Analyze Report (Image/PDF)',
+                                      label: const Text(
+                                          'Analyze Report (Image/PDF)',
                                           style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w700)),
@@ -1111,24 +1179,24 @@ bool _isProcessing = false;
                             filteredNotes.isEmpty
                                 ? Center(
                                     child: Padding(
-                                      padding: const EdgeInsets.only(top: 40.0),
-                                      child: Text(
-                                          searchQuery.isEmpty
-                                              ? 'No patient records found. Start a consultation!'
-                                              : 'No records found for this patient.',
-                                          style: const TextStyle(
-                                              color: _onSurfaceVariant,
-                                              fontSize: 16)),
-                                    ))
+                                    padding: const EdgeInsets.only(top: 40.0),
+                                    child: Text(
+                                        searchQuery.isEmpty
+                                            ? 'No patient records found. Start a consultation!'
+                                            : 'No records found for this patient.',
+                                        style: const TextStyle(
+                                            color: _onSurfaceVariant,
+                                            fontSize: 16)),
+                                  ))
                                 : GridView.builder(
                                     shrinkWrap: true,
-                                    physics: const NeverScrollableScrollPhysics(),
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
                                     padding: const EdgeInsets.only(
                                         bottom: 40, top: 8),
                                     gridDelegate:
                                         SliverGridDelegateWithMaxCrossAxisExtent(
-                                      maxCrossAxisExtent:
-                                          isDesktop ? 350 : 300,
+                                      maxCrossAxisExtent: isDesktop ? 350 : 300,
                                       mainAxisSpacing: 24,
                                       crossAxisSpacing: 24,
                                       childAspectRatio: 1.3,
@@ -1138,8 +1206,7 @@ bool _isProcessing = false;
                                       final note = filteredNotes[index];
                                       final isReport =
                                           note.containsKey('key_findings');
-                                      return _buildPatientCard(
-                                          note, isReport);
+                                      return _buildPatientCard(note, isReport);
                                     },
                                   ),
                           ],

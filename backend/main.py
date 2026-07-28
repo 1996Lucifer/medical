@@ -1,7 +1,6 @@
 import os
 import shutil
 from datetime import datetime
-from typing import List
 
 import models
 from database import engine, get_db
@@ -9,24 +8,26 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from faster_whisper import WhisperModel
 from google import genai
 from pydantic import BaseModel, ConfigDict
+from services.llm_manager import llm_manager
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from sqlalchemy import text
-from faster_whisper import WhisperModel
-from services.llm_manager import llm_manager
-
 whisper_model = None
+
 
 def _get_whisper_device():
     try:
         import torch
+
         if torch.cuda.is_available():
             return "cuda", "float16"
     except Exception:
         pass
     return "cpu", "int8"
+
 
 # Create database tables and vector extension
 with engine.connect() as conn:
@@ -40,12 +41,28 @@ models.Base.metadata.create_all(bind=engine)
 
 load_dotenv(override=False)
 
-from camera import routes as camera_routes
-from routers import staff, camera_api, attendance, equipment, events, security, analytics, auth, analysis, patients, rbac, agent, patient_portal
-from routers.auth import get_current_user
-from database import SessionLocal
-
 from contextlib import asynccontextmanager
+
+from camera import routes as camera_routes
+from database import SessionLocal
+from routers import (
+    agent,
+    analysis,
+    analytics,
+    attendance,
+    auth,
+    camera_api,
+    equipment,
+    events,
+    patient_portal,
+    patients,
+    rbac,
+    security,
+    site_config,
+    staff,
+)
+from routers.auth import get_current_user
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,12 +70,14 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         from routers.staff import update_global_embeddings
+
         update_global_embeddings(db)
     except Exception as e:
         print(f"Failed to load embeddings on startup: {e}")
     finally:
         db.close()
     yield
+
 
 app = FastAPI(title="Healthcare Operations Copilot API", lifespan=lifespan)
 
@@ -77,6 +96,7 @@ app.include_router(auth.router)
 app.include_router(analysis.router)
 app.include_router(patients.router)
 app.include_router(patient_portal.router)
+app.include_router(site_config.router)  # GET is public; mutations check superadmin in-router
 
 # Mount static files
 os.makedirs("uploads/staff", exist_ok=True)
@@ -119,6 +139,7 @@ class GenerateSummaryRequest(BaseModel):
     patient_name: str
     transcript: str
 
+
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     global whisper_model
@@ -130,17 +151,23 @@ async def transcribe_audio(file: UploadFile = File(...)):
             w_dev, w_type = _get_whisper_device()
             whisper_model = WhisperModel("base", device=w_dev, compute_type=w_type)
         print(f"Transcribing audio from {temp_file_path} using Faster-Whisper...")
-        segments, info = whisper_model.transcribe(temp_file_path, beam_size=5, vad_filter=True)
+        segments, info = whisper_model.transcribe(
+            temp_file_path, beam_size=5, vad_filter=True
+        )
         transcript_part = " ".join([segment.text for segment in segments]).strip()
-        print(f"Detected language: {info.language} with probability {info.language_probability}")
+        print(
+            f"Detected language: {info.language} with probability {info.language_probability}"
+        )
         return {"transcript": transcript_part}
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+
 
 @app.post("/api/consultations/generate", response_model=ConsultationResponse)
 async def generate_consultation_summary(
@@ -165,7 +192,9 @@ async def generate_consultation_summary(
         print("Generating structured discharge summary using MedGemma...")
         summary_part = llm_manager.generate(prompt, is_clinical=True)
 
-        patient = db.query(models.Patient).filter(models.Patient.name == patient_name).first()
+        patient = (
+            db.query(models.Patient).filter(models.Patient.name == patient_name).first()
+        )
         if not patient:
             patient = models.Patient(name=patient_name)
             db.add(patient)
@@ -184,8 +213,10 @@ async def generate_consultation_summary(
         return db_consultation
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/consultations", response_model=ConsultationResponse)
 async def upload_audio(
@@ -225,7 +256,9 @@ async def upload_audio(
         summary_part = llm_manager.generate(prompt, is_clinical=True)
 
         # Get or create patient
-        patient = db.query(models.Patient).filter(models.Patient.name == patient_name).first()
+        patient = (
+            db.query(models.Patient).filter(models.Patient.name == patient_name).first()
+        )
         if not patient:
             patient = models.Patient(name=patient_name)
             db.add(patient)
@@ -255,10 +288,11 @@ async def upload_audio(
             os.remove(temp_file_path)
 
 
-@app.get("/api/consultations", response_model=List[ConsultationResponse])
+@app.get("/api/consultations", response_model=list[ConsultationResponse])
 def get_consultations(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     consultations = (
-        db.query(models.Consultation)
+        db
+        .query(models.Consultation)
         .order_by(models.Consultation.date.desc())
         .offset(skip)
         .limit(limit)
@@ -270,9 +304,15 @@ def get_consultations(skip: int = 0, limit: int = 100, db: Session = Depends(get
             c.patient_name = c.patient.name
     return consultations
 
+
 @app.delete("/api/consultations/{consultation_id}")
 def delete_consultation(consultation_id: int, db: Session = Depends(get_db)):
-    consultation = db.query(models.Consultation).filter(models.Consultation.id == consultation_id).first()
+    consultation = (
+        db
+        .query(models.Consultation)
+        .filter(models.Consultation.id == consultation_id)
+        .first()
+    )
     if not consultation:
         raise HTTPException(status_code=404, detail="Consultation not found")
 

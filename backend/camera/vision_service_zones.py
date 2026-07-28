@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from camera.model_manager import ModelManager, get_best_device
 from camera.compliance_engine import compliance_engine
 
-from camera.vision_constants import (
+from camera.constants.vision_constants import (
     REJECTION_THRESHOLD,
     UPPER_FACE_REJECTION_THRESHOLD,
     UPPER_FACE_HEIGHT_RATIO,
@@ -927,6 +927,7 @@ class VisionServiceZones:
                     "zone_type": zone_type,
                     "is_verified": is_verified,
                     "kps": None,
+                    "staff_id": staff_id,
                 }
             )
 

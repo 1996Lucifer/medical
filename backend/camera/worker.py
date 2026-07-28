@@ -1,40 +1,39 @@
 import asyncio
+import json
 import os
 import threading
 import time
-import cv2
-import numpy as np
-import json
-from typing import Optional
 
-from database import SessionLocal
+import cv2
 import models
-from events import event_engine, is_zone_alerted, set_zone_alert
-from camera.vision_worker import vision_process_manager
+import numpy as np
+from camera.attendance_service import _maybe_mark_attendance
 from camera.audio_worker import audio_process_manager
 from camera.compliance_engine import compliance_engine
-from camera.utils import fix_rtsp_url
-from camera.attendance_service import _maybe_mark_attendance
 from camera.equipment_service import _maybe_track_equipment
-from camera.vision_constants import (
-    TAMPER_ALERT_COOLDOWN_SEC,
+from camera.utils import fix_rtsp_url
+from camera.constants.vision_constants import (
     EMERGENCY_ALERT_COOLDOWN_SEC,
-    TAMPER_STD_THRESHOLD,
-    TAMPER_MEAN_THRESHOLD,
+    TAMPER_ALERT_COOLDOWN_SEC,
     TAMPER_LAPLACIAN_THRESHOLD,
+    TAMPER_MEAN_THRESHOLD,
+    TAMPER_STD_THRESHOLD,
     ZONE_TYPE_RESTRICTED,
     get_runtime_vision_config,
 )
+from camera.vision_worker import vision_process_manager
+from database import SessionLocal
+from events import event_engine, is_zone_alerted, set_zone_alert
 
 
 class CameraWorker:
     def __init__(self):
         self._lock = threading.Lock()
-        self._latest_frame: Optional[bytes] = None
-        self._thread: Optional[threading.Thread] = None
+        self._latest_frame: bytes | None = None
+        self._thread: threading.Thread | None = None
         self._running = False
         # Event loop + connected WebSocket queues for push delivery
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._client_queues = {}  # Dict[asyncio.Queue, str]
         self._client_queues_lock = threading.Lock()
         self._last_staff_zone = {}  # staff_name -> (camera_id, zone_name, zone_type)
@@ -47,8 +46,8 @@ class CameraWorker:
         camera_url: str,
         staff_list: list,
         loop: asyncio.AbstractEventLoop,
-        camera_id: Optional[int] = None,
-        camera_name: Optional[str] = None,
+        camera_id: int | None = None,
+        camera_name: str | None = None,
     ):
         self.stop()
         self._loop = loop
@@ -87,7 +86,7 @@ class CameraWorker:
         with self._client_queues_lock:
             self._client_queues.pop(queue, None)
 
-    def get_frame(self) -> Optional[bytes]:
+    def get_frame(self) -> bytes | None:
         with self._lock:
             return self._latest_frame
 
@@ -271,6 +270,12 @@ class CameraWorker:
 
     @staticmethod
     def _draw_face_event(frame, ev):
+        from camera.constants.drawing_constants import (
+            COLOR_UNAUTHORIZED, COLOR_VERIFIED, COLOR_WARNING, COLOR_WHITE, COLOR_YELLOW, COLOR_DARK_GREY, COLOR_CYAN,
+            BBOX_CORNER_THICKNESS, BBOX_CORNER_LENGTH, BBOX_FAINT_THICKNESS, BBOX_FAINT_OPACITY,
+            FONT_STYLE, FONT_SCALE_TITLE, FONT_SCALE_SUBTITLE, FONT_THICKNESS_TITLE, FONT_THICKNESS_SUBTITLE,
+            PANEL_PADDING, PANEL_MARGIN_BOTTOM, PANEL_OPACITY_BG, PANEL_OPACITY_FG
+        )
         bbox = ev.get("bbox")
         if not bbox:
             return
@@ -284,30 +289,30 @@ class CameraWorker:
         has_left = bool(ev.get("has_left_glove", False))
         has_right = bool(ev.get("has_right_glove", False))
         has_gloves = bool(ev.get("has_gloves", False)) or (has_left and has_right) or (has_left or has_right)
-        
+
         status = ""
         if name == "Unknown":
-            color = (0, 0, 255)
+            color = COLOR_UNAUTHORIZED
             status = "UNAUTHORIZED"
         elif zone_type == "restricted":
             if is_verified or (has_mask and has_gloves):
-                color = (0, 255, 0)
+                color = COLOR_VERIFIED
                 status = "VERIFIED"
             else:
-                color = (0, 0, 255)
+                color = COLOR_UNAUTHORIZED
                 status = "RESTRICTED VIOLATION"
         elif is_verified:
-            color = (0, 255, 0)
+            color = COLOR_VERIFIED
             status = "VERIFIED"
         else:
             if not has_mask or not has_gloves:
-                color = (0, 165, 255) if (has_mask or has_gloves) else (0, 0, 255)
+                color = COLOR_WARNING if (has_mask or has_gloves) else COLOR_UNAUTHORIZED
             else:
-                color = (0, 255, 0)
+                color = COLOR_VERIFIED
 
         # 1) Draw main bounding box with corner styling
-        thickness = 2
-        length = 15
+        thickness = BBOX_CORNER_THICKNESS
+        length = BBOX_CORNER_LENGTH
         # Top-left
         cv2.line(frame, (x1, y1), (x1 + length, y1), color, thickness)
         cv2.line(frame, (x1, y1), (x1, y1 + length), color, thickness)
@@ -322,8 +327,8 @@ class CameraWorker:
         cv2.line(frame, (x2, y2), (x2, y2 - length), color, thickness)
         # Faint full rectangle
         overlay = frame.copy()
-        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 1)
-        cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, BBOX_FAINT_THICKNESS)
+        cv2.addWeighted(overlay, BBOX_FAINT_OPACITY, frame, 1 - BBOX_FAINT_OPACITY, 0, frame)
 
         # 2) Draw tracing arrow based on velocity
         vx = ev.get("track_vx_sec", 0.0)
@@ -335,49 +340,50 @@ class CameraWorker:
             end_x = int(cx + vx * 0.5)
             end_y = int(cy + vy * 0.5)
             # Cyan arrow for tracing
-            cv2.arrowedLine(frame, (cx, cy), (end_x, end_y), (255, 255, 0), 2, tipLength=0.2)
+            cv2.arrowedLine(frame, (cx, cy), (end_x, end_y), COLOR_CYAN, 2, tipLength=0.2)
 
         # 3) UI Label panel
-        tid = ev.get('tid', '')
+        staff_id = ev.get('staff_id')
         score = float(ev.get("score", 0.0) or 0.0)
         label_title = f"{name}"
-        if str(tid) != "" and str(tid) != "-1":
-            label_title += f" ID: {tid}"
-        label_subtitle = ""
-        if score > 0:
-            label_subtitle += f"Conf: {score:.0%}"
-        if status:
-            label_subtitle += f" | {status}"
+        if staff_id is not None:
+            label_title += f" ID: {staff_id}"
         
+        conf_str = f"Conf: {score:.0%}" if score > 0 else ""
+        status_str = f" | {status}" if status else ""
+        label_subtitle = conf_str + status_str
+
         # Calculate text size for background box
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        title_size = cv2.getTextSize(label_title, font, 0.6, 2)[0]
-        sub_size = cv2.getTextSize(label_subtitle, font, 0.45, 1)[0]
-        box_w = max(title_size[0], sub_size[0]) + 10
-        box_h = title_size[1] + sub_size[1] + 15
-        
+        title_size = cv2.getTextSize(label_title, FONT_STYLE, FONT_SCALE_TITLE, FONT_THICKNESS_TITLE)[0]
+        sub_size = cv2.getTextSize(label_subtitle, FONT_STYLE, FONT_SCALE_SUBTITLE, FONT_THICKNESS_SUBTITLE)[0]
+        box_w = max(title_size[0], sub_size[0]) + (PANEL_PADDING * 2)
+        box_h = title_size[1] + sub_size[1] + (PANEL_PADDING * 3)
+
         # Draw glassmorphism box (semi-transparent filled rect)
-        panel_y1 = max(0, y1 - box_h - 10)
+        panel_y1 = max(0, y1 - box_h - PANEL_MARGIN_BOTTOM)
         panel_y2 = panel_y1 + box_h
         panel_x1 = x1
         panel_x2 = panel_x1 + box_w
-        
+
         p_overlay = frame.copy()
-        cv2.rectangle(p_overlay, (panel_x1, panel_y1), (panel_x2, panel_y2), (40, 40, 40), -1)
+        cv2.rectangle(p_overlay, (panel_x1, panel_y1), (panel_x2, panel_y2), COLOR_DARK_GREY, -1)
         cv2.rectangle(p_overlay, (panel_x1, panel_y1), (panel_x2, panel_y2), color, 1)
-        cv2.addWeighted(p_overlay, 0.7, frame, 0.3, 0, frame)
-        
-        cv2.putText(frame, label_title, (panel_x1 + 5, panel_y1 + title_size[1] + 5), font, 0.6, (255, 255, 255), 1)
-        if label_subtitle:
-            cv2.putText(frame, label_subtitle, (panel_x1 + 5, panel_y2 - 5), font, 0.45, color, 1)
+        cv2.addWeighted(p_overlay, PANEL_OPACITY_BG, frame, PANEL_OPACITY_FG, 0, frame)
+
+        cv2.putText(frame, label_title, (panel_x1 + PANEL_PADDING, panel_y1 + title_size[1] + PANEL_PADDING), FONT_STYLE, FONT_SCALE_TITLE, COLOR_WHITE, FONT_THICKNESS_TITLE)
+        if conf_str:
+            cv2.putText(frame, conf_str, (panel_x1 + PANEL_PADDING, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, COLOR_YELLOW, FONT_THICKNESS_SUBTITLE)
+        if status_str:
+            conf_w = cv2.getTextSize(conf_str, FONT_STYLE, FONT_SCALE_SUBTITLE, FONT_THICKNESS_SUBTITLE)[0][0] if conf_str else 0
+            cv2.putText(frame, status_str, (panel_x1 + PANEL_PADDING + conf_w, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, color, FONT_THICKNESS_SUBTITLE)
 
     # ── Background thread ─────────────────────────────────────────────────────
 
     def _run(
         self,
         camera_url: str,
-        camera_id: Optional[int] = None,
-        camera_name: Optional[str] = None,
+        camera_id: int | None = None,
+        camera_name: str | None = None,
     ):
         fixed_url = fix_rtsp_url(camera_url)
 
@@ -520,7 +526,7 @@ class CameraWorker:
                         equipment_events = getattr(self, "latest_equipment_events", [])
                         incident_events = getattr(self, "latest_incident_events", [])
                         ppe_events = getattr(self, "latest_ppe_events", [])
-                        
+
                         (
                             face_events,
                             equipment_events,
@@ -694,7 +700,7 @@ class CameraWorker:
                             parsed_rois.append((roi.zone_name, zone_type, pts))
                         except Exception:
                             pass
-                            
+
                     if is_ai_active:
                         zone_signature = tuple(
                             (
@@ -783,28 +789,46 @@ class CameraWorker:
 
                             if staff_name == "Unknown":
                                 # Unknown person — apply grace period before alerting
-                                from camera.vision_constants import UNKNOWN_PERSON_GRACE_PERIOD_SEC
-                                
+                                from camera.constants.vision_constants import (
+                                    UNKNOWN_PERSON_GRACE_PERIOD_SEC,
+                                )
+
                                 # Track how long this unknown person has been seen
                                 unknown_duration_key = f"unknown_duration_{effective_cam_name}"
                                 first_seen = last_rule_check.get(unknown_duration_key, now_t)
                                 last_rule_check[unknown_duration_key] = first_seen
-                                
+
                                 if now_t - first_seen >= UNKNOWN_PERSON_GRACE_PERIOD_SEC:
-                                    from camera.compliance_constants import EVENT_TYPE_UNAUTHORIZED_ENTRY
+                                    from camera.constants.compliance_constants import (
+                                        EVENT_TYPE_UNAUTHORIZED_ENTRY,
+                                    )
+                                    
+                                    # Save snapshot
+                                    os.makedirs("uploads/incidents", exist_ok=True)
+                                    snapshot_filename = f"unknown_{camera_id}_{int(time.time())}.jpg"
+                                    snapshot_path = f"uploads/incidents/{snapshot_filename}"
+                                    cv2.imwrite(snapshot_path, manage_frame)
+
                                     event_engine.publish_event(
                                         event_type=EVENT_TYPE_UNAUTHORIZED_ENTRY,
                                         camera_id=camera_id,
                                         camera_name=effective_cam_name,
                                         confidence=ev.get("score", 0.0),
-                                        details={"alert": "Unauthorized person detected."},
+                                        snapshot_path=snapshot_path,
+                                        details={
+                                            "alert": "Unauthorized person detected.",
+                                            "snapshot_path": snapshot_path,
+                                            "staff_name": "Unknown",
+                                        },
                                     )
                                     if not is_zone_alerted(effective_cam_name):
                                         set_zone_alert(effective_cam_name, duration_sec=10.0)
                                         from camera.audio_service import audio_service
+                                        warning = f"Warning, unauthorized person detected on {camera_name or 'this camera'}. Please identify yourself."
+                                        warning_3x = f"{warning} {warning} {warning}"
                                         audio_service.speak(
                                             camera_url,
-                                            f"Warning, unauthorized person detected on {camera_name or 'this camera'}. Please identify yourself.",
+                                            warning_3x,
                                             vendor="tapo",
                                         )
                             else:
@@ -837,7 +861,9 @@ class CameraWorker:
                                             if item != "right glove"
                                         ]
                                     if not is_zone_alerted(f"{effective_cam_name}_{staff_name}"):
-                                        from camera.vision_constants import WARNING_ALERT_COOLDOWN_SEC
+                                        from camera.constants.vision_constants import (
+                                            WARNING_ALERT_COOLDOWN_SEC,
+                                        )
                                         set_zone_alert(
                                             f"{effective_cam_name}_{staff_name}",
                                             duration_sec=WARNING_ALERT_COOLDOWN_SEC,
@@ -857,21 +883,32 @@ class CameraWorker:
                                                 "is still in progress."
                                             )
                                         print(f"[Worker] 🚨 RESTRICTED ZONE VIOLATION: {staff_name} missing {missing}")
+
+                                        # Save snapshot
+                                        os.makedirs("uploads/incidents", exist_ok=True)
+                                        snapshot_filename = f"ppe_{camera_id}_{staff_name.replace(' ', '_')}_{int(time.time())}.jpg"
+                                        snapshot_path = f"uploads/incidents/{snapshot_filename}"
+                                        cv2.imwrite(snapshot_path, manage_frame)
+
                                         event_engine.publish_event(
                                             event_type="PPEViolation",
                                             camera_id=camera_id,
                                             camera_name=effective_cam_name,
                                             confidence=ev.get("score", 0.0),
+                                            snapshot_path=snapshot_path,
                                             details={
                                                 "staff_name": staff_name,
                                                 "missing_items": missing,
                                                 "warning": warning,
+                                                "snapshot_path": snapshot_path,
                                             },
                                         )
                                         set_zone_alert(effective_cam_name, duration_sec=5.0)
-                                        # Audio speaking disabled for PPE violations (no mask/gloves)
-                                        # from camera.audio_service import audio_service
-                                        # audio_service.speak(camera_url, warning, vendor="tapo")
+
+                                        # Alert 3 times
+                                        from camera.audio_service import audio_service
+                                        warning_3x = f"{warning} {warning} {warning}"
+                                        audio_service.speak(camera_url, warning_3x, vendor="tapo")
 
                     for ev in equipment_events:
                         zone_name, _ = get_zone_for_bbox(ev["bbox"])
@@ -984,15 +1021,15 @@ class CameraWorker:
                                 color=border_color,
                                 thickness=2 if is_alert else 1,
                             )
-                            
+
                             # Draw zone chip at the top of the AI processed frame
                             label = f"{z_name.upper()} | Occ: {count}"
                             if is_alert and count > 2:
                                 label = f"HIGH OCCUPANCY ({count}) - {z_name.upper()}"
-                            
+
                             font = cv2.FONT_HERSHEY_SIMPLEX
                             text_size = cv2.getTextSize(label, font, 0.45, 1)[0]
-                            
+
                             # Dark background box with colored border for the chip
                             cv2.rectangle(processed, (chip_x, chip_y), (chip_x + text_size[0] + 16, chip_y + text_size[1] + 12), (0, 0, 0), -1)
                             cv2.rectangle(processed, (chip_x, chip_y), (chip_x + text_size[0] + 16, chip_y + text_size[1] + 12), border_color, 1)

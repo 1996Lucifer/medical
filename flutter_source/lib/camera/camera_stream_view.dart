@@ -1,7 +1,9 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
+
 import '../network/api_routes.dart';
 
 class CameraStreamView extends StatefulWidget {
@@ -41,7 +43,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   @override
   void didUpdateWidget(CameraStreamView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraId != widget.cameraId || oldWidget.mode != widget.mode) {
+    if (oldWidget.cameraId != widget.cameraId ||
+        oldWidget.mode != widget.mode) {
       _disconnect();
       _connectWebRTC();
     }
@@ -55,7 +58,9 @@ class _CameraStreamViewState extends State<CameraStreamView> {
 
     try {
       _peerConnection = await createPeerConnection({
-        'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}],
+        'iceServers': [
+          {'urls': 'stun:stun.l.google.com:19302'}
+        ],
       });
 
       _peerConnection?.onTrack = (event) {
@@ -77,7 +82,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
           }
         }
       };
-      
+
       // We must add a transceiver to receive video
       await _peerConnection?.addTransceiver(
         kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
@@ -88,14 +93,16 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       await _peerConnection!.setLocalDescription(offer);
 
       final response = await http.post(
-        Uri.parse(ApiRoutes.webrtcOffer(widget.cameraId, mode: 'webrtc_${widget.mode}')),
+        Uri.parse(ApiRoutes.webrtcOffer(widget.cameraId,
+            mode: 'webrtc_${widget.mode}')),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'sdp': offer.sdp, 'type': offer.type}),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        RTCSessionDescription answer = RTCSessionDescription(data['sdp'], data['type']);
+        RTCSessionDescription answer =
+            RTCSessionDescription(data['sdp'], data['type']);
         await _peerConnection!.setRemoteDescription(answer);
       } else {
         throw Exception('Failed to connect to WebRTC backend');

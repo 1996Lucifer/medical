@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:audioplayers/audioplayers.dart';
+
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
@@ -22,6 +24,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
   StreamSubscription? _sub;
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isConnected = false;
+  DateTime? _selectedDate = DateTime.now();
 
   final TextEditingController _ruleController = TextEditingController();
 
@@ -144,6 +147,16 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
   }
 
   Widget _buildMetricsGrid() {
+    int recentThreats = _alerts.where((a) {
+      if (a['timestamp'] == null) return false;
+      try {
+        final t = DateTime.parse(a['timestamp'].toString());
+        return DateTime.now().toUtc().difference(t.toUtc()).inHours < 1;
+      } catch (e) {
+        return false;
+      }
+    }).length;
+
     return GridView.count(
       crossAxisCount: MediaQuery.of(context).size.width > 900 ? 3 : 1,
       crossAxisSpacing: 24,
@@ -152,14 +165,23 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
       physics: const NeverScrollableScrollPhysics(),
       childAspectRatio: MediaQuery.of(context).size.width > 900 ? 2.8 : 2.0,
       children: [
-        _buildMetricCard('Active Threats', '${_alerts.where((a) => a['resolved'] != true).length}', '+2 since last hour', _error, Icons.emergency_share, true),
-        _buildMetricCard('Nodes Monitored', '1,284', '100% Operational', _primaryFixedDim, Icons.sensors, false),
-        _buildMetricCard('System Integrity', '99.9%', 'Encrypted', _secondary, Icons.security, false),
+        _buildMetricCard(
+            'Active Threats',
+            '${_alerts.where((a) => a['resolved'] != true).length}',
+            '+$recentThreats since last hour',
+            _error,
+            Icons.emergency_share,
+            true),
+        _buildMetricCard('Nodes Monitored', '1,284', '100% Operational',
+            _primaryFixedDim, Icons.sensors, false),
+        _buildMetricCard('System Integrity', '99.9%', 'Encrypted', _secondary,
+            Icons.security, false),
       ],
     );
   }
 
-  Widget _buildMetricCard(String title, String value, String subtitle, Color color, IconData icon, bool isError) {
+  Widget _buildMetricCard(String title, String value, String subtitle,
+      Color color, IconData icon, bool isError) {
     return GlassCard(
       padding: const EdgeInsets.all(24.0),
       child: Row(
@@ -170,13 +192,20 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(title, style: const TextStyle(color: _onSurfaceVariant, fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(title,
+                  style: const TextStyle(
+                      color: _onSurfaceVariant,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
-              Text(value, style: TextStyle(color: color, fontSize: 36, fontWeight: FontWeight.bold)),
+              Text(value,
+                  style: TextStyle(
+                      color: color, fontSize: 36, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Row(
                 children: [
-                  Icon(isError ? Icons.trending_up : Icons.check_circle, color: color, size: 14),
+                  Icon(isError ? Icons.trending_up : Icons.check_circle,
+                      color: color, size: 14),
                   const SizedBox(width: 4),
                   Text(subtitle, style: TextStyle(color: color, fontSize: 12)),
                 ],
@@ -208,24 +237,78 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.warning_amber_rounded, color: _primaryFixedDim),
-                    SizedBox(width: 12),
-                    Text("Active Security Alerts", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primary)),
+                    const Icon(Icons.warning_amber_rounded,
+                        color: _primaryFixedDim),
+                    const SizedBox(width: 12),
+                    const Text("Active Security Alerts",
+                        style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: _primary)),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      icon: Icon(
+                          _selectedDate == null
+                              ? Icons.calendar_today
+                              : Icons.calendar_month,
+                          color: _primaryFixedDim),
+                      onPressed: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: _selectedDate ?? DateTime.now(),
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2030),
+                        );
+                        if (date != null) {
+                          setState(() {
+                            _selectedDate = date;
+                          });
+                        } else if (_selectedDate != null) {
+                          // Clear filter if they cancel and had a date, or maybe don't clear?
+                          // Better provide a way to clear. Let's add a long press or separate clear button.
+                          setState(() {
+                            _selectedDate = null;
+                          });
+                        }
+                      },
+                      tooltip: _selectedDate == null
+                          ? "Filter by Date"
+                          : "Clear Date Filter",
+                    ),
+                    if (_selectedDate != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: Text(
+                          "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}",
+                          style: const TextStyle(
+                              color: _primaryFixedDim, fontSize: 14),
+                        ),
+                      ),
                   ],
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
                     color: _surfaceContainerHigh,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
                     children: [
-                      Container(width: 8, height: 8, decoration: BoxDecoration(color: _isConnected ? _primaryFixedDim : _error, shape: BoxShape.circle)),
+                      Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                              color: _isConnected ? _primaryFixedDim : _error,
+                              shape: BoxShape.circle)),
                       const SizedBox(width: 8),
-                      Text(_isConnected ? 'Live Feed' : 'Disconnected', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _onSurface)),
+                      Text(_isConnected ? 'Live Feed' : 'Disconnected',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _onSurface)),
                     ],
                   ),
                 )
@@ -233,38 +316,63 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             ),
           ),
           Container(height: 1, color: Colors.white.withValues(alpha: 0.1)),
-          _alerts.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.all(40.0),
-              child: Center(child: Text('No active security alerts.', style: TextStyle(color: _onSurfaceVariant))),
-            )
-          : ListView.separated(
+          Builder(builder: (context) {
+            final filteredAlerts = _alerts.where((a) {
+              if (_selectedDate == null) return true;
+              if (a['timestamp'] == null) return false;
+              try {
+                final t = DateTime.parse(a['timestamp'].toString()).toLocal();
+                return t.year == _selectedDate!.year &&
+                    t.month == _selectedDate!.month &&
+                    t.day == _selectedDate!.day;
+              } catch (e) {
+                return false;
+              }
+            }).toList();
+
+            if (filteredAlerts.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(40.0),
+                child: Center(
+                    child: Text('No active security alerts.',
+                        style: TextStyle(color: _onSurfaceVariant))),
+              );
+            }
+
+            return ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _alerts.length,
+              itemCount: filteredAlerts.length,
               separatorBuilder: (_, __) => const SizedBox(height: 16),
               padding: const EdgeInsets.all(24),
               itemBuilder: (ctx, i) {
-                final alert = _alerts[i];
+                final alert = filteredAlerts[i];
                 final isCritical = alert['severity'] == 'critical';
                 final isResolved = alert['resolved'] == true;
 
-                final Color alertColor = isResolved ? _onSurfaceVariant : (isCritical ? _error : _secondaryContainer);
-                final IconData alertIcon = isCritical ? Icons.security : Icons.masks;
+                final Color alertColor = isResolved
+                    ? _onSurfaceVariant
+                    : (isCritical ? _error : _secondaryContainer);
+                final IconData alertIcon =
+                    isCritical ? Icons.security : Icons.masks;
 
                 return Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: alertColor.withValues(alpha: 0.05),
-                    border: Border.all(color: alertColor.withValues(alpha: 0.2)),
+                    border:
+                        Border.all(color: alertColor.withValues(alpha: 0.2)),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 40, height: 40,
-                        decoration: BoxDecoration(color: alertColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                            color: alertColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(8)),
                         child: Icon(alertIcon, color: alertColor),
                       ),
                       const SizedBox(width: 16),
@@ -275,12 +383,23 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('${isCritical ? 'CRITICAL' : 'ELEVATED'}: ${alert['rule_name']}', style: TextStyle(color: alertColor, fontWeight: FontWeight.w600, fontSize: 14)),
-                                Text(alert['timestamp'].toString(), style: const TextStyle(color: _onSurfaceVariant, fontSize: 12)),
+                                Text(
+                                    '${isCritical ? 'CRITICAL' : 'ELEVATED'}: ${alert['rule_name']}',
+                                    style: TextStyle(
+                                        color: alertColor,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14)),
+                                Text(alert['timestamp'].toString(),
+                                    style: const TextStyle(
+                                        color: _onSurfaceVariant,
+                                        fontSize: 12)),
                               ],
                             ),
                             const SizedBox(height: 4),
-                            Text('Camera: ${alert['camera_name']}. Details: ${alert['details']}', style: const TextStyle(color: _onSurface, fontSize: 13)),
+                            Text(
+                                'Camera: ${alert['camera_name']}. Details: ${alert['details']}',
+                                style: const TextStyle(
+                                    color: _onSurface, fontSize: 13)),
                             const SizedBox(height: 12),
                             if (!isResolved)
                               Row(
@@ -289,22 +408,34 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                                     onPressed: () => _resolveAlert(alert['id']),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: alertColor,
-                                      foregroundColor: isCritical ? const Color(0xFF690005) : const Color(0xFF00566b),
+                                      foregroundColor: isCritical
+                                          ? const Color(0xFF690005)
+                                          : const Color(0xFF00566b),
                                       minimumSize: const Size(0, 32),
-                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 16),
                                     ),
-                                    child: const Text('Resolve', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    child: const Text('Resolve',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold)),
                                   ),
                                   const SizedBox(width: 12),
                                   OutlinedButton(
                                     onPressed: () {},
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: alertColor,
-                                      side: BorderSide(color: alertColor.withValues(alpha: 0.3)),
+                                      side: BorderSide(
+                                          color: alertColor.withValues(
+                                              alpha: 0.3)),
                                       minimumSize: const Size(0, 32),
-                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 16),
                                     ),
-                                    child: const Text('View Cam', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    child: const Text('View Cam',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               )
@@ -315,7 +446,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                   ),
                 );
               },
-            )
+            );
+          })
         ],
       ),
     );
@@ -333,25 +465,34 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                 children: [
                   Icon(Icons.smart_toy, color: _primaryContainer),
                   SizedBox(width: 12),
-                  Text("AI Rules Engine", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primary)),
+                  Text("AI Rules Engine",
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: _primary)),
                 ],
               ),
               const SizedBox(height: 16),
-              const Text("Input natural language to deploy new security protocols across the entire facility.", style: TextStyle(color: _onSurfaceVariant, fontSize: 14)),
+              const Text(
+                  "Input natural language to deploy new security protocols across the entire facility.",
+                  style: TextStyle(color: _onSurfaceVariant, fontSize: 14)),
               const SizedBox(height: 24),
               Container(
                 decoration: BoxDecoration(
                   color: _surfaceContainerLowest,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.1)),
                 ),
                 child: TextField(
                   controller: _ruleController,
                   maxLines: 4,
                   style: const TextStyle(color: _onSurface, fontSize: 14),
                   decoration: InputDecoration(
-                    hintText: 'e.g., Alert me if a person enters the pharmacy without a badge after 10 PM',
-                    hintStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.5)),
+                    hintText:
+                        'e.g., Alert me if a person enters the pharmacy without a badge after 10 PM',
+                    hintStyle: TextStyle(
+                        color: _onSurfaceVariant.withValues(alpha: 0.5)),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.all(16),
                   ),
@@ -368,18 +509,24 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                     }
                   },
                   icon: const Icon(Icons.bolt, size: 20),
-                  label: const Text('Deploy Rule', style: TextStyle(fontWeight: FontWeight.bold)),
+                  label: const Text('Deploy Rule',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _primaryContainer,
                     foregroundColor: const Color(0xFF00725e),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
                     elevation: 10,
                     shadowColor: _primaryContainer.withValues(alpha: 0.5),
                   ),
                 ),
               ),
               const SizedBox(height: 32),
-              const Text("Recent Deployments", style: TextStyle(color: _onSurfaceVariant, fontSize: 14, fontWeight: FontWeight.w600)),
+              const Text("Recent Deployments",
+                  style: TextStyle(
+                      color: _onSurfaceVariant,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600)),
               const SizedBox(height: 16),
               ListView.builder(
                 shrinkWrap: true,
@@ -390,11 +537,20 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                     padding: const EdgeInsets.only(bottom: 12.0),
                     child: Row(
                       children: [
-                        Container(width: 6, height: 6, decoration: const BoxDecoration(color: _primaryFixedDim, shape: BoxShape.circle)),
+                        Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                                color: _primaryFixedDim,
+                                shape: BoxShape.circle)),
                         const SizedBox(width: 8),
-                        Expanded(child: Text(_rules[i]['rule_text'], style: const TextStyle(color: _onSurface, fontSize: 12))),
+                        Expanded(
+                            child: Text(_rules[i]['rule_text'],
+                                style: const TextStyle(
+                                    color: _onSurface, fontSize: 12))),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline, color: _error, size: 16),
+                          icon: const Icon(Icons.delete_outline,
+                              color: _error, size: 16),
                           onPressed: () => _deleteRule(_rules[i]['id']),
                           constraints: const BoxConstraints(),
                           padding: EdgeInsets.zero,
@@ -414,15 +570,13 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             children: [
               Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
+                    gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
                       _primaryContainer.withValues(alpha: 0.2),
                       Colors.transparent,
-                    ]
-                  )
-                ),
+                    ])),
               ),
               const Center(
                 child: Column(
@@ -430,7 +584,11 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                   children: [
                     Icon(Icons.language, color: _primaryContainer, size: 40),
                     SizedBox(height: 8),
-                    Text('Network Heatmap Active', style: TextStyle(color: _primaryFixedDim, fontWeight: FontWeight.w600, fontSize: 14)),
+                    Text('Network Heatmap Active',
+                        style: TextStyle(
+                            color: _primaryFixedDim,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14)),
                   ],
                 ),
               )
@@ -454,9 +612,15 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Security Command Center', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: _primary)),
+                const Text('Security Command Center',
+                    style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        color: _primary)),
                 const SizedBox(height: 8),
-                const Text('Real-time AI-driven monitoring of hospital infrastructure, access points, and personnel compliance.', style: TextStyle(fontSize: 16, color: _onSurfaceVariant)),
+                const Text(
+                    'Real-time AI-driven monitoring of hospital infrastructure, access points, and personnel compliance.',
+                    style: TextStyle(fontSize: 16, color: _onSurfaceVariant)),
                 const SizedBox(height: 32),
                 _buildMetricsGrid(),
                 const SizedBox(height: 24),

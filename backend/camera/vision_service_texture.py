@@ -25,7 +25,7 @@ class VisionServiceTexture:
         self.next_track_id = 1
         
         # Determine config for InsightFace
-        from camera.vision_constants import get_runtime_vision_config
+        from camera.constants.vision_constants import get_runtime_vision_config
         self.config = get_runtime_vision_config()
         self.config_dict = {
             "ctx_id": self.config["ctx_id"],
@@ -165,7 +165,7 @@ class VisionServiceTexture:
                             best_idx = int(np.argmax(scores))
                             best_score = float(scores[best_idx])
                             
-                            from camera.vision_constants import REJECTION_THRESHOLD
+                            from camera.constants.vision_constants import REJECTION_THRESHOLD
                             if best_score >= REJECTION_THRESHOLD:
                                 best_match = self.staff_names[best_idx]
                                 

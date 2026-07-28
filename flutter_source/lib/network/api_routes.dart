@@ -85,4 +85,8 @@ class ApiRoutes {
   static String get agentUsage => '$baseUrl/api/agent/usage';
   static String get agentSessions => '$baseUrl/api/agent/sessions';
   static String agentSession(String id) => '$baseUrl/api/agent/session/$id';
+
+  // Site Config
+  static String get siteConfig => '$baseUrl/api/site-config';
+  static String get siteConfigLogo => '$baseUrl/api/site-config/logo';
 }

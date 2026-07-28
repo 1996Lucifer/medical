@@ -1,5 +1,5 @@
 from kittentts import KittenTTS
-import camera.audio_constants as audio_const
+import camera.constants.audio_constants as audio_const
 import io, soundfile as sf
 import os
 

@@ -21,14 +21,24 @@ import 'providers/consultation_provider.dart';
 import 'providers/camera_provider.dart';
 import 'providers/analytics_provider.dart';
 import 'providers/security_provider.dart';
+import 'providers/site_config_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EnvironmentConfig.init();
+
+  final authProvider = AuthProvider();
+  final siteConfigProvider = SiteConfigProvider();
+  // Kick off session restoration from persisted JWT before first frame
+  authProvider.tryAutoLogin();
+  // Load hospital branding config
+  siteConfigProvider.fetchConfig();
+
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider.value(value: authProvider),
+        ChangeNotifierProvider.value(value: siteConfigProvider),
         ChangeNotifierProvider(create: (_) => AgentProvider()),
         ChangeNotifierProvider(create: (_) => ConsultationProvider()),
         ChangeNotifierProvider(create: (_) => CameraProvider()),
@@ -63,6 +73,55 @@ class MyApp extends StatelessWidget {
       ),
       home: Consumer<AuthProvider>(
         builder: (context, auth, _) {
+          // Show a splash screen while we check for a persisted JWT
+          if (auth.isRestoringSession) {
+            return Consumer<SiteConfigProvider>(
+              builder: (context, siteConfig, _) {
+                return Scaffold(
+                  backgroundColor: const Color(0xFF041329),
+                  body: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (siteConfig.fullLogoUrl != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              siteConfig.fullLogoUrl!,
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(Icons.shield, size: 56, color: Color(0xFF38debb)),
+                            ),
+                          )
+                        else
+                          const Icon(Icons.shield, size: 56, color: Color(0xFF38debb)),
+                        const SizedBox(height: 24),
+                        Text(
+                          siteConfig.hospitalName,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            color: Color(0xFF38debb),
+                            strokeWidth: 2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+            );
+          }
           return auth.isAuthenticated
               ? MainLayout()
               : const LoginScreen();

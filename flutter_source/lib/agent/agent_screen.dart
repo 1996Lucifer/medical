@@ -1,15 +1,14 @@
-import 'dart:convert';
 import 'dart:ui';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 
 import '../main.dart' show GlassCard, GlassBackground;
-import '../network/api_routes.dart';
 import '../providers/agent_provider.dart';
+import '../providers/site_config_provider.dart';
 
 class AgentMessage {
   final String text;
@@ -34,7 +33,8 @@ class AgentScreen extends StatefulWidget {
   State<AgentScreen> createState() => _AgentScreenState();
 }
 
-class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStateMixin {
+class _AgentScreenState extends State<AgentScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _showScrollToBottom = false;
@@ -44,7 +44,7 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
   static const Color _onSurface = Color(0xFFd6e3ff);
   static const Color _onSurfaceVariant = Color(0xFFbacac3);
   static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _primaryContainer = Color(0xFF5ffbd6);
+
   static const Color _onPrimaryContainer = Color(0xFF00725e);
   static const Color _surfaceContainerHighest = Color(0xFF27354c);
   static const Color _surfaceContainerLowest = Color(0xFF010e24);
@@ -127,65 +127,6 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
     }
   }
 
-  Future<void> _showUsageMetrics() async {
-    showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (context) {
-          return FutureBuilder(
-            future: http.get(Uri.parse(ApiRoutes.agentUsage)),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SizedBox(
-                    height: 300,
-                    child: Center(child: CircularProgressIndicator(color: _primaryFixedDim)));
-              }
-              if (snapshot.hasError || !snapshot.hasData) {
-                return const SizedBox(
-                    height: 300,
-                    child: Center(child: Text("Error loading metrics.", style: TextStyle(color: _primary))));
-              }
-
-              final data = jsonDecode(snapshot.data!.body);
-              final List usage = data['usage'] ?? [];
-
-              return GlassCard(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Agent Usage & Performance",
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: _primary)),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: usage.length,
-                        itemBuilder: (context, index) {
-                          final item = usage[index];
-                          final isCacheHit = item['strategy'] == 'CACHE';
-                          return ListTile(
-                            leading: Icon(
-                                isCacheHit ? Icons.bolt : Icons.memory,
-                                color: isCacheHit ? Colors.amber : _primaryFixedDim),
-                            title: Text(
-                                "Intent: ${item['intent']} | Strategy: ${item['strategy']}",
-                                style: const TextStyle(color: _primary, fontSize: 14)),
-                            subtitle: Text(
-                                "Latency: ${item['latency'].toStringAsFixed(2)}s | Model: ${item['model'] ?? 'N/A'}",
-                                style: const TextStyle(color: _onSurfaceVariant, fontSize: 12)),
-                          );
-                        },
-                      ),
-                    )
-                  ],
-                ),
-              );
-            },
-          );
-        });
-  }
-
   Widget _buildSessionSidebar(AgentProvider provider) {
     return Expanded(
       child: Column(
@@ -212,7 +153,9 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                   child: ListTile(
                     dense: true,
                     leading: Icon(Icons.chat_bubble_outline,
-                        size: 18, color: isSelected ? _primaryFixedDim : _onSurfaceVariant),
+                        size: 18,
+                        color:
+                            isSelected ? _primaryFixedDim : _onSurfaceVariant),
                     title: Text(
                       "Chat ${session['id']}",
                       style: TextStyle(
@@ -228,9 +171,13 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                     selectedTileColor: _primaryFixedDim.withValues(alpha: 0.1),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(color: isSelected ? _primaryFixedDim.withValues(alpha: 0.3) : Colors.transparent)),
+                        side: BorderSide(
+                            color: isSelected
+                                ? _primaryFixedDim.withValues(alpha: 0.3)
+                                : Colors.transparent)),
                     trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                      icon: const Icon(Icons.delete_outline,
+                          size: 16, color: Colors.redAccent),
                       onPressed: () => provider.deleteSession(session['id']),
                       splashRadius: 20,
                       tooltip: "Delete Chat",
@@ -263,29 +210,51 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
             children: [
               ListView.builder(
                 controller: _scrollController,
-                padding: EdgeInsets.all(isMobile ? 16 : 40),
-                itemCount: provider.messages.length + (provider.isLoading ? 1 : 0),
+                padding: EdgeInsets.fromLTRB(
+                    isMobile ? 16 : 40, 0, isMobile ? 16 : 40, 16),
+                itemCount:
+                    provider.messages.length + (provider.isLoading ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == provider.messages.length && provider.isLoading) {
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 24, left: 16),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 40, height: 40,
-                            decoration: BoxDecoration(
-                              color: _surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-                            ),
-                            child: const Icon(Icons.smart_toy, color: _primaryFixedDim, size: 20),
-                          ),
-                          const SizedBox(width: 16),
-                          const Text("Aegis is processing...",
-                              style: TextStyle(
-                                  color: _onSurfaceVariant,
-                                  fontStyle: FontStyle.italic)),
-                        ],
+                      child: Consumer<SiteConfigProvider>(
+                        builder: (context, config, _) {
+                          return Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: _surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.3)),
+                                ),
+                                child: config.fullLogoUrl != null
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Image.network(
+                                          config.fullLogoUrl!,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              const Icon(Icons.smart_toy,
+                                                  color: _primaryFixedDim,
+                                                  size: 20),
+                                        ),
+                                      )
+                                    : const Icon(Icons.smart_toy,
+                                        color: _primaryFixedDim, size: 20),
+                              ),
+                              const SizedBox(width: 16),
+                              Text("${config.agentName} is processing...",
+                                  style: const TextStyle(
+                                      color: _onSurfaceVariant,
+                                      fontStyle: FontStyle.italic)),
+                            ],
+                          );
+                        },
                       ),
                     );
                   }
@@ -299,8 +268,7 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                   child: FloatingActionButton.small(
                     onPressed: _scrollToBottom,
                     backgroundColor: _surfaceContainerHighest,
-                    child: const Icon(Icons.arrow_downward,
-                        color: _primary),
+                    child: const Icon(Icons.arrow_downward, color: _primary),
                   ),
                 ),
               if (_scrollController.hasClients &&
@@ -311,15 +279,15 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                   child: FloatingActionButton.small(
                     onPressed: _scrollToTop,
                     backgroundColor: _surfaceContainerHighest,
-                    child: const Icon(Icons.arrow_upward,
-                        color: _primary),
+                    child: const Icon(Icons.arrow_upward, color: _primary),
                   ),
                 ),
             ],
           ),
         ),
         Padding(
-          padding: EdgeInsets.fromLTRB(isMobile ? 16 : 40, 0, isMobile ? 16 : 40, isMobile ? 16 : 40),
+          padding: EdgeInsets.fromLTRB(
+              isMobile ? 16 : 40, 0, isMobile ? 16 : 40, isMobile ? 16 : 40),
           child: _buildInputArea(provider),
         ),
       ],
@@ -343,36 +311,55 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Row(
-          children: [
-            const Text(
-              'Aegis AI Command',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(width: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: _surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FadeTransition(
-                    opacity: _pulseController,
-                    child: Container(
-                      width: 8, height: 8,
-                      decoration: const BoxDecoration(color: _primaryFixedDim, shape: BoxShape.circle, boxShadow: [BoxShadow(color: _primaryFixedDim, blurRadius: 4)]),
-                    ),
+        title: Consumer<SiteConfigProvider>(
+          builder: (context, siteConfig, _) {
+            return Row(
+              children: [
+                Text(
+                  '${siteConfig.agentName} Command',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(width: 16),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(16),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.2)),
                   ),
-                  const SizedBox(width: 8),
-                  const Text('CLINICAL AGENT ACTIVE', style: TextStyle(color: _primaryFixedDim, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                ],
-              ),
-            )
-          ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FadeTransition(
+                        opacity: _pulseController,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                              color: _primaryFixedDim,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                    color: _primaryFixedDim, blurRadius: 4)
+                              ]),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('CLINICAL AGENT ACTIVE',
+                          style: TextStyle(
+                              color: _primaryFixedDim,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1)),
+                    ],
+                  ),
+                )
+              ],
+            );
+          },
         ),
         backgroundColor: Colors.black.withValues(alpha: 0.3),
         elevation: 0,
@@ -384,37 +371,43 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(color: Colors.white.withValues(alpha: 0.05), height: 1.0),
+          child: Container(
+              color: Colors.white.withValues(alpha: 0.05), height: 1.0),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            onPressed: _showUsageMetrics,
-            tooltip: "View Usage Metrics",
-          ),
-          const SizedBox(width: 16),
-        ],
       ),
       body: GlassBackground(
-        child: Padding(
-          padding: const EdgeInsets.only(top: 80.0), // Account for appbar
+        child: SizedBox.expand(
           child: isMobile
-              ? Column(
-                  children: [
-                    Expanded(child: mainChatArea),
-                  ],
+              ? Padding(
+                  padding:
+                      const EdgeInsets.only(top: 16.0), // Account for appbar
+                  child: Column(
+                    children: [
+                      Expanded(child: mainChatArea),
+                    ],
+                  ),
                 )
               : Row(
                   children: [
-                    Expanded(flex: 7, child: mainChatArea),
-                    Container(width: 1, color: Colors.white.withValues(alpha: 0.1)),
+                    Expanded(
+                      flex: 7,
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                            top: 16.0), // Account for appbar
+                        child: mainChatArea,
+                      ),
+                    ),
+                    Container(
+                        width: 1, color: Colors.white.withValues(alpha: 0.1)),
                     SizedBox(width: 320, child: rightPanel),
                   ],
                 ),
         ),
       ),
-      endDrawer: isMobile ? Drawer(backgroundColor: _surfaceContainerLowest, child: rightPanel) : null,
+      endDrawer: isMobile
+          ? Drawer(backgroundColor: _surfaceContainerLowest, child: rightPanel)
+          : null,
     );
   }
 
@@ -484,7 +477,8 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                       _controller.text = text;
                       final txt = _controller.text;
                       _controller.clear();
-                      provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
+                      provider.sendMessage(txt,
+                          onScroll: _scrollToBottomDelayed);
                     },
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
@@ -492,17 +486,18 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                       decoration: BoxDecoration(
                         color: _surfaceContainerLowest.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.05)),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.auto_awesome, size: 16, color: _primaryFixedDim),
+                          const Icon(Icons.auto_awesome,
+                              size: 16, color: _primaryFixedDim),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(text,
                                 style: const TextStyle(
-                                    fontSize: 13,
-                                    color: _onSurface),
+                                    fontSize: 13, color: _onSurface),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis),
                           ),
@@ -523,13 +518,13 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: _surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-        boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))
-        ]
-      ),
+          color: _surfaceContainerHighest.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          boxShadow: const [
+            BoxShadow(
+                color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))
+          ]),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -542,13 +537,15 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                 children: [
                   Container(
                     decoration: BoxDecoration(
-                      border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.5)),
+                      border: Border.all(
+                          color: _primaryFixedDim.withValues(alpha: 0.5)),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: ['png', 'jpg', 'jpeg'].contains(
-                                  provider.attachedFile!.extension?.toLowerCase()) &&
+                      child: ['png', 'jpg', 'jpeg'].contains(provider
+                                  .attachedFile!.extension
+                                  ?.toLowerCase()) &&
                               provider.attachedFile!.bytes != null
                           ? Image.memory(
                               provider.attachedFile!.bytes!,
@@ -590,7 +587,8 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               IconButton(
-                icon: const Icon(Icons.add_circle_outline, color: _onSurfaceVariant, size: 28),
+                icon: const Icon(Icons.add_circle_outline,
+                    color: _onSurfaceVariant, size: 28),
                 onPressed: () => _pickFile(provider),
                 tooltip: "Attach Document or Image",
               ),
@@ -601,15 +599,19 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                   minLines: 1,
                   maxLines: 4,
                   decoration: InputDecoration(
-                    hintText: "Inquire about clinical data, protocols, or patient status...",
-                    hintStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.5)),
+                    hintText:
+                        "Inquire about clinical data, protocols, or patient status...",
+                    hintStyle: TextStyle(
+                        color: _onSurfaceVariant.withValues(alpha: 0.5)),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                   ),
                   onSubmitted: (_) {
                     final txt = _controller.text;
-                    if (txt.trim().isEmpty && provider.attachedFile == null) return;
+                    if (txt.trim().isEmpty && provider.attachedFile == null) {
+                      return;
+                    }
                     _controller.clear();
                     provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
                   },
@@ -621,20 +623,25 @@ class _AgentScreenState extends State<AgentScreen> with SingleTickerProviderStat
                 child: ElevatedButton(
                   onPressed: () {
                     final txt = _controller.text;
-                    if (txt.trim().isEmpty && provider.attachedFile == null) return;
+                    if (txt.trim().isEmpty && provider.attachedFile == null) {
+                      return;
+                    }
                     _controller.clear();
                     provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _primaryFixedDim,
                     foregroundColor: _onPrimaryContainer,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('Send', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Text('Send',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                       SizedBox(width: 8),
                       Icon(Icons.send, size: 18),
                     ],
@@ -664,37 +671,64 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final siteConfig = Provider.of<SiteConfigProvider>(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 24.0),
       child: Row(
-        mainAxisAlignment: msg.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment:
+            msg.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!msg.isUser) ...[
             Container(
-              width: 40, height: 40,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: _surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
               ),
-              child: const Icon(Icons.smart_toy, color: _primaryFixedDim, size: 20),
+              child: siteConfig.fullLogoUrl != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.network(
+                        siteConfig.fullLogoUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                            Icons.smart_toy,
+                            color: _primaryFixedDim,
+                            size: 20),
+                      ),
+                    )
+                  : const Icon(Icons.smart_toy,
+                      color: _primaryFixedDim, size: 20),
             ),
             const SizedBox(width: 16),
           ],
           Flexible(
             child: Column(
-              crossAxisAlignment: msg.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: msg.isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: msg.isUser ? _primaryContainer : _surfaceContainerHighest.withValues(alpha: 0.8),
+                    color: msg.isUser
+                        ? _primaryContainer
+                        : _surfaceContainerHighest.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(24).copyWith(
-                      topLeft: msg.isUser ? const Radius.circular(24) : const Radius.circular(0),
-                      topRight: msg.isUser ? const Radius.circular(0) : const Radius.circular(24),
+                      topLeft: msg.isUser
+                          ? const Radius.circular(24)
+                          : const Radius.circular(0),
+                      topRight: msg.isUser
+                          ? const Radius.circular(0)
+                          : const Radius.circular(24),
                     ),
-                    border: msg.isUser ? null : Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                    border: msg.isUser
+                        ? null
+                        : Border.all(
+                            color: Colors.white.withValues(alpha: 0.1)),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.2),
@@ -724,18 +758,26 @@ class _MessageBubble extends StatelessWidget {
                           data: msg.text,
                           styleSheet: MarkdownStyleSheet(
                             p: TextStyle(
-                              color: msg.isUser ? _onPrimaryContainer : _onSurface,
+                              color:
+                                  msg.isUser ? _onPrimaryContainer : _onSurface,
                               fontSize: 16,
                               height: 1.5,
                             ),
-                            tableBody: TextStyle(fontSize: 14, color: msg.isUser ? _onPrimaryContainer : _onSurface),
+                            tableBody: TextStyle(
+                                fontSize: 14,
+                                color: msg.isUser
+                                    ? _onPrimaryContainer
+                                    : _onSurface),
                             tableHead: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: msg.isUser ? _onPrimaryContainer : _primary,
+                              color:
+                                  msg.isUser ? _onPrimaryContainer : _primary,
                             ),
                             tableBorder: TableBorder.all(
-                              color: msg.isUser ? _onPrimaryContainer.withValues(alpha: 0.2) : _onSurfaceVariant.withValues(alpha: 0.2),
+                              color: msg.isUser
+                                  ? _onPrimaryContainer.withValues(alpha: 0.2)
+                                  : _onSurfaceVariant.withValues(alpha: 0.2),
                               width: 1,
                             ),
                             tableCellsPadding: const EdgeInsets.all(12),
@@ -743,7 +785,11 @@ class _MessageBubble extends StatelessWidget {
                               color: Colors.black.withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            code: TextStyle(color: msg.isUser ? _onPrimaryContainer : _primaryFixedDim, backgroundColor: Colors.transparent),
+                            code: TextStyle(
+                                color: msg.isUser
+                                    ? _onPrimaryContainer
+                                    : _primaryFixedDim,
+                                backgroundColor: Colors.transparent),
                           ),
                         ),
                     ],
@@ -754,11 +800,15 @@ class _MessageBubble extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.info_outline, size: 12, color: _onSurfaceVariant),
+                      const Icon(Icons.info_outline,
+                          size: 12, color: _onSurfaceVariant),
                       const SizedBox(width: 4),
                       Text(
                         "Routed via: ${msg.intent} (${msg.engine})",
-                        style: const TextStyle(fontSize: 10, color: _onSurfaceVariant, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            fontSize: 10,
+                            color: _onSurfaceVariant,
+                            fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -769,12 +819,14 @@ class _MessageBubble extends StatelessWidget {
           if (msg.isUser) ...[
             const SizedBox(width: 16),
             Container(
-              width: 40, height: 40,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: _primaryFixedDim,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.person, color: _onPrimaryContainer, size: 20),
+              child: const Icon(Icons.person,
+                  color: _onPrimaryContainer, size: 20),
             ),
           ],
         ],

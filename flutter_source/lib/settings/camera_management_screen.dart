@@ -393,7 +393,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
             children: [
               Text('Active Node Registry', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
               SizedBox(height: 8),
-              Text('Centralized control for high-bandwidth RTSP surveillance assets. All feeds are currently routed through the Aegis Encryption Layer.', style: TextStyle(color: _textVariant, fontSize: 14)),
+              Text('Centralized control for high-bandwidth RTSP surveillance assets. All feeds are currently routed through the local encryption layer.', style: TextStyle(color: _textVariant, fontSize: 14)),
             ],
           ),
         ),

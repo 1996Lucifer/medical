@@ -136,18 +136,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               ),
             ],
           ),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.notifications_outlined, color: _onSurfaceVariant),
-                onPressed: () {},
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined, color: _onSurfaceVariant),
-                onPressed: () {},
-              ),
-            ],
-          )
+
         ],
       ),
     );

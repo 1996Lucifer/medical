@@ -9,7 +9,7 @@ import 'package:http/http.dart' as http;
 
 import '../network/network_manager.dart';
 import '../network/api_routes.dart';
-import '../main.dart' show GlassBackground, mainLayoutKey;
+import '../main.dart' show mainLayoutKey;
 import '../widgets/shared_app_drawer.dart';
 
 const Color _bgBase = Color(0xFF041329);
@@ -122,68 +122,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     return name.length >= 2 ? name.substring(0, 2).toUpperCase() : name.toUpperCase();
   }
 
-  Widget _buildTopNav(bool isDesktop) {
-    return ClipRRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          height: 72,
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          decoration: BoxDecoration(
-            color: _bgBase.withValues(alpha: 0.6),
-            border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              if (isDesktop)
-                Row(
-                  children: [
-                    Container(
-                      width: 256,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: _surfaceContainerHighest.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFF3c4a45).withValues(alpha: 0.3)),
-                      ),
-                      child: const TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Global node search...',
-                          hintStyle: TextStyle(color: _textVariant, fontSize: 14),
-                          prefixIcon: Icon(Icons.search, color: _textVariant, size: 20),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        style: TextStyle(color: Colors.white, fontSize: 14),
-                      ),
-                    ),
-                    const SizedBox(width: 24),
-                    const Icon(Icons.notifications_none, color: _textVariant),
-                    const SizedBox(width: 24),
-                    const Icon(Icons.settings_outlined, color: _textVariant),
-                    const SizedBox(width: 24),
-                    const Icon(Icons.security, color: _tealAccent),
-                    const SizedBox(width: 24),
-                    Container(
-                      width: 40, height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: _tealAccent, width: 2),
-                        image: const DecorationImage(
-                          image: NetworkImage('https://lh3.googleusercontent.com/aida-public/AB6AXuApGw8uvNeou2uMd2IGiiRGNvuWzdxR1KQHOIK5fTADCVEABVD4UbOKZ8LwK3Tm0oyUM7egXONirBrWOSPZOb2iz2pZXPYSKv3rkZ54igStb95QKeBi_yPgCH33BsgTv2aeH1MTw3lcYzZqk7o40mD6sggcuwsMVa4qKV9fcVBju6iIJ2E1jRPCNNyvgiYk8nqVah3Sbz_2Ypj9X8UxzSq11AXDSmh2FmGQlvUhY-EUIfYAw1f1s2D_D8yDog-KlVKfc-Dg3jUGkfU'),
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+
 
   Widget _buildSideNav() {
     return SharedAppDrawer(
@@ -250,10 +189,6 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
               top: 0, left: 0, bottom: 0, width: 260,
               child: _buildSideNav(),
             ),
-          Positioned(
-            top: 0, left: isDesktop ? 260 : 0, right: 0, height: 72,
-            child: _buildTopNav(isDesktop),
-          ),
         ],
       ),
     );

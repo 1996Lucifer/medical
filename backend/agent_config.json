@@ -13,7 +13,7 @@
       "zero_shot_label": "consultation transcript doctor visit"
     },
     "ATTENDANCE": {
-      "keywords": ["attendance", "clock"],
+      "keywords": ["attendance", "clock", "staff"],
       "zero_shot_label": "attendance staff present clocked in"
     },
     "EQUIPMENT": {
