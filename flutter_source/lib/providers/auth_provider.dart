@@ -42,7 +42,13 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final storedToken = await _storage.read(key: _tokenKey);
+      String? storedToken;
+      try {
+        storedToken = await _storage.read(key: _tokenKey);
+      } catch (e) {
+        debugPrint("Storage read failed (WebCrypto issue?): $e");
+      }
+      
       if (storedToken == null || storedToken.isEmpty) {
         _isRestoringSession = false;
         notifyListeners();
@@ -61,13 +67,17 @@ class AuthProvider extends ChangeNotifier {
         _isAuthenticated = true;
       } else {
         // Token expired or invalid — clear it
-        await _storage.delete(key: _tokenKey);
+        try {
+          await _storage.delete(key: _tokenKey);
+        } catch (_) {}
         NetworkManager.instance.clearToken();
       }
     } catch (e) {
       debugPrint("Auto-login failed: $e");
       // Network error — clear stored token so we don't loop
-      await _storage.delete(key: _tokenKey);
+      try {
+        await _storage.delete(key: _tokenKey);
+      } catch (_) {}
       NetworkManager.instance.clearToken();
     }
 
@@ -111,7 +121,11 @@ class AuthProvider extends ChangeNotifier {
         NetworkManager.instance.setToken(token);
 
         // Persist the token for session survival across refreshes
-        await _storage.write(key: _tokenKey, value: token);
+        try {
+          await _storage.write(key: _tokenKey, value: token);
+        } catch (e) {
+          debugPrint("Storage write failed (WebCrypto issue?): $e");
+        }
 
         _isAuthenticated = true;
 
@@ -134,14 +148,16 @@ class AuthProvider extends ChangeNotifier {
     return false;
   }
 
-  void logout() {
+  void logout() async {
     _isAuthenticated = false;
     _role = null;
     _username = null;
     _permissions = [];
     NetworkManager.instance.clearToken();
     // Remove persisted token
-    _storage.delete(key: _tokenKey);
+    try {
+      await _storage.delete(key: _tokenKey);
+    } catch (_) {}
     notifyListeners();
   }
 }
