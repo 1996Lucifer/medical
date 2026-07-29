@@ -16,9 +16,9 @@ class SecurityRulesEngine:
         self._check_theft_rule(event_type, camera_id, camera_name, confidence, details)
         self._check_restricted_access(event_type, camera_id, camera_name, confidence, details)
         self._check_unknown_face_offhours(event_type, camera_id, camera_name, confidence, details)
-        self._check_ppe_compliance(event_type, camera_id, camera_name, confidence, details)
         self._check_ppe_violation(event_type, camera_id, camera_name, confidence, details)
         self._check_unauthorized_entry(event_type, camera_id, camera_name, confidence, details)
+        self._check_rule_violation(event_type, camera_id, camera_name, confidence, details)
 
     def _check_theft_rule(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
         """
@@ -143,51 +143,7 @@ class SecurityRulesEngine:
                 except Exception as e:
                     print(f"[RulesEngine] Webhook failed: {e}")
 
-    def _check_ppe_compliance(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
-        if event_type != "Attendance":
-            return
-            
-        if not camera_id:
-            return
 
-        has_mask = details.get("has_mask")
-        # If mask check wasn't performed, ignore
-        if has_mask is None or has_mask is True:
-            return
-            
-        db: Session = SessionLocal()
-        try:
-            camera = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
-            # If camera is restricted/critical, enforce PPE
-            if camera and camera.is_restricted:
-                now = datetime.datetime.now(tz=datetime.timezone.utc)
-                staff_name = details.get("staff_name", "Unknown Person")
-                
-                import json
-                
-                alert_details = {
-                    "reason": "Missing required PPE (Mask) in restricted zone",
-                    "staff_name": staff_name,
-                    "confidence": confidence
-                }
-                
-                alert = models.SecurityAlert(
-                    rule_name="PPE Violation",
-                    severity="high",
-                    camera_id=camera_id,
-                    details=json.dumps(alert_details),
-                    timestamp=now
-                )
-                db.add(alert)
-                db.commit()
-                print(f"[Security] 🚨 PPE ALERT: {staff_name} missing mask at {camera_name}!")
-                
-                self._broadcast_alert(alert, camera_name)
-                
-        except Exception as e:
-            print(f"[RulesEngine] Error in PPE compliance rule: {e}")
-        finally:
-            db.close()
 
     def _check_ppe_violation(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
         if event_type != "PPEViolation":
@@ -261,6 +217,41 @@ class SecurityRulesEngine:
             self._broadcast_alert(alert, camera_name)
         except Exception as e:
             print(f"[RulesEngine] Error in unauthorized entry rule: {e}")
+        finally:
+            db.close()
+
+    def _check_rule_violation(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
+        if event_type != "RuleViolation":
+            return
+            
+        db: Session = SessionLocal()
+        try:
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+            staff_name = details.get("staff_name", "Unknown Person")
+            
+            import json
+            
+            alert_details = {
+                "reason": details.get("warning", "AI Rule Violation"),
+                "staff_name": staff_name,
+                "confidence": confidence,
+                "snapshot_path": details.get("snapshot_path")
+            }
+            
+            alert = models.SecurityAlert(
+                rule_name="AI Rule Violation",
+                severity="high",
+                camera_id=camera_id,
+                details=json.dumps(alert_details),
+                timestamp=now
+            )
+            db.add(alert)
+            db.commit()
+            print(f"[Security] 🚨 AI RULE ALERT: {staff_name} at {camera_name}!")
+            
+            self._broadcast_alert(alert, camera_name)
+        except Exception as e:
+            print(f"[RulesEngine] Error in AI rule violation: {e}")
         finally:
             db.close()
 

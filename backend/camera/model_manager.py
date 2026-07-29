@@ -12,6 +12,7 @@ def get_best_device() -> str:
     """
     try:
         import torch
+
         if torch.cuda.is_available():
             return "0"
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -29,6 +30,7 @@ def get_best_onnx_providers() -> list:
     providers = ["CPUExecutionProvider"]
     try:
         import onnxruntime as ort
+
         available = ort.get_available_providers()
         preferred = [
             "CUDAExecutionProvider",
@@ -49,13 +51,14 @@ class ModelManager:
     Loads models lazily only upon first request to improve startup time and save memory.
     Automatically detects and assigns GPU hardware acceleration (CUDA / Apple Silicon MPS / CoreML).
     """
+
     _instance = None
     _lock = threading.Lock()
 
     def __new__(cls):
         with cls._lock:
             if cls._instance is None:
-                cls._instance = super(ModelManager, cls).__new__(cls)
+                cls._instance = super().__new__(cls)
                 cls._instance._init_manager()
             return cls._instance
 
@@ -89,17 +92,31 @@ class ModelManager:
             with self._face_lock:
                 if self._face_app is None:
                     from insightface.app import FaceAnalysis
+
                     providers = get_best_onnx_providers()
-                    has_gpu = any(p in providers for p in ["CUDAExecutionProvider", "CoreMLExecutionProvider", "ROCMExecutionProvider"])
+                    has_gpu = any(
+                        p in providers
+                        for p in [
+                            "CUDAExecutionProvider",
+                            "CoreMLExecutionProvider",
+                            "ROCMExecutionProvider",
+                        ]
+                    )
                     ctx_id = 0 if has_gpu else -1
 
-                    print(f"[ModelManager] Lazy loading InsightFace (buffalo_l) on providers={providers}, ctx_id={ctx_id}...")
+                    print(
+                        f"[ModelManager] Lazy loading InsightFace (buffalo_l) on providers={providers}, ctx_id={ctx_id}..."
+                    )
                     self._face_app = FaceAnalysis(
                         name="buffalo_l",
                         root="~/.insightface",
                         providers=providers,
                     )
-                    det_size = config["det_size"] if config and "det_size" in config else (640, 640)
+                    det_size = (
+                        config["det_size"]
+                        if config and "det_size" in config
+                        else (640, 640)
+                    )
                     self._face_app.prepare(
                         ctx_id=ctx_id,
                         det_size=det_size,
@@ -114,12 +131,24 @@ class ModelManager:
                     try:
                         from mediapipe.tasks import python
                         from mediapipe.tasks.python import vision
-                        model_path = os.path.join(os.path.dirname(__file__), "..", "models", "holistic_landmarker.task")
+
+                        model_path = os.path.join(
+                            os.path.dirname(__file__),
+                            "..",
+                            "models",
+                            "holistic_landmarker.task",
+                        )
                         base_options = python.BaseOptions(model_asset_path=model_path)
-                        options = vision.HolisticLandmarkerOptions(base_options=base_options)
-                        self._mp_holistic = vision.HolisticLandmarker.create_from_options(options)
+                        options = vision.HolisticLandmarkerOptions(
+                            base_options=base_options
+                        )
+                        self._mp_holistic = (
+                            vision.HolisticLandmarker.create_from_options(options)
+                        )
                     except ImportError:
-                        print("[ModelManager] Failed to load MediaPipe (mediapipe not installed)")
+                        print(
+                            "[ModelManager] Failed to load MediaPipe (mediapipe not installed)"
+                        )
                         self._mp_holistic = False
         return self._mp_holistic if self._mp_holistic is not False else None
 
@@ -128,14 +157,14 @@ class ModelManager:
         Disabled. MediaPipe Python API 0.10.x removed solutions.
         vision_service_zones.py will seamlessly use geometric face cropping.
         """
-        return None
+        return
 
     def get_mp_hands(self):
         """
         Disabled. MediaPipe Python API 0.10.x removed solutions.
         vision_service_zones.py will seamlessly use geometric hand cropping.
         """
-        return None
+        return
 
     def get_yolo_detector(self, camera_id="default"):
         """
@@ -147,10 +176,13 @@ class ModelManager:
             with self._yolo_lock:
                 if camera_id not in self._yolo_detectors:
                     device = get_best_device()
-                    print(f"[ModelManager] Lazy loading YOLO11n for camera '{camera_id}' on device '{device}'...")
+                    print(
+                        f"[ModelManager] Lazy loading YOLO11n for camera '{camera_id}' on device '{device}'..."
+                    )
                     try:
-                        from ultralytics import YOLO
                         from camera.constants.vision_constants import YOLO_MODEL
+                        from ultralytics import YOLO
+
                         models_dir = os.path.abspath(
                             os.path.join(os.path.dirname(__file__), "..", "models")
                         )
@@ -159,7 +191,9 @@ class ModelManager:
                         if os.path.exists(onnx_path):
                             model = YOLO(onnx_path)
                         else:
-                            print(f"[ModelManager] {YOLO_MODEL} not found in models/. Downloading...")
+                            print(
+                                f"[ModelManager] {YOLO_MODEL} not found in models/. Downloading..."
+                            )
                             model = YOLO(YOLO_MODEL)
 
                         if device != "cpu" and hasattr(model, "to"):
@@ -174,12 +208,18 @@ class ModelManager:
                             pass
 
                         self._yolo_detectors[camera_id] = model
-                        print(f"[ModelManager] YOLO11n loaded successfully for camera '{camera_id}' on device '{device}'.")
+                        print(
+                            f"[ModelManager] YOLO11n loaded successfully for camera '{camera_id}' on device '{device}'."
+                        )
                     except ImportError:
-                        print("[ModelManager] Failed to load YOLO (ultralytics not installed)")
+                        print(
+                            "[ModelManager] Failed to load YOLO (ultralytics not installed)"
+                        )
                         self._yolo_detectors[camera_id] = False
                     except Exception as e:
-                        print(f"[ModelManager] Failed to load YOLO for camera '{camera_id}': {e}")
+                        print(
+                            f"[ModelManager] Failed to load YOLO for camera '{camera_id}': {e}"
+                        )
                         self._yolo_detectors[camera_id] = False
 
         model = self._yolo_detectors.get(camera_id)
@@ -192,10 +232,11 @@ class ModelManager:
                 if self._ppe_detector is None:
                     device = get_best_device()
                     try:
-                        from ultralytics import YOLO
                         from camera.constants.vision_constants import (
                             PPE_YOLO_MODEL,
+                            USE_OPENVINO_PPE_MODEL,
                         )
+                        from ultralytics import YOLO
 
                         models_dir = os.path.abspath(
                             os.path.join(os.path.dirname(__file__), "..", "models")
@@ -204,16 +245,23 @@ class ModelManager:
                         onnx_path = os.path.join(models_dir, PPE_YOLO_MODEL)
 
                         model = None
-                        if os.path.exists(onnx_path):
-                            print(f"[ModelManager] Loading PPE YOLO model from {onnx_path} on device '{device}'...")
-                            model = YOLO(onnx_path, task="detect")
-                        elif os.path.exists(target_ov):
-                            print(f"[ModelManager] Loading OpenVINO PPE YOLO model from {target_ov}...")
+                        if USE_OPENVINO_PPE_MODEL and os.path.exists(target_ov):
+                            print(
+                                f"[ModelManager] Loading OpenVINO PPE YOLO model from {target_ov}..."
+                            )
                             try:
                                 model = YOLO(target_ov, task="detect")
                             except Exception as ov_err:
-                                print(f"[ModelManager] OpenVINO load failed ({ov_err}), falling back to ONNX ({onnx_path})...")
-                                model = YOLO(onnx_path, task="detect")
+                                print(
+                                    f"[ModelManager] OpenVINO load failed ({ov_err}), falling back to ONNX ({onnx_path})..."
+                                )
+                                if os.path.exists(onnx_path):
+                                    model = YOLO(onnx_path, task="detect")
+                        elif os.path.exists(onnx_path):
+                            print(
+                                f"[ModelManager] Loading PPE YOLO model from {onnx_path} on device '{device}'..."
+                            )
+                            model = YOLO(onnx_path, task="detect")
 
                         if model and device != "cpu" and hasattr(model, "to"):
                             try:
@@ -228,7 +276,9 @@ class ModelManager:
                                 pass
 
                         self._ppe_detector = model if model else False
-                        print(f"[ModelManager] PPE YOLO loaded successfully on device '{device}'.")
+                        print(
+                            f"[ModelManager] PPE YOLO loaded successfully on device '{device}'."
+                        )
                     except Exception as exc:
                         print(f"[ModelManager] Failed to load PPE YOLO: {exc}")
                         self._ppe_detector = False
@@ -241,6 +291,7 @@ class ModelManager:
                     print("[ModelManager] Lazy loading KittenTTS...")
                     try:
                         from kittentts import KittenTTS
+
                         self._tts_model = KittenTTS()
                         print("[ModelManager] KittenTTS model loaded successfully.")
                     except Exception as e:
@@ -256,15 +307,20 @@ class ModelManager:
                     device = get_best_device()
                     try:
                         from ultralytics import YOLO
+
                         models_dir = os.path.abspath(
                             os.path.join(os.path.dirname(__file__), "..", "models")
                         )
                         world_onnx = os.path.join(models_dir, "yolov8s-worldv2.onnx")
                         if os.path.exists(world_onnx):
-                            print(f"[ModelManager] Loading YOLO-World v2 model from {world_onnx} on device '{device}'...")
+                            print(
+                                f"[ModelManager] Loading YOLO-World v2 model from {world_onnx} on device '{device}'..."
+                            )
                             model = YOLO(world_onnx)
                         else:
-                            print(f"[ModelManager] Loading default YOLOv8s-World v2 model on device '{device}'...")
+                            print(
+                                f"[ModelManager] Loading default YOLOv8s-World v2 model on device '{device}'..."
+                            )
                             model = YOLO("yolov8s-worldv2.onnx")
 
                         if device != "cpu" and hasattr(model, "to"):
@@ -274,8 +330,14 @@ class ModelManager:
                                 pass
 
                         self._yolo_world_detector = model
-                        print(f"[ModelManager] YOLO-World v2 model loaded successfully on device '{device}'.")
+                        print(
+                            f"[ModelManager] YOLO-World v2 model loaded successfully on device '{device}'."
+                        )
                     except Exception as exc:
                         print(f"[ModelManager] Failed to load YOLO-World v2: {exc}")
                         self._yolo_world_detector = False
-        return self._yolo_world_detector if self._yolo_world_detector is not False else None
+        return (
+            self._yolo_world_detector
+            if self._yolo_world_detector is not False
+            else None
+        )

@@ -124,7 +124,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
 
   Future<void> _playAlarm() async {
     try {
-      await _audioPlayer.play(AssetSource('alarm.wav'), volume: 1.0);
+      // Muted to prevent overlap with backend Text-to-Speech system
+      // await _audioPlayer.play(AssetSource('alarm.wav'), volume: 1.0);
     } catch (e) {
       debugPrint("Audio error: $e");
     }

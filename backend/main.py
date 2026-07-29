@@ -66,16 +66,30 @@ from routers.auth import get_current_user
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Loading staff embeddings from DB on startup...")
-    db = SessionLocal()
+    import asyncio
+    import subprocess
+    
+    print("Cleaning up any orphaned background processes...")
     try:
-        from routers.staff import update_global_embeddings
+        subprocess.run(["pkill", "-f", "spawn_main"], capture_output=True)
+    except Exception:
+        pass
 
-        update_global_embeddings(db)
-    except Exception as e:
-        print(f"Failed to load embeddings on startup: {e}")
-    finally:
-        db.close()
+    def load_embeddings_in_background():
+        print("Loading staff embeddings from DB in background...")
+        db = SessionLocal()
+        try:
+            from routers.staff import update_global_embeddings
+
+            update_global_embeddings(db)
+            print("Successfully loaded staff embeddings.")
+        except Exception as e:
+            print(f"Failed to load embeddings on startup: {e}")
+        finally:
+            db.close()
+
+    # Shift work to a background thread so the server goes up immediately
+    asyncio.create_task(asyncio.to_thread(load_embeddings_in_background))
     yield
 
 
@@ -96,7 +110,9 @@ app.include_router(auth.router)
 app.include_router(analysis.router)
 app.include_router(patients.router)
 app.include_router(patient_portal.router)
-app.include_router(site_config.router)  # GET is public; mutations check superadmin in-router
+app.include_router(
+    site_config.router
+)  # GET is public; mutations check superadmin in-router
 
 # Mount static files
 os.makedirs("uploads/staff", exist_ok=True)

@@ -233,22 +233,28 @@ class VisionServiceZones:
     def _update_human_tracks(self, current_detections: List[dict]) -> List[dict]:
         """
         Maintain persistent human track IDs across consecutive frames using centroid matching.
+        Ensures a track ID is only assigned to one detection per frame.
         """
         updated_tracks = []
+        available_tracks = set(self._active_tracks.keys())
+
         for det in current_detections:
             x1, y1, x2, y2 = det["bbox"]
             cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
 
             best_tid = -1
             min_dist = 220.0  # Max pixel distance for same track across frames
-            for tid, t_data in self._active_tracks.items():
+            for tid in available_tracks:
+                t_data = self._active_tracks[tid]
                 tcx, tcy = t_data["centroid"]
                 dist = ((cx - tcx)**2 + (cy - tcy)**2)**0.5
                 if dist < min_dist:
                     min_dist = dist
                     best_tid = tid
 
-            if best_tid == -1:
+            if best_tid != -1:
+                available_tracks.remove(best_tid)
+            else:
                 self._next_track_id += 1
                 best_tid = self._next_track_id
 
@@ -549,12 +555,9 @@ class VisionServiceZones:
             for track_id, _ in tracked_people
         }
         try:
-            # best.fp16.onnx has static ONNX input shape of 640x640
-            ppe_imgsz = 640
             results = detector(
                 frame,
                 conf=PPE_DETECTION_CONFIDENCE_THRESHOLD,
-                imgsz=ppe_imgsz,
                 device=self.device,
                 verbose=False,
             )
@@ -575,22 +578,27 @@ class VisionServiceZones:
                         )
                 return evidence_by_track
 
-            # ONNX export loses class names and generates class0-class999.
-            # Force the correct PPE mapping.
-            names = {
-                0: "person",
-                1: "mask",
-                2: "face_shield",
-                3: "gloves",
-                4: "gown",
-                5: "goggles",
-            }
+            model_names = results[0].names if hasattr(results[0], 'names') else {}
+            
+            from camera.constants.vision_constants import USE_OPENVINO_PPE_MODEL
+            if not USE_OPENVINO_PPE_MODEL and not model_names:
+                # Fallback manual mapping since the ONNX model lost its class names
+                # and maps gloves dynamically to ensure we catch them
+                model_names = {
+                    0: "mask",
+                    1: "glove",
+                    2: "bare_hand",
+                    3: "glove",
+                    4: "gown",
+                    5: "glove",
+                }
+            
             self._last_ppe_boxes = []
             for detection in boxes:
                 cls_id = int(detection.cls[0])
                 conf = float(detection.conf[0])
 
-                raw_label = str(names.get(cls_id, f"cls_{cls_id}")).lower()
+                raw_label = str(model_names.get(cls_id, f"cls_{cls_id}")).lower()
                 if raw_label in ("glove", "gloves"):
                     label = "glove"
                 elif raw_label in ("mask", "masks"):
@@ -611,7 +619,7 @@ class VisionServiceZones:
 
                 if label not in ("mask", "glove"):
                     continue
-                
+
                 for track_id, person_bbox in tracked_people:
                     px1, py1, px2, py2 = person_bbox
                     width = max(1, px2 - px1)
@@ -623,64 +631,31 @@ class VisionServiceZones:
                     ):
                         continue
                     if label == "mask":
-                        is_properly_worn = False
-                        cached_identity = self.identity_cache.get(track_id, {})
-                        face_bbox = cached_identity.get("face_bbox")
-                        last_bbox = cached_identity.get("last_bbox")
-
-                        if face_bbox and last_bbox:
-                            # Shift face_bbox by person's movement since caching
-                            lx1, ly1, lx2, ly2 = last_bbox
-                            dx, dy = px1 - lx1, py1 - ly1
-                            
-                            s_fy1 = face_bbox[1] + dy
-                            s_fy2 = face_bbox[3] + dy
-                            face_height = max(1, s_fy2 - s_fy1)
-                            
-                            # Top of mask (y1) must be above the nose area (approx 65% down the face)
-                            is_proper_top = y1 <= s_fy1 + face_height * 0.65
-                            
-                            # Center of mask must be above the bottom of the chin
-                            is_proper_center = center_y <= s_fy2
-                            
-                            is_properly_worn = is_proper_top and is_proper_center
-                        else:
-                            # Fallback geometric heuristic if face not yet detected by InsightFace
-                            # Extremely strict threshold: mask center must be in top 30% of body box
-                            is_properly_worn = center_y <= py1 + height * 0.30
-
-                        is_bare_face = False
-                        if is_properly_worn:
-                            tex_var = self._get_texture_variance(frame, [x1, y1, x2, y2])
-                            # If texture detail is high, it's bare skin (lips, nose), not a mask
-                            if tex_var > 65.0:
-                                is_properly_worn = False
-                                is_bare_face = True
-
-                        if is_properly_worn:
-                            current[track_id]["mask"] = True
-                        elif not is_bare_face:
-                            current[track_id]["improper_mask"] = True
-                            if box_dict is not None:
-                                box_dict["class"] = "mask (improper)"
-                        elif box_dict is not None:
-                            box_dict["class"] = "mask (false positive)"
+                        current[track_id]["mask"] = True
+                        if box_dict is not None:
+                            box_dict["class"] = "mask"
                     elif label == "glove":
                         side = "left_glove" if center_x >= (px1 + px2) / 2 else "right_glove"
-                        current[track_id][side] = True
+                        # If the side we determined is already True, and this is a SECOND glove, 
+                        # assign it to the other hand instead of discarding it!
+                        if current[track_id].get(side):
+                            other_side = "right_glove" if side == "left_glove" else "left_glove"
+                            current[track_id][other_side] = True
+                        else:
+                            current[track_id][side] = True
 
             for track_id, _ in tracked_people:
                 evidence = current.get(track_id, {})
                 cached = self._ppe_evidence.setdefault(track_id, {})
                 miss_streak = self._ppe_miss_streak.setdefault(track_id, {})
-                
+
                 for item in ["mask", "left_glove", "right_glove"]:
                     if evidence.get(item, False):
                         cached[f"{item}_frame"] = self._frame_count
                         miss_streak[item] = 0
                     else:
                         miss_streak[item] = miss_streak.get(item, 0) + 1
-                        
+
                 # improper_mask doesn't need a miss streak for revocation, but we cache the frame
                 if evidence.get("improper_mask", False):
                     cached["improper_mask_frame"] = self._frame_count
@@ -814,7 +789,7 @@ class VisionServiceZones:
 
         # ── Step 2: Process Each Tracked Person ───────────────────────────
         active_track_ids = set()
-        
+
         for det in tracked_human_objects:
             bbox = det["bbox"]
             track_id = det["track_id"]
@@ -867,7 +842,7 @@ class VisionServiceZones:
                     has_m = observed_ppe.get("mask", False)
                     has_l = observed_ppe.get("left_glove", False)
                     has_r = observed_ppe.get("right_glove", False)
-                    
+
                     if has_m and has_l and has_r:
                         compliance_engine.record_verification(
                             staff_name=name,
@@ -879,7 +854,7 @@ class VisionServiceZones:
                         )
                         is_verified = True
                         token = compliance_engine.get_token(name)
-                        
+
             if zone_type == ZONE_TYPE_RESTRICTED:
                 # In restricted zone: check if verified, alert if not
                 if name != "Unknown" and not is_verified:

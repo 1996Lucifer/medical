@@ -70,7 +70,7 @@ class AudioService:
         self.tts_voice = audio_const.DEFAULT_TTS_VOICE
         self.audio_cache = {}
 
-    def speak(self, camera_url: str, text: str, vendor: str = "generic"):
+    def speak(self, camera_url: str, text: str, vendor: str = "generic", repeat: int = 1):
         # Verification sessions identify a camera by ID, not a hardware URL.
         # In that case speak through the local system speaker immediately.
         if not camera_url:
@@ -78,37 +78,40 @@ class AudioService:
                 wav_bytes = self.audio_cache[text]
                 threading.Thread(
                     target=self._local_fallback,
-                    args=(text, wav_bytes),
+                    args=(text, wav_bytes, repeat),
                     daemon=True,
                 ).start()
             else:
                 audio_process_manager.generate_async(
                     text,
-                    lambda wav_bytes, txt: self._local_fallback(txt, wav_bytes),
+                    lambda wav_bytes, txt: self._local_fallback(txt, wav_bytes, repeat),
                 )
             return
 
         if text in self.audio_cache:
             wav_bytes = self.audio_cache[text]
-            threading.Thread(target=self._on_audio_generated, args=(camera_url, text, vendor, wav_bytes), daemon=True).start()
+            threading.Thread(target=self._on_audio_generated, args=(camera_url, text, vendor, wav_bytes, repeat), daemon=True).start()
         else:
-            audio_process_manager.generate_async(text, lambda wav_bytes, txt: self._on_audio_generated(camera_url, txt, vendor, wav_bytes))
+            audio_process_manager.generate_async(text, lambda wav_bytes, txt: self._on_audio_generated(camera_url, txt, vendor, wav_bytes, repeat))
 
-    def _on_audio_generated(self, camera_url: str, text: str, vendor: str, wav_bytes: bytes):
+    def _on_audio_generated(self, camera_url: str, text: str, vendor: str, wav_bytes: bytes, repeat: int = 1):
         if not wav_bytes:
             print(f"[AudioService] Failed to generate audio for: {text}")
             import sys
             import subprocess
             if sys.platform == "darwin":
                 print(f"[AudioService] Using macOS native 'say' fallback.")
-                subprocess.run(["say", text])
+                for _ in range(repeat):
+                    subprocess.run(["say", text])
+                    if repeat > 1:
+                        time.sleep(1.5)
             return
             
         if text not in self.audio_cache:
             self.audio_cache[text] = wav_bytes
 
         if camera_url in self._disabled_urls:
-            self._local_fallback(text, wav_bytes)
+            self._local_fallback(text, wav_bytes, repeat)
             return
 
         try:
@@ -117,7 +120,14 @@ class AudioService:
                 f.write(wav_bytes)
                 
             provider = self.providers.get(vendor.lower(), self.providers["generic"])
-            success = provider.push_audio(camera_url, wav_path)
+            
+            success = True
+            for _ in range(repeat):
+                if not provider.push_audio(camera_url, wav_path):
+                    success = False
+                    break
+                if repeat > 1:
+                    time.sleep(1.5)
             
             try:
                 os.remove(wav_path)
@@ -127,19 +137,22 @@ class AudioService:
             if not success:
                 print(f"[AudioService] {vendor} provider failed. Disabling direct audio for this URL and falling back.")
                 self._disabled_urls.add(camera_url)
-                self._local_fallback(text, wav_bytes)
+                self._local_fallback(text, wav_bytes, repeat)
 
         except Exception as e:
             print(f"[AudioService] Error generating offline TTS: {e}")
-            self._local_fallback(text, wav_bytes)
+            self._local_fallback(text, wav_bytes, repeat)
 
-    def _local_fallback(self, text: str, wav_bytes: bytes):
-        print(f"[AudioService] Local Speaker Fallback: {text}")
+    def _local_fallback(self, text: str, wav_bytes: bytes, repeat: int = 1):
+        print(f"[AudioService] Local Speaker Fallback: {text} (x{repeat})")
         try:
             if not wav_bytes:
                 import sys
                 if sys.platform == "darwin":
-                    subprocess.run(["say", text])
+                    for _ in range(repeat):
+                        subprocess.run(["say", text])
+                        if repeat > 1:
+                            time.sleep(1.5)
                 return
 
             wav_path = tempfile.mktemp(suffix=".wav")
@@ -147,10 +160,13 @@ class AudioService:
                 f.write(wav_bytes)
             
             import sys
-            if sys.platform == "darwin":
-                subprocess.run(["afplay", wav_path])
-            else:
-                subprocess.run(["ffplay", "-nodisp", "-autoexit", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(repeat):
+                if sys.platform == "darwin":
+                    subprocess.run(["afplay", wav_path])
+                else:
+                    subprocess.run(["ffplay", "-nodisp", "-autoexit", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if repeat > 1:
+                    time.sleep(1.0)
                 
             try:
                 os.remove(wav_path)

@@ -372,7 +372,7 @@ class CameraWorker:
 
         cv2.putText(frame, label_title, (panel_x1 + PANEL_PADDING, panel_y1 + title_size[1] + PANEL_PADDING), FONT_STYLE, FONT_SCALE_TITLE, COLOR_WHITE, FONT_THICKNESS_TITLE)
         if conf_str:
-            cv2.putText(frame, conf_str, (panel_x1 + PANEL_PADDING, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, COLOR_YELLOW, FONT_THICKNESS_SUBTITLE)
+            cv2.putText(frame, conf_str, (panel_x1 + PANEL_PADDING, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, COLOR_CYAN, FONT_THICKNESS_SUBTITLE)
         if status_str:
             conf_w = cv2.getTextSize(conf_str, FONT_STYLE, FONT_SCALE_SUBTITLE, FONT_THICKNESS_SUBTITLE)[0][0] if conf_str else 0
             cv2.putText(frame, status_str, (panel_x1 + PANEL_PADDING + conf_w, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, color, FONT_THICKNESS_SUBTITLE)
@@ -550,13 +550,13 @@ class CameraWorker:
 
                         for eq in equipment_events:
                             bbox = eq["bbox"]
-                            label = f"{eq['class']} #{eq.get('track_id', '')}"
+                            label = f"{eq['class']}"
                             cv2.rectangle(
                                 processed,
                                 (bbox[0], bbox[1]),
                                 (bbox[2], bbox[3]),
                                 (255, 165, 0),
-                                1,
+                                2,
                             )
                             cv2.putText(
                                 processed,
@@ -565,7 +565,7 @@ class CameraWorker:
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 0.6,
                                 (255, 165, 0),
-                                1,
+                                2,
                             )
 
                         for ppe in ppe_events:
@@ -577,7 +577,7 @@ class CameraWorker:
                                 (bbox[0], bbox[1]),
                                 (bbox[2], bbox[3]),
                                 color,
-                                1,
+                                2,
                             )
                             cv2.putText(
                                 processed,
@@ -585,8 +585,8 @@ class CameraWorker:
                                 (bbox[0], max(0, bbox[1] - 10)),
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 0.6,
-                                color,
-                                1,
+                                (255, 255, 255),
+                                2,
                             )
 
                         for inc in incident_events:
@@ -836,8 +836,8 @@ class CameraWorker:
                                 unknown_duration_key = f"unknown_duration_{effective_cam_name}"
                                 last_rule_check.pop(unknown_duration_key, None)
 
-                            if zone_type == ZONE_TYPE_RESTRICTED and staff_name != "Unknown":
-                                # Restricted zone: check compliance token
+                            if staff_name != "Unknown":
+                                # Check compliance token
                                 if not compliance_engine.is_verified(staff_name):
                                     missing = list(
                                         compliance_engine.get_missing_items(staff_name)
@@ -905,10 +905,9 @@ class CameraWorker:
                                         )
                                         set_zone_alert(effective_cam_name, duration_sec=5.0)
 
-                                        # Alert 3 times
+                                        # Alert 3 times with gap
                                         from camera.audio_service import audio_service
-                                        warning_3x = f"{warning} {warning} {warning}"
-                                        audio_service.speak(camera_url, warning_3x, vendor="tapo")
+                                        audio_service.speak(camera_url, warning, vendor="tapo", repeat=3)
 
                     for ev in equipment_events:
                         zone_name, _ = get_zone_for_bbox(ev["bbox"])

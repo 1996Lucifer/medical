@@ -88,7 +88,7 @@ IDENTITY_CACHE_TTL_FRAMES = 90
 # ==========================================
 UNKNOWN_PERSON_GRACE_PERIOD_SEC = 3.0
 TAMPER_ALERT_COOLDOWN_SEC = 10.0
-WARNING_ALERT_COOLDOWN_SEC = 10.0
+WARNING_ALERT_COOLDOWN_SEC = 60.0
 EMERGENCY_ALERT_COOLDOWN_SEC = 15.0
 
 # ==========================================
@@ -118,7 +118,7 @@ VLM_GLOVE_PROMPT = "Look closely at the hands. Are there blue, white, or nitrile
 
 # ==========================================
 # YOLO Object Detection (Person & Equipment)
-# Settings for the primary object detectors including image size, confidence, 
+# Settings for the primary object detectors including image size, confidence,
 # and temporal persistence filters.
 # ==========================================
 YOLO_MODEL = "yolo11n.onnx"
@@ -131,12 +131,13 @@ MIN_PERSON_ASPECT_RATIO = 0.20
 MIN_PERSON_HEIGHT_PX = 100
 PPE_YOLO_MODEL = "best.fp16.onnx"
 PPE_YOLO_OPENVINO_DIR = "openvino"
+USE_OPENVINO_PPE_MODEL = False
 PPE_DETECTION_INTERVAL_FRAMES = 1
-PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.70
-PPE_EVIDENCE_TTL_FRAMES = 1
+PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.45
+PPE_EVIDENCE_TTL_FRAMES = 60
 # Three detector passes are about 1.5s at the CPU profile; use a longer window
 # because hands can leave the frame while staff are moving naturally.
-PPE_REVOCATION_MISSED_SAMPLES = 6
+PPE_REVOCATION_MISSED_SAMPLES = 60
 
 # ==========================================
 # Zone Processing Types

@@ -1179,15 +1179,18 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                             filteredNotes.isEmpty
                                 ? Center(
                                     child: Padding(
-                                    padding: const EdgeInsets.only(top: 40.0),
-                                    child: Text(
+                                      padding: const EdgeInsets.only(top: 40.0),
+                                      child: Text(
                                         searchQuery.isEmpty
                                             ? 'No patient records found. Start a consultation!'
                                             : 'No records found for this patient.',
                                         style: const TextStyle(
-                                            color: _onSurfaceVariant,
-                                            fontSize: 16)),
-                                  ))
+                                          color: _onSurfaceVariant,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
+                                  )
                                 : GridView.builder(
                                     shrinkWrap: true,
                                     physics:

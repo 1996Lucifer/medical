@@ -132,23 +132,34 @@ class ComplianceService:
             if now - last_time > WARNING_ALERT_COOLDOWN_SEC:
                 self._last_warning_time[camera_name] = now
 
-                print(f"[ComplianceService] 🚨 VIOLATION DETECTED: {warning}")
+                print(f"[ComplianceService] 🚨 RULE VIOLATION DETECTED: {warning}")
 
-                # Publish event for the frontend to speak
+                # Save snapshot for the security vault
+                os.makedirs("uploads/incidents", exist_ok=True)
+                snapshot_filename = f"rule_{staff_name.replace(' ', '_')}_{int(time.time())}.jpg"
+                snapshot_path = f"uploads/incidents/{snapshot_filename}"
+                cv2.imwrite(snapshot_path, frame)
+
+                # Publish event with the snapshot so the dashboard picks it up
                 from events import event_engine
 
                 event_engine.publish_event(
-                    event_type=comp_const.EVENT_TYPE_SPOKEN_WARNING,
+                    event_type="RuleViolation",
                     camera_id=None,
                     camera_name=camera_name,
                     confidence=comp_const.DEFAULT_SPOKEN_CONFIDENCE,
-                    details={"warning": warning},
+                    snapshot_path=snapshot_path,
+                    details={
+                        "warning": warning,
+                        "staff_name": staff_name,
+                        "snapshot_path": snapshot_path,
+                        "rule_violation": True
+                    },
                 )
 
-                # Attempt to speak on Camera Speaker, fallback to System Server Speaker
+                # Attempt to speak on Camera Speaker 3 times (like PPE violation)
                 from camera.audio_service import audio_service
-
-                audio_service.speak(camera_name, warning)
+                audio_service.speak(camera_name, warning, repeat=3)
 
         return result
 
