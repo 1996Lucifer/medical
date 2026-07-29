@@ -48,6 +48,7 @@ def get_runtime_vision_config(available_providers=None):
     """
     try:
         import torch
+
         if torch.cuda.is_available():
             return CUDA_CONFIG
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -58,6 +59,7 @@ def get_runtime_vision_config(available_providers=None):
     if available_providers is None:
         try:
             import onnxruntime as ort
+
             available_providers = ort.get_available_providers()
         except Exception:
             available_providers = []
