@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 
@@ -48,7 +51,7 @@ class AuthProvider extends ChangeNotifier {
       } catch (e) {
         debugPrint("Storage read failed (WebCrypto issue?): $e");
       }
-      
+
       if (storedToken == null || storedToken.isEmpty) {
         _isRestoringSession = false;
         notifyListeners();
@@ -141,6 +144,8 @@ class AuthProvider extends ChangeNotifier {
       }
     } catch (e) {
       _error = 'Network error: $e';
+      log("====> " + e.toString());
+      rethrow;
     }
 
     _isLoading = false;
