@@ -24,7 +24,7 @@ from camera.constants.vision_constants import (
 from camera.vision_worker import vision_process_manager
 from database import SessionLocal
 from events import event_engine, is_zone_alerted, set_zone_alert
-
+import camera.constants.message_constants as msg_const
 
 class CameraWorker:
     def __init__(self):
@@ -219,7 +219,7 @@ class CameraWorker:
             if key in used:
                 continue
             age = now - float(track.get("last_seen", now))
-            if age > 0.55:
+            if age > 2.5:
                 del tracks[key]
                 continue
             dt = max(0.015, min(0.18, now - float(track.get("updated_at", now))))
@@ -330,17 +330,7 @@ class CameraWorker:
         cv2.rectangle(overlay, (x1, y1), (x2, y2), color, BBOX_FAINT_THICKNESS)
         cv2.addWeighted(overlay, BBOX_FAINT_OPACITY, frame, 1 - BBOX_FAINT_OPACITY, 0, frame)
 
-        # 2) Draw tracing arrow based on velocity
-        vx = ev.get("track_vx_sec", 0.0)
-        vy = ev.get("track_vy_sec", 0.0)
-        speed = (vx**2 + vy**2)**0.5
-        if speed > 20.0:  # Only draw if moving noticeably
-            cx, cy = int((x1 + x2)/2), int(y2)
-            # Arrow points in direction of travel (vx, vy are pixels/sec, let's draw a half-second vector)
-            end_x = int(cx + vx * 0.5)
-            end_y = int(cy + vy * 0.5)
-            # Cyan arrow for tracing
-            cv2.arrowedLine(frame, (cx, cy), (end_x, end_y), COLOR_CYAN, 2, tipLength=0.2)
+
 
         # 3) UI Label panel
         staff_id = ev.get('staff_id')
@@ -816,7 +806,7 @@ class CameraWorker:
                                         confidence=ev.get("score", 0.0),
                                         snapshot_path=snapshot_path,
                                         details={
-                                            "alert": "Unauthorized person detected.",
+                                            "alert": msg_const.ALERT_UNAUTHORIZED_ENTRY,
                                             "snapshot_path": snapshot_path,
                                             "staff_name": "Unknown",
                                         },
@@ -824,7 +814,8 @@ class CameraWorker:
                                     if not is_zone_alerted(effective_cam_name):
                                         set_zone_alert(effective_cam_name, duration_sec=10.0)
                                         from camera.audio_service import audio_service
-                                        warning = f"Warning, unauthorized person detected on {camera_name or 'this camera'}. Please identify yourself."
+                                        camera_display_name = camera_name or 'this camera'
+                                        warning = msg_const.WARNING_UNAUTHORIZED_CAMERA.format(camera_name=camera_display_name)
                                         warning_3x = f"{warning} {warning} {warning}"
                                         audio_service.speak(
                                             camera_url,
@@ -837,29 +828,26 @@ class CameraWorker:
                                 last_rule_check.pop(unknown_duration_key, None)
 
                             if staff_name != "Unknown":
-                                # Check compliance token
-                                if not compliance_engine.is_verified(staff_name):
-                                    missing = list(
-                                        compliance_engine.get_missing_items(staff_name)
+                                # Synchronize local compliance_engine with AI worker state
+                                is_verified_in_ai = ev.get("is_verified", False)
+                                is_verified_in_main = compliance_engine.is_verified(staff_name)
+                                
+                                if is_verified_in_ai and not is_verified_in_main:
+                                    compliance_engine.record_verification(
+                                        staff_name, True, True, True, ev.get("score", 0.0)
                                     )
-                                    # Use current-frame PPE evidence before
-                                    # speaking; a failed token can be stale.
-                                    if ev.get("has_mask"):
-                                        missing = [
-                                            item for item in missing if item != "mask"
-                                        ]
-                                    if ev.get("has_left_glove"):
-                                        missing = [
-                                            item
-                                            for item in missing
-                                            if item != "left glove"
-                                        ]
-                                    if ev.get("has_right_glove"):
-                                        missing = [
-                                            item
-                                            for item in missing
-                                            if item != "right glove"
-                                        ]
+                                elif not is_verified_in_ai and is_verified_in_main:
+                                    _revoked = []
+                                    if not ev.get("has_mask"): _revoked.append("mask")
+                                    if not ev.get("has_left_glove"): _revoked.append("left glove")
+                                    if not ev.get("has_right_glove"): _revoked.append("right glove")
+                                    compliance_engine.revoke(staff_name, reason="Sync from AI", missing_items=_revoked)
+
+                                if not is_verified_in_ai:
+                                    missing = []
+                                    if not ev.get("has_mask"): missing.append("mask")
+                                    if not ev.get("has_left_glove"): missing.append("left glove")
+                                    if not ev.get("has_right_glove"): missing.append("right glove")
                                     if not is_zone_alerted(f"{effective_cam_name}_{staff_name}"):
                                         from camera.constants.vision_constants import (
                                             WARNING_ALERT_COOLDOWN_SEC,
@@ -868,21 +856,20 @@ class CameraWorker:
                                             f"{effective_cam_name}_{staff_name}",
                                             duration_sec=WARNING_ALERT_COOLDOWN_SEC,
                                         )
+                                        camera_display_name = camera_name or 'this camera'
                                         if missing:
                                             if "mask" in missing and ev.get("has_improper_mask"):
-                                                warning = f"Warning, {staff_name}, please pull your mask up to cover your nose and mouth."
+                                                warning = msg_const.WARNING_IMPROPER_MASK.format(staff_name=staff_name)
                                             else:
                                                 missing_text = " and ".join(missing)
-                                                warning = (
-                                                    f"Warning, {staff_name}, on {camera_name or 'this camera'}, please wear "
-                                                    f"{missing_text}."
+                                                warning = msg_const.WARNING_MISSING_PPE_CAMERA.format(
+                                                    staff_name=staff_name, camera_name=camera_display_name, missing_text=missing_text
                                                 )
                                         else:
-                                            warning = (
-                                                f"Warning, {staff_name}, on {camera_name or 'this camera'}, PPE verification "
-                                                "is still in progress."
+                                            warning = msg_const.WARNING_VERIFICATION_IN_PROGRESS.format(
+                                                staff_name=staff_name, camera_name=camera_display_name
                                             )
-                                        print(f"[Worker] 🚨 RESTRICTED ZONE VIOLATION: {staff_name} missing {missing}")
+                                        print(msg_const.LOG_RESTRICTED_VIOLATION.format(staff_name=staff_name, missing=missing))
 
                                         # Save snapshot
                                         os.makedirs("uploads/incidents", exist_ok=True)

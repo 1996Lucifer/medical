@@ -41,7 +41,8 @@ class ComplianceService:
         if staff_name == "Unknown":
             is_violation = True
             reason = "Unauthorized person detected."
-            warning = "Warning, unauthorized person detected. Please identify yourself."
+            import camera.constants.message_constants as msg_const
+            warning = msg_const.WARNING_UNAUTHORIZED
         else:
             # 2. Check ComplianceEngine first (zone-based verification token)
             if compliance_engine.is_verified(staff_name):
@@ -104,9 +105,8 @@ class ComplianceService:
                         f"Safety rule violation: {' and '.join(missing_items)} "
                         f"not detected for {staff_name}."
                     )
-                    warning = (
-                        f"Warning, please ensure you are wearing "
-                        f"{' and '.join(missing_items)}."
+                    warning = msg_const.WARNING_MISSING_PPE.format(
+                        missing_text=" and ".join(missing_items)
                     )
 
         result = {

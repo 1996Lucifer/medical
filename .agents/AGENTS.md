@@ -23,6 +23,9 @@
   - Use `typing` hints for all function signatures.
   - Write asynchronous code (`async`/`await`) for I/O operations and FastAPI endpoints to prevent blocking.
   - Implement comprehensive error handling and logging. Avoid silent `try/except: pass` blocks.
+  - **Multiprocessing State**: Do not rely on in-memory singletons to share state across processes spawned via `multiprocessing` (e.g. `VisionProcessManager`). State changes in worker processes must be explicitly communicated back to the main process via IPC and synchronized locally before evaluation.
+  - **Time-Based Synchronization**: When modifying logical time thresholds (like PPE grace periods), ensure that corresponding visual tracking/coasting thresholds (e.g. bounding box TTL) are also updated to match to prevent UI flickering.
+  - **Import Placement**: Always place Python `import` statements at the top of the file in the global scope. Avoid placing imports inside localized blocks (like `if` statements or functions) unless explicitly intended, to prevent `UnboundLocalError` side-effects during refactoring.
 - **Frontend (Flutter)**:
   - Adhere to modern Dart(version: 3.12 and above) and Flutter(version: 3.4 and above) styling. Keep the UI layer cleanly separated from business logic (e.g., Provider/Riverpod).
 - **AI Implementations**:

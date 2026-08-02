@@ -131,11 +131,11 @@ YOLO_GPU_IMGSZ = 640
 # Reject implausibly thin or wide "person" boxes (common chair/door-edge false positives).
 MIN_PERSON_ASPECT_RATIO = 0.20
 MIN_PERSON_HEIGHT_PX = 100
-PPE_YOLO_MODEL = "best.fp16.onnx"
+PPE_YOLO_MODEL = "best.onnx"
 PPE_YOLO_OPENVINO_DIR = "openvino"
 USE_OPENVINO_PPE_MODEL = False
 PPE_DETECTION_INTERVAL_FRAMES = 1
-PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.45
+PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.50
 PPE_EVIDENCE_TTL_FRAMES = 60
 # Three detector passes are about 1.5s at the CPU profile; use a longer window
 # because hands can leave the frame while staff are moving naturally.
