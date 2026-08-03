@@ -285,6 +285,7 @@ class Attendance(Base):
     staff_id = Column(
         Integer, ForeignKey("staff.id", ondelete="SET NULL"), nullable=True
     )
+    staff = relationship("Staff", foreign_keys=[staff_id])
     staff_name = Column(String, index=True, nullable=False)
     confidence = Column(Float, nullable=False)  # best score at entry
     date = Column(Date, nullable=False, default=datetime.date.today)
@@ -295,6 +296,10 @@ class Attendance(Base):
     exit_time = Column(DateTime(timezone=True), nullable=True)  # manual checkout
     camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=True)
     camera_name = Column(String, nullable=True)  # e.g. "Main Entrance"
+
+    @property
+    def role(self) -> str:
+        return self.staff.role if self.staff and self.staff.role else "Medical Staff"
 
 
 class EquipmentType(Base):

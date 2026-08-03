@@ -13,6 +13,7 @@ class AttendanceResponse(BaseModel):
     id: int
     staff_id: Optional[int]
     staff_name: str
+    role: str
     confidence: float
     date: datetime.date
     entry_time: datetime.datetime

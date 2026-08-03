@@ -304,7 +304,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ],
               ),
               const SizedBox(height: 24),
-              _buildChartMockup(),
+              _buildActivityChart(),
               const SizedBox(height: 24),
               Row(
                 children: [
@@ -436,25 +436,43 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildChartMockup() {
+  Widget _buildActivityChart() {
+    List<dynamic> todayData = [];
+    if (_attendanceSummary.isNotEmpty) {
+      final sortedKeys = _attendanceSummary.keys.toList()..sort();
+      todayData = _attendanceSummary[sortedKeys.last] ?? [];
+    }
+
+    List<int> hourlyCounts = List.filled(10, 0);
+    for (var record in todayData) {
+      final entryTimeStr = record['entry_time'];
+      if (entryTimeStr != null) {
+        try {
+          final time = DateTime.parse(entryTimeStr).toLocal();
+          if (time.hour >= 8 && time.hour < 18) {
+            hourlyCounts[time.hour - 8]++;
+          }
+        } catch (_) {}
+      }
+    }
+
+    final maxCount = hourlyCounts.reduce((a, b) => a > b ? a : b);
+    
+    List<Widget> bars = [];
+    for (int count in hourlyCounts) {
+      final fill = maxCount > 0 ? (count / maxCount).toDouble() : 0.05;
+      final alpha = fill.clamp(0.2, 1.0);
+      final color = fill >= 0.8 ? _tealAccent : _blueAccent.withValues(alpha: alpha);
+      bars.add(_bar(fill == 0 ? 0.05 : fill, color));
+    }
+
     return Column(
       children: [
         SizedBox(
           height: 120,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _bar(0.45, _blueAccent.withValues(alpha: 0.4)),
-              _bar(0.65, _blueAccent.withValues(alpha: 0.6)),
-              _bar(0.85, _tealAccent),
-              _bar(0.55, _blueAccent.withValues(alpha: 0.5)),
-              _bar(0.40, _blueAccent.withValues(alpha: 0.3)),
-              _bar(0.75, _blueAccent.withValues(alpha: 0.7)),
-              _bar(0.95, _tealAccent),
-              _bar(0.35, _blueAccent.withValues(alpha: 0.2)),
-              _bar(0.60, _blueAccent.withValues(alpha: 0.5)),
-              _bar(0.50, _blueAccent.withValues(alpha: 0.4)),
-            ],
+            children: bars,
           ),
         ),
         const SizedBox(height: 16),
@@ -486,6 +504,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1)),
             Text('16:00',
+                style: TextStyle(
+                    color: _textVariant,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1)),
+            Text('18:00',
                 style: TextStyle(
                     color: _textVariant,
                     fontSize: 10,

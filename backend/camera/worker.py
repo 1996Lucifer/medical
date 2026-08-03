@@ -112,6 +112,19 @@ class CameraWorker:
         return [int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))]
 
     @staticmethod
+    def _iou(boxA, boxB):
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+        interArea = max(0, xB - xA) * max(0, yB - yA)
+        if interArea == 0:
+            return 0.0
+        boxAArea = max(0, boxA[2] - boxA[0]) * max(0, boxA[3] - boxA[1])
+        boxBArea = max(0, boxB[2] - boxB[0]) * max(0, boxB[3] - boxB[1])
+        return interArea / float(boxAArea + boxBArea - interArea + 1e-6)
+
+    @staticmethod
     def _event_key(kind, event):
         if kind == "face":
             tid = event.get("tid")
@@ -132,19 +145,18 @@ class CameraWorker:
         cx, cy = self._bbox_center(bbox)
         best_key = None
         best_track = None
-        best_rel_dist = 999.0
+        best_iou = 0.0
         for track_key, track in tracks.items():
             if track.get("kind") != kind:
                 continue
             if kind == "ppe" and track.get("class") != event.get("class"):
                 continue
-            tcx, tcy = self._bbox_center(track["bbox"])
-            rel_dist = (((cx - tcx) ** 2 + (cy - tcy) ** 2) ** 0.5) / self._bbox_size(bbox)
-            if rel_dist < best_rel_dist:
+            iou = self._iou(bbox, track["bbox"])
+            if iou > best_iou:
                 best_key = track_key
                 best_track = track
-                best_rel_dist = rel_dist
-        if best_track is not None and best_rel_dist <= (1.25 if kind == "ppe" else 1.8):
+                best_iou = iou
+        if best_track is not None and best_iou >= 0.15:
             return best_key, best_track
         return None, None
 
@@ -499,9 +511,11 @@ class CameraWorker:
 
                 try:
                     if is_ai_active:
-                        vision_process_manager.process_frame_async(
-                            self.camera_key, frame, frame_count
-                        )
+                        # CPU Optimization: Only send 1 in every 5 frames to the heavy AI pipeline
+                        if frame_count % 5 == 0:
+                            vision_process_manager.process_frame_async(
+                                self.camera_key, frame, frame_count
+                            )
 
                         res = vision_process_manager.pop_result(self.camera_key)
                         if res:

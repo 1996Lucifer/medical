@@ -376,32 +376,6 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
                 bottom: 32,
                 right: 32,
                 child: _buildCorner(top: false, left: false)),
-
-            // Mock Monospace Stats
-            Positioned(
-              top: 24,
-              right: 24,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  _buildMonoText('FPS: 60.0'),
-                  _buildMonoText('ISO: 400'),
-                  _buildMonoText('EXP: -0.5'),
-                ],
-              ),
-            ),
-            Positioned(
-              bottom: 24,
-              left: 24,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildMonoText('LAT: 40.7128 N'),
-                  _buildMonoText('LONG: 74.0060 W'),
-                  _buildMonoText('NODE: LOCAL_CAM_04'),
-                ],
-              ),
-            ),
           ],
         ),
       ),

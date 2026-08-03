@@ -80,8 +80,53 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
     Returns comprehensive data for the Super Admin Dashboard in a single API call.
     """
     # 1. System Health (Environment-agnostic)
-    cpu_percent = psutil.cpu_percent(interval=0.1)
-    ram_percent = psutil.virtual_memory().percent
+    def get_service_metrics():
+        import os
+        import time
+        procs_to_measure = []
+        
+        # 1. Backend process tree (FastAPI + AI Workers)
+        try:
+            parent = psutil.Process(os.getpid())
+            procs_to_measure = [parent] + parent.children(recursive=True)
+        except Exception:
+            pass
+
+        # 2. Frontend processes (Flutter/Dart/Medical Agent)
+        try:
+            for p in psutil.process_iter(['name', 'cmdline']):
+                try:
+                    name = (p.info.get('name') or '').lower()
+                    cmd = ' '.join(p.info.get('cmdline') or []).lower()
+                    if 'flutter' in name or 'dart' in name or 'medical_agent' in name or 'flutter' in cmd or 'dart' in cmd:
+                        if p not in procs_to_measure:
+                            procs_to_measure.append(p)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Prime CPU measurement
+        for p in procs_to_measure:
+            try: p.cpu_percent(None)
+            except Exception: pass
+                
+        time.sleep(0.1) # 100ms sample window
+        
+        total_cpu = 0.0
+        total_ram = 0.0
+        for p in procs_to_measure:
+            try:
+                total_cpu += p.cpu_percent(None)
+                total_ram += p.memory_percent()
+            except Exception:
+                pass
+                
+        core_count = psutil.cpu_count() or 1
+        # Process cpu_percent is per-core (e.g. 400% on 4 cores), normalize to 100%
+        return min(total_cpu / core_count, 100.0), min(total_ram, 100.0)
+
+    cpu_percent, ram_percent = get_service_metrics()
     
     # GPU Utilization (Compute)
     gpu_percent = 0.0
@@ -133,13 +178,7 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
                 "raw_count": count
             })
     else:
-        # Fallback if no data today
-        departments = [
-            {"name": "Emergency Unit", "percentage": 35, "raw_count": 0},
-            {"name": "Surgery Ops", "percentage": 25, "raw_count": 0},
-            {"name": "Diagnostics", "percentage": 15, "raw_count": 0},
-            {"name": "Outpatient", "percentage": 25, "raw_count": 0}
-        ]
+        departments = []
         
     # 3. Patient Flow (24h)
     # We group attendance entry times in the last 24h into 4-hour buckets
@@ -148,15 +187,18 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
     now = now.astimezone()
     
     # We'll create 7 data points (0, 4, 8, 12, 16, 20, 24)
-    patient_flow = [
-        {"hour": 0, "count": 10},
-        {"hour": 4, "count": 25},
-        {"hour": 8, "count": 28},
-        {"hour": 12, "count": 15},
-        {"hour": 16, "count": 20},
-        {"hour": 20, "count": 50},
-        {"hour": 24, "count": 45} # Now
-    ]
+    patient_flow_counts = {h: 0 for h in [0, 4, 8, 12, 16, 20, 24]}
+    
+    for att in attendances:
+        if not att.entry_time:
+            continue
+        # Convert to local time if necessary, but here we can just use the hour
+        hour = att.entry_time.hour
+        # Find the closest 4-hour bucket
+        bucket = (hour // 4) * 4
+        patient_flow_counts[bucket] += 1
+        
+    patient_flow = [{"hour": k, "count": v} for k, v in sorted(patient_flow_counts.items())]
     
     # 4. Security Vault
     # Fetch latest 5 alerts

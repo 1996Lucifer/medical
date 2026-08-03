@@ -13,6 +13,7 @@ import 'camera_stream_view.dart';
 class AttendanceRecord {
   final int id;
   final String staffName;
+  final String role;
   final double confidence;
   final DateTime entryTime;
   final DateTime? lastSeen;
@@ -23,6 +24,7 @@ class AttendanceRecord {
   AttendanceRecord({
     required this.id,
     required this.staffName,
+    required this.role,
     required this.confidence,
     required this.entryTime,
     this.lastSeen,
@@ -36,6 +38,7 @@ class AttendanceRecord {
   factory AttendanceRecord.fromJson(Map<String, dynamic> j) => AttendanceRecord(
         id: j['id'],
         staffName: j['staff_name'],
+        role: j['role'] ?? 'Medical Staff',
         confidence: (j['confidence'] as num).toDouble(),
         entryTime: DateTime.parse(j['entry_time']),
         lastSeen:
@@ -666,9 +669,6 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
         final pct = (r.confidence * 100).toStringAsFixed(1);
         final pctValue = r.confidence;
 
-        // Use a mock role
-        final mockRole = i % 2 == 0 ? 'Cardiology' : 'Nurse Ops';
-
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: const BoxDecoration(
@@ -696,7 +696,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                       children: [
                         Text(r.staffName, style: const TextStyle(color: _primary, fontSize: 14, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 2),
-                        Text(mockRole, style: const TextStyle(color: _onSurfaceVariant, fontSize: 12)),
+                        Text(r.role, style: const TextStyle(color: _onSurfaceVariant, fontSize: 12)),
                         const SizedBox(height: 2),
                         Text('• $entryStr', style: const TextStyle(color: _onSurfaceVariant, fontSize: 11)),
                       ],
