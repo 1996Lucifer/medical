@@ -7,7 +7,12 @@ class ApiRoutes {
   // Auth
   static String get login => '$baseUrl/api/auth/login';
   static String get authMe => '$baseUrl/api/auth/me';
-  static String get setupAdmin => '$baseUrl/api/auth/setup-admin';
+  static String get changePassword => '$baseUrl/api/auth/change-password';
+
+  // First-run deployment setup (replaces the old auto-created admin/admin
+  // setup-admin endpoint — see routers/setup.py).
+  static String get setupStatus => '$baseUrl/api/setup/status';
+  static String get setupInitialize => '$baseUrl/api/setup/initialize';
 
   // Camera
   static String get equipmentLogs => '$baseUrl/api/equipment/logs';
@@ -54,8 +59,8 @@ class ApiRoutes {
 
   static String get staff => '$baseUrl/api/staff';
   static String get staffActivity => '$baseUrl/api/staff/activity';
-  static String staffSearch(String name) =>
-      '$baseUrl/api/staff?name=${Uri.encodeComponent(name)}';
+  static String registerStaff(String name, String role, String category) =>
+      '$baseUrl/api/staff?name=${Uri.encodeComponent(name)}&role=${Uri.encodeComponent(role)}&category=${Uri.encodeComponent(category)}';
   static String staffMember(int id) => '$baseUrl/api/staff/$id';
   static String staffPhotos(int id) => '$baseUrl/api/staff/$id/photos';
   static String staffPhotoDelete(int staffId, int photoId) =>
@@ -79,6 +84,9 @@ class ApiRoutes {
   static String get rbacUnassign => '$baseUrl/api/rbac/unassign';
   static String get rbacGroups => '$baseUrl/api/rbac/groups';
   static String get rbacPermissions => '$baseUrl/api/rbac/permissions';
+  static String deleteRbacGroup(int id) => '$baseUrl/api/rbac/groups/$id';
+  static String deleteRbacPermission(int id) =>
+      '$baseUrl/api/rbac/permissions/$id';
   // Agent
   static String get agentChat => '$baseUrl/api/agent/chat';
   static String get agentHistory => '$baseUrl/api/agent/history';

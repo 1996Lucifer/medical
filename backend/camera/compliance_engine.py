@@ -34,6 +34,13 @@ class VerificationToken:
     expires_at: Optional[datetime.datetime] = None
     # Track the verification workflow state
     state: str = "pending"  # pending | verifying | verified | expired | failed
+    # Which PPE items are actually required for this person, per the
+    # configured Security Rules (see security_rules_service.py) — NOT always
+    # all three. Defaults to the original all-three behavior for any caller
+    # that doesn't know about per-role/zone requirements.
+    required_items: List[str] = field(
+        default_factory=lambda: ["mask", "left glove", "right glove"]
+    )
 
     @property
     def is_verified(self) -> bool:
@@ -54,19 +61,19 @@ class VerificationToken:
 
     @property
     def missing_items(self) -> List[str]:
-        """Return list of PPE items that haven't been verified yet."""
+        """Return list of required PPE items that haven't been verified yet."""
         missing = []
-        if not self.has_mask:
+        if "mask" in self.required_items and not self.has_mask:
             missing.append("mask")
-        if not self.has_left_glove:
+        if "left glove" in self.required_items and not self.has_left_glove:
             missing.append("left glove")
-        if not self.has_right_glove:
+        if "right glove" in self.required_items and not self.has_right_glove:
             missing.append("right glove")
         return missing
 
     @property
     def all_ppe_confirmed(self) -> bool:
-        return self.has_mask and self.has_left_glove and self.has_right_glove
+        return len(self.missing_items) == 0
 
 
 class ComplianceEngine:
@@ -182,10 +189,15 @@ class ComplianceEngine:
         has_right_glove: bool,
         confidence: float = 0.0,
         camera_id: Optional[int] = None,
+        required_items: Optional[List[str]] = None,
     ) -> VerificationToken:
         """
         Record a complete verification result at once.
         Used when VLM returns all results simultaneously.
+
+        `required_items`, when given, overrides which of mask/left glove/
+        right glove this person actually needs (per the configured Security
+        Rules for their role and zone) — otherwise defaults to all three.
         """
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         with self._lock:
@@ -194,6 +206,8 @@ class ComplianceEngine:
                 token = VerificationToken(staff_name=staff_name)
                 self._tokens[staff_name] = token
 
+            if required_items is not None:
+                token.required_items = list(required_items)
             token.has_mask = has_mask
             token.has_left_glove = has_left_glove
             token.has_right_glove = has_right_glove

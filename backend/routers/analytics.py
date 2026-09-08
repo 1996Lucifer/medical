@@ -207,13 +207,17 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
     for alert in alerts_query:
         import json
         snapshot_path = None
+        staff_name = None
         if alert.details:
             try:
                 details_json = json.loads(alert.details)
                 snapshot_path = details_json.get("snapshot_path")
+                staff_name = details_json.get("staff_name")
+                if staff_name and staff_name.lower() == "unknown":
+                    staff_name = None
             except Exception:
                 pass
-                
+
         security_vault.append({
             "id": alert.id,
             "timestamp": alert.timestamp.strftime("%H:%M:%S UTC") if alert.timestamp else "",
@@ -221,7 +225,10 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
             "engine": "Auth-Shield AI",
             "risk": alert.severity.upper() if alert.severity else "ROUTINE",
             "resolved": alert.resolved,
-            "snapshot_path": snapshot_path
+            "snapshot_path": snapshot_path,
+            "camera_name": alert.camera.name if alert.camera else None,
+            "zone": alert.camera.location if alert.camera else None,
+            "staff_name": staff_name,
         })
         
     if not security_vault:

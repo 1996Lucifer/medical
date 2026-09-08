@@ -18,6 +18,9 @@ CUDA_CONFIG = {
     "jpeg_quality": 85,
     "target_fps": 25,
     "label": "CUDA GPU",
+    # Send every 2nd captured frame to inference; PPE runs on every dispatched frame.
+    "ai_sample_interval": 2,
+    "ppe_interval": 1,
 }
 
 COREML_CONFIG = {
@@ -28,6 +31,8 @@ COREML_CONFIG = {
     "jpeg_quality": 90,
     "target_fps": 20,
     "label": "Apple CoreML",
+    "ai_sample_interval": 3,
+    "ppe_interval": 1,
 }
 
 CPU_CONFIG = {
@@ -38,6 +43,11 @@ CPU_CONFIG = {
     "jpeg_quality": 75,
     "target_fps": 15,
     "label": "CPU (OpenVINO)",
+    # CPU is the most starved profile: sample less often and run PPE on
+    # every other dispatched frame (the 60-frame evidence/revocation TTLs
+    # comfortably tolerate this).
+    "ai_sample_interval": 5,
+    "ppe_interval": 2,
 }
 
 
@@ -132,11 +142,25 @@ YOLO_GPU_IMGSZ = 640
 MIN_PERSON_ASPECT_RATIO = 0.20
 MIN_PERSON_HEIGHT_PX = 100
 PPE_YOLO_MODEL = "best.onnx"
+PPE_YOLO_FP16_MODEL = "best.fp16.onnx"
 PPE_YOLO_OPENVINO_DIR = "openvino"
-USE_OPENVINO_PPE_MODEL = False
+# Auto-enable the OpenVINO PPE export on CPU-backed deployments (where it
+# exists) instead of always falling back to the slower plain ONNX model.
+USE_OPENVINO_PPE_MODEL = get_runtime_vision_config()["backend"] == "cpu"
 PPE_DETECTION_INTERVAL_FRAMES = 1
-PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.50
+# 0.50 let single-frame coin-flip detections (e.g. "mask 51%" on a bare face)
+# through, immediately granting up to PPE_EVIDENCE_TTL_FRAMES of false
+# "present" evidence off ONE noisy frame. Raised to filter those out at the
+# source; PPE_CONFIRMATION_STREAK below adds a second, independent guard.
+PPE_DETECTION_CONFIDENCE_THRESHOLD = 0.65
 PPE_EVIDENCE_TTL_FRAMES = 60
+# Revocation (below) already requires 60 consecutive MISSES before dropping a
+# confirmed item — a deliberate false-negative safety margin. But
+# acquisition had no equivalent guard: a single positive frame was enough to
+# mark an item present for the full TTL window. This requires a short streak
+# of consecutive positive detections before counting an item as present,
+# closing that asymmetry.
+PPE_CONFIRMATION_STREAK = 3
 # Three detector passes are about 1.5s at the CPU profile; use a longer window
 # because hands can leave the frame while staff are moving naturally.
 PPE_REVOCATION_MISSED_SAMPLES = 60

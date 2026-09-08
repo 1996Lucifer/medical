@@ -33,7 +33,7 @@ class AgentProvider extends ChangeNotifier {
 
   Future<void> fetchSessions() async {
     try {
-      final response = await http.get(Uri.parse(ApiRoutes.agentSessions));
+      final response = await NetworkManager.instance.get(ApiRoutes.agentSessions);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         _sessions = List<Map<String, dynamic>>.from(data['sessions'] ?? []);
@@ -51,7 +51,7 @@ class AgentProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await http.get(Uri.parse(ApiRoutes.agentSession(sessionId)));
+      final response = await NetworkManager.instance.get(ApiRoutes.agentSession(sessionId));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final history = data['messages'] ?? [];
@@ -73,7 +73,7 @@ class AgentProvider extends ChangeNotifier {
 
   Future<void> deleteSession(String sessionId) async {
     try {
-      final response = await http.delete(Uri.parse(ApiRoutes.agentSession(sessionId)));
+      final response = await NetworkManager.instance.delete(ApiRoutes.agentSession(sessionId));
       if (response.statusCode == 200) {
         if (_currentSessionId == sessionId) {
           startNewChat();
@@ -100,7 +100,7 @@ class AgentProvider extends ChangeNotifier {
 
   Future<void> fetchHistory() async {
     try {
-      final response = await http.get(Uri.parse("${ApiRoutes.agentHistory}?session_id=$_currentSessionId"));
+      final response = await NetworkManager.instance.get("${ApiRoutes.agentHistory}?session_id=$_currentSessionId");
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         _dynamicChips = List<String>.from(data['queries'] ?? []);

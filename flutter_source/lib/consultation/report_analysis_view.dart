@@ -7,14 +7,10 @@ class ReportAnalysisView extends StatelessWidget {
 
   const ReportAnalysisView({super.key, required this.reportData});
 
-  // Aetheris Colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _surfaceContainerHighest = Color(0xFF27354c);
-
   @override
   Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final secondary = Theme.of(context).colorScheme.secondary;
     final keyFindings = reportData['key_findings'] ?? 'No findings available.';
     final abnormalities =
         reportData['abnormalities'] ?? 'No abnormalities detected.';
@@ -33,8 +29,8 @@ class ReportAnalysisView extends StatelessWidget {
             children: [
               Text(
                 'Patient: $patientName',
-                style: const TextStyle(
-                    fontSize: 24, fontWeight: FontWeight.bold, color: _primary),
+                style: TextStyle(
+                    fontSize: 24, fontWeight: FontWeight.bold, color: onSurface),
               ),
               Text(
                 date.substring(0, 10), // just the date part
@@ -43,7 +39,7 @@ class ReportAnalysisView extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 24),
-          Divider(height: 32, color: Colors.white.withValues(alpha: 0.1)),
+          Divider(height: 32, color: onSurface.withValues(alpha: 0.1)),
           const Row(
             children: [
               Icon(Icons.search, color: Colors.blueAccent),
@@ -69,8 +65,7 @@ class ReportAnalysisView extends StatelessWidget {
             ),
             child: Text(
               keyFindings,
-              style:
-                  const TextStyle(fontSize: 16, height: 1.6, color: _primary),
+              style: TextStyle(fontSize: 16, height: 1.6, color: onSurface),
             ),
           ),
           const SizedBox(height: 32),
@@ -99,21 +94,20 @@ class ReportAnalysisView extends StatelessWidget {
             ),
             child: Text(
               abnormalities,
-              style:
-                  const TextStyle(fontSize: 16, height: 1.6, color: _primary),
+              style: TextStyle(fontSize: 16, height: 1.6, color: onSurface),
             ),
           ),
           const SizedBox(height: 32),
-          const Row(
+          Row(
             children: [
-              Icon(Icons.medical_services, color: _primaryFixedDim),
-              SizedBox(width: 8),
+              Icon(Icons.medical_services, color: secondary),
+              const SizedBox(width: 8),
               Text(
                 'Clinical Recommendations',
                 style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: _primaryFixedDim),
+                    color: secondary),
               ),
             ],
           ),
@@ -122,15 +116,13 @@ class ReportAnalysisView extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: _primaryFixedDim.withValues(alpha: 0.05),
+              color: secondary.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border:
-                  Border.all(color: _primaryFixedDim.withValues(alpha: 0.3)),
+              border: Border.all(color: secondary.withValues(alpha: 0.3)),
             ),
             child: Text(
               recommendations,
-              style:
-                  const TextStyle(fontSize: 16, height: 1.6, color: _primary),
+              style: TextStyle(fontSize: 16, height: 1.6, color: onSurface),
             ),
           ),
         ],

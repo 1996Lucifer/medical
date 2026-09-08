@@ -1,5 +1,3 @@
-import '../utils/network.dart';
-
 abstract class Environment {
   String get name;
   String get baseUrl;
@@ -59,12 +57,12 @@ class EnvironmentConfig {
       case 'dev':
       case 'development':
       default:
-        String ipAddress = '192.168.1.10';
+        String ipAddress = '192.168.1.45';
         try {
-          final ip = await NetworkUtils().getLocalIpAddress();
-          if (ip != null && ip.isNotEmpty) {
-            ipAddress = ip;
-          }
+          // final ip = await NetworkUtils().getLocalIpAddress();
+          // if (ip != null && ip.isNotEmpty) {
+          //   ipAddress = ip;
+          // }
         } catch (_) {}
 
         setEnvironment(DevEnvironment(ipAddress: ipAddress));

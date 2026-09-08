@@ -24,7 +24,7 @@ import 'report_analysis_view.dart';
 import 'soap_note_view.dart';
 
 class ConsultationScreen extends StatefulWidget {
-  const ConsultationScreen({super.key});
+  ConsultationScreen({super.key});
 
   @override
   State<ConsultationScreen> createState() => _ConsultationScreenState();
@@ -63,11 +63,13 @@ class _ConsultationScreenState extends State<ConsultationScreen>
   List<String> _availablePatients = [];
 
   // Aetheris Colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _surfaceContainerHighest = Color(0xFF27354c);
-  static const Color _surfaceContainerLowest = Color(0xFF010e24);
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurfaceVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
+  Color get _surfaceContainerHighest =>
+      Theme.of(context).colorScheme.surfaceContainerHighest;
+  Color get _surfaceContainerLowest =>
+      Theme.of(context).colorScheme.surfaceContainerLowest;
 
   late AnimationController _pulseController;
 
@@ -103,8 +105,8 @@ class _ConsultationScreenState extends State<ConsultationScreen>
 
   Future<void> _fetchPatients() async {
     try {
-      final response =
-          await http.get(Uri.parse('${ApiRoutes.baseUrl}/api/patients'));
+      final response = await NetworkManager.instance
+          .get('${ApiRoutes.baseUrl}/api/patients');
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         setState(() {
@@ -148,7 +150,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
   Future<void> _startRecording() async {
     if (_patientNameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter patient name first')),
+        const SnackBar(content: const Text('Please enter patient name first')),
       );
       return;
     }
@@ -207,7 +209,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
   Future<void> _uploadAudioFile() async {
     if (_patientNameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter patient name first')),
+        const SnackBar(content: const Text('Please enter patient name first')),
       );
       return;
     }
@@ -353,21 +355,21 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _surfaceContainerHighest,
-        title: const Text('Delete Consultation',
-            style: TextStyle(color: Colors.white)),
-        content: const Text(
+        title: Text('Delete Consultation',
+            style: TextStyle(color: _primary)),
+        content: Text(
             'Are you sure you want to delete this consultation? This action cannot be undone.',
-            style: TextStyle(color: Colors.white70)),
+            style: TextStyle(color: _onSurfaceVariant)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: _onSurfaceVariant)),
+            child: Text('Cancel', style: TextStyle(color: _onSurfaceVariant)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            child: Text('Delete',
+                style: TextStyle(color: _primary)),
           ),
         ],
       ),
@@ -382,7 +384,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       if (response.statusCode == 200) {
         await SecureStorageService.instance.deleteNoteById(consultationId);
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Consultation deleted')));
+            const SnackBar(content: const Text('Consultation deleted')));
         _loadSavedNotes();
         if (_currentNote != null && _currentNote!['id'] == consultationId) {
           setState(() => _currentNote = null);
@@ -402,7 +404,8 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       context: context,
       backgroundColor: _surfaceContainerHighest,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius:
+            const BorderRadius.vertical(top: const Radius.circular(20)),
       ),
       builder: (context) {
         return SafeArea(
@@ -410,18 +413,18 @@ class _ConsultationScreenState extends State<ConsultationScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.camera_alt, color: Colors.white),
-                title: const Text('Take Photo',
-                    style: TextStyle(color: Colors.white)),
+                leading: Icon(Icons.camera_alt, color: _primary),
+                title: Text('Take Photo',
+                    style: TextStyle(color: _primary)),
                 onTap: () {
                   Navigator.pop(context);
                   _processPickedFile(ImageSource.camera);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.folder, color: Colors.white),
-                title: const Text('Choose File (Image/PDF)',
-                    style: TextStyle(color: Colors.white)),
+                leading: Icon(Icons.folder, color: _primary),
+                title: Text('Choose File (Image/PDF)',
+                    style: TextStyle(color: _primary)),
                 onTap: () {
                   Navigator.pop(context);
                   _processPickedFile(null);
@@ -493,23 +496,23 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                   TextEditingController();
               return AlertDialog(
                 backgroundColor: _surfaceContainerHighest,
-                title: const Text('Patient Name Required',
-                    style: TextStyle(color: Colors.white)),
+                title: Text('Patient Name Required',
+                    style: TextStyle(color: _primary)),
                 content: TextField(
                   controller: nameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: _primary),
+                  decoration: InputDecoration(
                       hintText: "Enter Patient Name",
-                      hintStyle: TextStyle(color: Colors.white54),
+                      hintStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.6)),
                       helperText:
                           "The AI could not confidently extract the name from the image.",
-                      helperStyle: TextStyle(color: Colors.white38)),
+                      helperStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.4))),
                   autofocus: true,
                 ),
                 actions: <Widget>[
                   TextButton(
-                    child: const Text('Cancel',
-                        style: TextStyle(color: Colors.white70)),
+                    child: Text('Cancel',
+                        style: TextStyle(color: _onSurfaceVariant)),
                     onPressed: () {
                       Navigator.of(context).pop(null);
                     },
@@ -518,7 +521,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                     style: ElevatedButton.styleFrom(
                         backgroundColor: _primaryFixedDim),
                     child: const Text('Save',
-                        style: TextStyle(color: Colors.black)),
+                        style: const TextStyle(color: Colors.black)),
                     onPressed: () {
                       if (nameController.text.trim().isNotEmpty) {
                         Navigator.of(context).pop(nameController.text.trim());
@@ -609,7 +612,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                 Expanded(
                   child: Text(
                     note['patient_name'] ?? 'Unknown Patient',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 18,
                         color: _primary),
@@ -634,7 +637,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(note['date']?.substring(0, 10) ?? '',
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: _onSurfaceVariant, fontWeight: FontWeight.w600)),
                 Container(
                   padding:
@@ -666,14 +669,15 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       key: _scaffoldKey,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Medical Consultation',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          style:
+              TextStyle(fontWeight: FontWeight.bold, color: _primary),
         ),
-        backgroundColor: Colors.black.withValues(alpha: 0.3),
+        backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.3),
         elevation: 0,
-        actions: const [
-          SizedBox.shrink(),
+        actions: [
+          const SizedBox.shrink(),
         ],
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -684,7 +688,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
           child: Container(
-              color: Colors.white.withValues(alpha: 0.05), height: 1.0),
+              color: _primary.withValues(alpha: 0.05), height: 1.0),
         ),
       ),
       endDrawer: Drawer(
@@ -694,7 +698,8 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.95),
         elevation: 24,
         shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.horizontal(left: Radius.circular(32))),
+            borderRadius:
+                const BorderRadius.horizontal(left: const Radius.circular(32))),
         child: SafeArea(
           child: Column(
             children: [
@@ -703,18 +708,18 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Patient Record',
+                    Text('Patient Record',
                         style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w900,
                             color: _primary)),
                     Container(
                       decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.1),
+                          color: _primary.withValues(alpha: 0.1),
                           shape: BoxShape.circle),
                       child: IconButton(
-                        icon: const Icon(Icons.close_rounded,
-                            color: Colors.white),
+                        icon: Icon(Icons.close_rounded,
+                            color: _primary),
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                     )
@@ -724,7 +729,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
               Divider(
                   height: 1,
                   thickness: 1,
-                  color: Colors.white.withValues(alpha: 0.1)),
+                  color: _primary.withValues(alpha: 0.1)),
               if (_currentNote != null)
                 Expanded(
                     child: SingleChildScrollView(
@@ -768,7 +773,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text(
+                              Text(
                                 'Record Consultation\n& Analyze Reports',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
@@ -820,7 +825,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                                         horizontal: 24,
                                                         vertical: 16),
                                                 child: Text(option,
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                         fontSize: 16,
                                                         fontWeight:
                                                             FontWeight.w600,
@@ -851,26 +856,26 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           alpha: 0.5),
                                       borderRadius: BorderRadius.circular(16),
                                       border: Border.all(
-                                          color: Colors.white
+                                          color: _primary
                                               .withValues(alpha: 0.1)),
                                     ),
                                     child: TextField(
                                       controller: controller,
                                       focusNode: focusNode,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w500,
                                           color: _primary),
                                       decoration: InputDecoration(
                                           labelText:
                                               'Patient Name (Search or Create New)',
-                                          labelStyle: const TextStyle(
+                                          labelStyle: TextStyle(
                                               color: _onSurfaceVariant),
                                           border: OutlineInputBorder(
                                               borderRadius:
                                                   BorderRadius.circular(16),
                                               borderSide: BorderSide.none),
-                                          prefixIcon: const Icon(
+                                          prefixIcon: Icon(
                                               Icons.person_search_rounded,
                                               color: _primaryFixedDim),
                                           contentPadding:
@@ -886,7 +891,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                               if (_isProcessing)
                                 Column(
                                   children: [
-                                    const CircularProgressIndicator(
+                                    CircularProgressIndicator(
                                         color: _primaryFixedDim,
                                         strokeWidth: 3),
                                     const SizedBox(height: 20),
@@ -894,7 +899,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                       opacity: _pulseController,
                                       child: Text(
                                           'Processing with ${siteConfig.agentName}...',
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                               color: _primaryFixedDim,
                                               fontSize: 16,
                                               fontWeight: FontWeight.w600)),
@@ -904,13 +909,13 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                               else if (_isTranscribing)
                                 Column(
                                   children: [
-                                    const CircularProgressIndicator(
+                                    CircularProgressIndicator(
                                         color: _primaryFixedDim,
                                         strokeWidth: 3),
                                     const SizedBox(height: 20),
                                     FadeTransition(
                                       opacity: _pulseController,
-                                      child: const Text('Transcribing Audio...',
+                                      child: Text('Transcribing Audio...',
                                           style: TextStyle(
                                               color: _primaryFixedDim,
                                               fontSize: 16,
@@ -923,7 +928,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   children: [
-                                    const Text('Edit Transcript',
+                                    Text('Edit Transcript',
                                         style: TextStyle(
                                             color: _primary,
                                             fontWeight: FontWeight.bold,
@@ -935,17 +940,18 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                             .withValues(alpha: 0.5),
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
-                                            color: Colors.white
+                                            color: _primary
                                                 .withValues(alpha: 0.1)),
                                       ),
                                       child: TextField(
                                         controller: _transcriptController,
                                         maxLines: 8,
-                                        style: const TextStyle(
-                                            color: Colors.white, fontSize: 14),
+                                        style: TextStyle(
+                                            color: _primary, fontSize: 14),
                                         decoration: const InputDecoration(
                                             border: InputBorder.none,
-                                            contentPadding: EdgeInsets.all(16)),
+                                            contentPadding:
+                                                const EdgeInsets.all(16)),
                                       ),
                                     ),
                                     const SizedBox(height: 20),
@@ -958,7 +964,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           icon: const Icon(Icons.delete_outline,
                                               color: Colors.redAccent),
                                           label: const Text('Discard',
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                   color: Colors.redAccent)),
                                         ),
                                         ElevatedButton.icon(
@@ -972,7 +978,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                                       vertical: 12)),
                                           icon: const Icon(Icons.auto_awesome),
                                           label: const Text('Generate Summary',
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                   fontWeight: FontWeight.bold)),
                                         ),
                                       ],
@@ -1005,8 +1011,8 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           const SizedBox(width: 16),
                                           Text(
                                               'Audio Recorded (${_formatDuration(_recordDuration)})',
-                                              style: const TextStyle(
-                                                  color: Colors.white,
+                                              style: TextStyle(
+                                                  color: _primary,
                                                   fontWeight: FontWeight.bold)),
                                         ],
                                       ),
@@ -1021,14 +1027,14 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           icon: const Icon(Icons.delete_outline,
                                               color: Colors.redAccent),
                                           label: const Text('Discard',
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                   color: Colors.redAccent)),
                                         ),
                                         TextButton.icon(
                                           onPressed: _discardAudio,
-                                          icon: const Icon(Icons.replay,
+                                          icon: Icon(Icons.replay,
                                               color: _onSurfaceVariant),
-                                          label: const Text('Retake',
+                                          label: Text('Retake',
                                               style: TextStyle(
                                                   color: _onSurfaceVariant)),
                                         ),
@@ -1043,7 +1049,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                                       vertical: 12)),
                                           icon: const Icon(Icons.text_fields),
                                           label: const Text('Transcribe',
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                   fontWeight: FontWeight.bold)),
                                         ),
                                       ],
@@ -1112,9 +1118,9 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                       const SizedBox(height: 8),
                                       TextButton.icon(
                                         onPressed: _uploadAudioFile,
-                                        icon: const Icon(Icons.upload_file,
+                                        icon: Icon(Icons.upload_file,
                                             color: _primaryFixedDim, size: 20),
-                                        label: const Text('Upload Audio File',
+                                        label: Text('Upload Audio File',
                                             style: TextStyle(
                                                 color: _primaryFixedDim)),
                                       ),
@@ -1129,7 +1135,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           size: 20),
                                       label: const Text(
                                           'Analyze Report (Image/PDF)',
-                                          style: TextStyle(
+                                          style: const TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w700)),
                                       style: ElevatedButton.styleFrom(
@@ -1142,7 +1148,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                             borderRadius:
                                                 BorderRadius.circular(16)),
                                         side: BorderSide(
-                                            color: Colors.white
+                                            color: _primary
                                                 .withValues(alpha: 0.2)),
                                       ),
                                     ),
@@ -1166,8 +1172,8 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                         final rightTile = Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Padding(
-                              padding: EdgeInsets.symmetric(
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
                                   horizontal: 8.0, vertical: 8.0),
                               child: Text('Recent Patient Records',
                                   style: TextStyle(
@@ -1184,7 +1190,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                         searchQuery.isEmpty
                                             ? 'No patient records found. Start a consultation!'
                                             : 'No records found for this patient.',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           color: _onSurfaceVariant,
                                           fontSize: 16,
                                         ),

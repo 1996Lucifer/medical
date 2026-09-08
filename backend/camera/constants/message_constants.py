@@ -18,6 +18,9 @@ WARNING_IMPROPER_MASK = "Warning, {staff_name}, please pull your mask up to cove
 WARNING_MISSING_PPE_CAMERA = "Warning, {staff_name}, on {camera_name}, please wear {missing_text}."
 WARNING_MISSING_PPE = "Warning, please ensure you are wearing {missing_text}."
 
+# Used when a camera feed appears blocked, covered, or tampered with
+WARNING_CAMERA_TAMPERED = "Alert, {camera_name} appears to be blocked or tampered with. Security has been notified."
+
 # Used when a person hasn't completed their LLM Verification process yet
 WARNING_VERIFICATION_IN_PROGRESS = "Warning, {staff_name}, on {camera_name}, PPE verification is still in progress."
 

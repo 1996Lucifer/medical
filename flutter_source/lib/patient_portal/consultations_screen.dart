@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../network/api_routes.dart';
+import '../network/network_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
@@ -25,7 +25,7 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
 
   Future<void> _fetchConsultations() async {
     try {
-      final response = await http.get(Uri.parse('${ApiRoutes.baseUrl}/api/patient-portal/consultations/${widget.patientId}'));
+      final response = await NetworkManager.instance.get('${ApiRoutes.baseUrl}/api/patient-portal/consultations/${widget.patientId}');
       if (response.statusCode == 200) {
         setState(() {
           _consultations = jsonDecode(response.body);
@@ -40,6 +40,7 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _consultations.isEmpty
@@ -50,6 +51,7 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
                   itemBuilder: (context, index) {
                     final consultation = _consultations[index];
                     final date = DateTime.parse(consultation['date']);
+                    final accent = Theme.of(context).colorScheme.secondary;
                     return Card(
                       margin: const EdgeInsets.only(bottom: 16),
                       elevation: 4,
@@ -58,10 +60,10 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.purple.withValues(alpha: 0.1),
+                            color: accent.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Icon(Icons.history_edu, color: Colors.purple),
+                          child: Icon(Icons.history_edu, color: accent),
                         ),
                         title: const Text("Doctor Visit", style: TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(DateFormat.yMMMd().add_jm().format(date)),
@@ -72,7 +74,7 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if (consultation['discharge_summary'] != null) ...[
-                                  const Text("Summary:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+                                  Text("Summary:", style: TextStyle(fontWeight: FontWeight.bold, color: accent)),
                                   const SizedBox(height: 8),
                                   MarkdownBody(data: consultation['discharge_summary']),
                                   const Divider(height: 24),

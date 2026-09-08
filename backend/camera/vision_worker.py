@@ -1,5 +1,6 @@
 import multiprocessing as mp
 from multiprocessing import shared_memory
+import os
 import threading
 import numpy as np
 import traceback
@@ -9,48 +10,43 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
     """
     Dedicated process for running heavy AI inference.
     Initializes its own VisionService so models are loaded only once in this process.
+    One or more of these processes run concurrently (see VisionProcessManager's
+    worker pool) so cameras assigned to different processes get genuinely
+    parallel inference instead of queueing behind each other.
     """
     print("[VisionWorkerProcess] Initializing AI Models in separate process...")
-    try:
-        # We no longer instantiate a single global VisionService here.
-        # Instead, we instantiate them per camera_id dynamically.
-        pass
-    except Exception as e:
-        print(f"[VisionWorkerProcess] Failed to initialize VisionService: {e}")
-        output_queue.put({"type": "fatal", "error": str(e)})
-        return
-        
+
     shm_dict = {} # camera_id -> SharedMemory
     vision_services = {} # camera_id -> VisionServiceZones
     global_staff_list = []
     global_zones = []
-    
+
     while True:
         try:
             req = input_queue.get()
             if req is None:
                 break # Shutdown signal
-            
+
             if req["type"] == "update_staff":
                 global_staff_list = req["staff_list"]
                 for vs in vision_services.values():
                     vs.update_staff_embeddings(global_staff_list)
                 output_queue.put({"type": "staff_updated"})
                 continue
-                
+
             if req["type"] == "update_zones":
                 global_zones = req["zones"]
                 for vs in vision_services.values():
                     vs.update_zone_polygons(global_zones)
                 continue
-                
+
             if req["type"] == "register_camera":
                 cam_id = req["camera_id"]
                 try:
                     shm_in = shared_memory.SharedMemory(name=req["shm_name"])
                     shm_out = shared_memory.SharedMemory(name=req["shm_out_name"])
                     shm_dict[cam_id] = (shm_in, shm_out)
-                    
+
                     from camera.vision_service_zones import VisionServiceZones
                     vs = VisionServiceZones(camera_name=str(cam_id))
                     if global_staff_list:
@@ -58,12 +54,12 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                     if global_zones:
                         vs.update_zone_polygons(global_zones)
                     vision_services[cam_id] = vs
-                    
+
                     output_queue.put({"type": "camera_registered", "camera_id": cam_id})
                 except Exception as e:
                     output_queue.put({"type": "error", "error": f"Failed to attach SHM for {cam_id}: {e}"})
                 continue
-                
+
             if req["type"] == "unregister_camera":
                 cam_id = req["camera_id"]
                 if cam_id in shm_dict:
@@ -85,19 +81,19 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
                 frame_id = req["frame_id"]
                 h = req["h"]
                 w = req["w"]
-                
+
                 if cam_id not in shm_dict or cam_id not in vision_services:
                     continue
-                    
+
                 shm_in, _ = shm_dict[cam_id]
                 shared_in = np.ndarray((max_h, max_w, 3), dtype=dtype, buffer=shm_in.buf)
-                
+
                 # Copy the latest input frame for inference. The camera worker
                 # draws smoothed overlays on the live frame, so we do not need
                 # to copy an annotated frame back through shared memory.
                 frame = np.copy(shared_in[:h, :w, :])
                 _, face_events, equipment_events, incident_events, ppe_events = vision_services[cam_id].process_frame(frame, camera_id=cam_id)
-                
+
                 output_queue.put({
                     "type": "results",
                     "camera_id": cam_id,
@@ -124,10 +120,54 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
         except FileNotFoundError:
             pass
 
+
+def _default_pool_size() -> int:
+    """
+    Number of parallel inference subprocesses to run. CPU-only deployments
+    benefit most (multiple cameras were previously serialized on one
+    process); GPU deployments default to a single worker since a single
+    stream already saturates the accelerator and extra processes would
+    just contend for the same VRAM/context.
+    """
+    override = os.environ.get("VISION_WORKER_POOL_SIZE")
+    if override:
+        try:
+            return max(1, int(override))
+        except ValueError:
+            pass
+
+    try:
+        from camera.constants.vision_constants import get_runtime_vision_config
+
+        backend = get_runtime_vision_config()["backend"]
+    except Exception:
+        backend = "cpu"
+
+    return 2 if backend == "cpu" else 1
+
+
+class _Worker:
+    __slots__ = ("input_queue", "output_queue", "process", "reader_thread", "camera_ids")
+
+    def __init__(self, input_queue, output_queue, process, reader_thread):
+        self.input_queue = input_queue
+        self.output_queue = output_queue
+        self.process = process
+        self.reader_thread = reader_thread
+        self.camera_ids = set()
+
+
 class VisionProcessManager:
+    """
+    Public API is unchanged from the single-process version: start_process,
+    update_staff, update_zones, register_camera, unregister_camera,
+    process_frame_async, pop_result. Internally this now fans work out across
+    a small pool of worker subprocesses so cameras don't serialize behind
+    one another.
+    """
     _instance = None
     _thread_lock = threading.Lock()
-    
+
     def __new__(cls, *args, **kwargs):
         with cls._thread_lock:
             if cls._instance is None:
@@ -139,37 +179,47 @@ class VisionProcessManager:
         self.max_h = max_h
         self.max_w = max_w
         self.dtype = dtype
-        
-        self.input_queue = None
-        self.output_queue = None
-        self.process = None
+
+        self.pool_size = _default_pool_size()
+        self.workers: list[_Worker] = []
         self.camera_shms = {}
+        self.camera_worker = {}  # camera_id -> _Worker
         self.latest_results = {} # camera_id -> dict of events
         self.result_lock = threading.Lock()
-        
+        self.is_busy = {}
+
     def start_process(self):
-        if self.process is not None:
+        if self.workers:
             return
-            
+
         ctx = mp.get_context('spawn')
-        self.input_queue = ctx.Queue(maxsize=4)
-        self.output_queue = ctx.Queue()
-        
-        self.process = ctx.Process(
-            target=_vision_worker_process,
-            args=(self.input_queue, self.output_queue, self.max_h, self.max_w, self.dtype),
-            daemon=True
+        for _ in range(self.pool_size):
+            input_queue = ctx.Queue(maxsize=4)
+            output_queue = ctx.Queue()
+            process = ctx.Process(
+                target=_vision_worker_process,
+                args=(input_queue, output_queue, self.max_h, self.max_w, self.dtype),
+                daemon=True,
+            )
+            process.start()
+
+            worker = _Worker(input_queue, output_queue, process, None)
+            reader_thread = threading.Thread(
+                target=self._read_results, args=(worker,), daemon=True
+            )
+            worker.reader_thread = reader_thread
+            reader_thread.start()
+
+            self.workers.append(worker)
+
+        print(
+            f"[VisionProcessManager] Started {len(self.workers)} inference worker process(es)."
         )
-        self.process.start()
-        
-        # Start a thread to read results from the output queue continuously
-        self.reader_thread = threading.Thread(target=self._read_results, daemon=True)
-        self.reader_thread.start()
-        
-    def _read_results(self):
+
+    def _read_results(self, worker: "_Worker"):
         while True:
             try:
-                res = self.output_queue.get()
+                res = worker.output_queue.get()
                 if res.get("type") == "results":
                     cam_id = res["camera_id"]
                     with self.result_lock:
@@ -178,32 +228,44 @@ class VisionProcessManager:
                     cam_id = res["camera_id"]
                     with self.result_lock:
                         self.latest_results[cam_id] = res
-            except Exception as e:
+            except Exception:
                 pass
+
+    def _least_loaded_worker(self) -> "_Worker":
+        return min(self.workers, key=lambda w: len(w.camera_ids))
 
     def update_staff(self, staff_list: list):
-        if self.process and self.process.is_alive():
-            self.input_queue.put({"type": "update_staff", "staff_list": staff_list})
+        for worker in self.workers:
+            if worker.process and worker.process.is_alive():
+                worker.input_queue.put({"type": "update_staff", "staff_list": staff_list})
 
     def update_zones(self, zones: list):
-        if self.process and self.process.is_alive():
-            try:
-                self.input_queue.put_nowait({"type": "update_zones", "zones": zones})
-            except queue.Full:
-                pass
+        for worker in self.workers:
+            if worker.process and worker.process.is_alive():
+                try:
+                    worker.input_queue.put_nowait({"type": "update_zones", "zones": zones})
+                except queue.Full:
+                    pass
 
     def register_camera(self, camera_id: str):
-        if camera_id in self.camera_shms or not self.input_queue:
+        if camera_id in self.camera_shms or not self.workers:
             return
         dummy = np.zeros((self.max_h, self.max_w, 3), dtype=self.dtype)
         shm_in = shared_memory.SharedMemory(create=True, size=dummy.nbytes)
         shm_out = shared_memory.SharedMemory(create=True, size=dummy.nbytes)
         self.camera_shms[camera_id] = (shm_in, shm_out)
-        self.input_queue.put({"type": "register_camera", "camera_id": camera_id, "shm_name": shm_in.name, "shm_out_name": shm_out.name})
+
+        worker = self._least_loaded_worker()
+        worker.camera_ids.add(camera_id)
+        self.camera_worker[camera_id] = worker
+        worker.input_queue.put({"type": "register_camera", "camera_id": camera_id, "shm_name": shm_in.name, "shm_out_name": shm_out.name})
 
     def unregister_camera(self, camera_id):
-        if camera_id in self.camera_shms and self.input_queue:
-            self.input_queue.put({"type": "unregister_camera", "camera_id": camera_id})
+        worker = self.camera_worker.pop(camera_id, None)
+        if worker is not None:
+            worker.camera_ids.discard(camera_id)
+            worker.input_queue.put({"type": "unregister_camera", "camera_id": camera_id})
+        if camera_id in self.camera_shms:
             shm_in, shm_out = self.camera_shms.pop(camera_id)
             shm_in.close()
             shm_out.close()
@@ -214,30 +276,30 @@ class VisionProcessManager:
                 pass
         with self.result_lock:
             self.latest_results.pop(camera_id, None)
-        if hasattr(self, 'is_busy') and camera_id in self.is_busy:
-            del self.is_busy[camera_id]
+        self.is_busy.pop(camera_id, None)
 
     def process_frame_async(self, camera_id, frame, frame_id):
         if camera_id not in self.camera_shms:
             return False
-            
-        if not hasattr(self, 'is_busy'):
-            self.is_busy = {}
-            
+
+        worker = self.camera_worker.get(camera_id)
+        if worker is None:
+            return False
+
         if self.is_busy.get(camera_id, False):
             return False
-            
+
         h, w = frame.shape[:2]
         if h > self.max_h or w > self.max_w:
             return False
-            
+
         shm_in, _ = self.camera_shms[camera_id]
         shared_array = np.ndarray((self.max_h, self.max_w, 3), dtype=self.dtype, buffer=shm_in.buf)
         shared_array[:h, :w, :] = frame
-        
+
         self.is_busy[camera_id] = True
         try:
-            self.input_queue.put_nowait({"type": "process_frame", "camera_id": camera_id, "frame_id": frame_id, "h": h, "w": w})
+            worker.input_queue.put_nowait({"type": "process_frame", "camera_id": camera_id, "frame_id": frame_id, "h": h, "w": w})
         except queue.Full:
             self.is_busy[camera_id] = False
             return False
@@ -246,9 +308,8 @@ class VisionProcessManager:
     def pop_result(self, camera_id):
         with self.result_lock:
             res = self.latest_results.pop(camera_id, None)
-            if res and hasattr(self, 'is_busy'):
+            if res:
                 self.is_busy[camera_id] = False
             return res
-        return None
 
 vision_process_manager = VisionProcessManager()

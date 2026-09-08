@@ -2,6 +2,7 @@ import os
 import shutil
 from datetime import datetime
 
+import jwt
 import models
 from database import engine, get_db
 from dotenv import load_dotenv
@@ -14,6 +15,9 @@ from pydantic import BaseModel, ConfigDict
 from services.llm_manager import llm_manager
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 whisper_model = None
 
@@ -37,6 +41,15 @@ with engine.connect() as conn:
     except Exception as e:
         print(f"Skipping vector extension creation: {e}")
 
+# TODO(migrations): now that alembic/ is set up (see backend/alembic/), this
+# should become `alembic upgrade head` instead — create_all() only adds
+# brand-new tables and silently does nothing for column/type changes to
+# existing ones, which is why alter_db.py/migrate_db.py/backfill_db.py exist
+# as hand-run patches. Left as-is until the DB has been bootstrapped onto
+# alembic (run once, against the live DB: `alembic stamp head` if the schema
+# already matches models.py, or `alembic upgrade head` on a fresh DB) —
+# removing this before that bootstrap would leave a fresh deploy with no
+# tables at all.
 models.Base.metadata.create_all(bind=engine)
 
 load_dotenv(override=False)
@@ -58,10 +71,11 @@ from routers import (
     patients,
     rbac,
     security,
+    setup,
     site_config,
     staff,
 )
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_permission
 
 
 @asynccontextmanager
@@ -95,6 +109,69 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Healthcare Operations Copilot API", lifespan=lifespan)
 
+
+class AuthenticatedStaticFilesMiddleware(BaseHTTPMiddleware):
+    """
+    Gates /uploads (staff photos, incident snapshots) behind the same JWT used
+    everywhere else. StaticFiles doesn't support FastAPI `dependencies=`, so
+    this mirrors auth.get_current_user's checks at the ASGI layer instead of
+    leaving the mount fully public.
+
+    Exception: /uploads/branding/* (hospital logo) is intentionally public —
+    it's shown on the pre-login screen (site_config.router's GET is public by
+    design, see routers/site_config.py) and there's no token to attach yet at
+    that point in the flow.
+    """
+
+    PUBLIC_PREFIXES = ("/uploads/branding/",)
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/uploads") and not request.url.path.startswith(
+            self.PUBLIC_PREFIXES
+        ):
+            auth_header = request.headers.get("Authorization", "")
+            token = (
+                auth_header[7:]
+                if auth_header.lower().startswith("bearer ")
+                else None
+            )
+            if not token:
+                return JSONResponse(
+                    {"detail": "Not authenticated"}, status_code=401
+                )
+            try:
+                payload = jwt.decode(
+                    token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM]
+                )
+                username = payload.get("sub")
+                if not username:
+                    raise jwt.PyJWTError("missing sub claim")
+            except jwt.PyJWTError:
+                return JSONResponse(
+                    {"detail": "Could not validate credentials"}, status_code=401
+                )
+
+            db = SessionLocal()
+            try:
+                user = (
+                    db.query(models.User)
+                    .filter(models.User.username == username)
+                    .first()
+                )
+            finally:
+                db.close()
+            if not user:
+                return JSONResponse(
+                    {"detail": "Could not validate credentials"}, status_code=401
+                )
+        return await call_next(request)
+
+
+# Registered before CORS so CORS ends up as the outermost layer (added last =
+# outermost in Starlette) — this way 401 responses from the check above still
+# carry CORS headers instead of surfacing as opaque browser CORS failures.
+app.add_middleware(AuthenticatedStaticFilesMiddleware)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -108,13 +185,16 @@ app.add_middleware(
 app.include_router(camera_routes.router)
 app.include_router(auth.router)
 app.include_router(analysis.router)
-app.include_router(patients.router)
-app.include_router(patient_portal.router)
 app.include_router(
     site_config.router
 )  # GET is public; mutations check superadmin in-router
+# Public (no user exists yet on a fresh deployment) but /initialize is a
+# one-shot guarded internally — see routers/setup.py.
+app.include_router(setup.router)
 
-# Mount static files
+# Mount static files. StaticFiles doesn't support `dependencies=`, so /uploads is
+# gated by AuthenticatedStaticFilesMiddleware below instead (checks the same JWT
+# as auth_dep) rather than being left public.
 os.makedirs("uploads/staff", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -127,12 +207,20 @@ app.include_router(attendance.router, dependencies=auth_dep)
 app.include_router(equipment.router, dependencies=auth_dep)
 app.include_router(analytics.router, dependencies=auth_dep)
 app.include_router(analysis.router, dependencies=auth_dep)
-app.include_router(agent.router)  # TODO: add auth_dep for production
+app.include_router(agent.router, dependencies=auth_dep)
+app.include_router(patients.router, dependencies=auth_dep)
+app.include_router(patient_portal.router, dependencies=auth_dep)
 
 # Security and Events routers have websockets, so we protect their HTTP routes individually
 app.include_router(security.router)
 app.include_router(events.router)
-app.include_router(rbac.router, dependencies=auth_dep)
+# RBAC management (role/permission assignment) requires superadmin or an explicit
+# "manage_rbac" grant, not just being logged in — this was previously reachable by
+# any authenticated user, including a self-service privilege escalation to superadmin.
+app.include_router(
+    rbac.router,
+    dependencies=auth_dep + [Depends(require_permission("manage_rbac"))],
+)
 
 # Configure Gemini API
 GENAI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -156,7 +244,7 @@ class GenerateSummaryRequest(BaseModel):
     transcript: str
 
 
-@app.post("/api/transcribe")
+@app.post("/api/transcribe", dependencies=auth_dep)
 async def transcribe_audio(file: UploadFile = File(...)):
     global whisper_model
     temp_file_path = f"temp_{file.filename}"
@@ -185,7 +273,11 @@ async def transcribe_audio(file: UploadFile = File(...)):
             os.remove(temp_file_path)
 
 
-@app.post("/api/consultations/generate", response_model=ConsultationResponse)
+@app.post(
+    "/api/consultations/generate",
+    response_model=ConsultationResponse,
+    dependencies=auth_dep,
+)
 async def generate_consultation_summary(
     request: GenerateSummaryRequest, db: Session = Depends(get_db)
 ):
@@ -234,7 +326,9 @@ async def generate_consultation_summary(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/consultations", response_model=ConsultationResponse)
+@app.post(
+    "/api/consultations", response_model=ConsultationResponse, dependencies=auth_dep
+)
 async def upload_audio(
     patient_name: str, file: UploadFile = File(...), db: Session = Depends(get_db)
 ):
@@ -304,7 +398,11 @@ async def upload_audio(
             os.remove(temp_file_path)
 
 
-@app.get("/api/consultations", response_model=list[ConsultationResponse])
+@app.get(
+    "/api/consultations",
+    response_model=list[ConsultationResponse],
+    dependencies=auth_dep,
+)
 def get_consultations(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     consultations = (
         db
@@ -321,7 +419,7 @@ def get_consultations(skip: int = 0, limit: int = 100, db: Session = Depends(get
     return consultations
 
 
-@app.delete("/api/consultations/{consultation_id}")
+@app.delete("/api/consultations/{consultation_id}", dependencies=auth_dep)
 def delete_consultation(consultation_id: int, db: Session = Depends(get_db)):
     consultation = (
         db

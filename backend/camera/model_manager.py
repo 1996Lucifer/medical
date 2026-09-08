@@ -234,6 +234,7 @@ class ModelManager:
                     try:
                         from camera.constants.vision_constants import (
                             PPE_YOLO_MODEL,
+                            PPE_YOLO_FP16_MODEL,
                             USE_OPENVINO_PPE_MODEL,
                         )
                         from ultralytics import YOLO
@@ -243,6 +244,7 @@ class ModelManager:
                         )
                         target_ov = os.path.join(models_dir, "best_openvino_model")
                         onnx_path = os.path.join(models_dir, PPE_YOLO_MODEL)
+                        fp16_path = os.path.join(models_dir, PPE_YOLO_FP16_MODEL)
 
                         model = None
                         if USE_OPENVINO_PPE_MODEL and os.path.exists(target_ov):
@@ -254,6 +256,18 @@ class ModelManager:
                             except Exception as ov_err:
                                 print(
                                     f"[ModelManager] OpenVINO load failed ({ov_err}), falling back to ONNX ({onnx_path})..."
+                                )
+                                if os.path.exists(onnx_path):
+                                    model = YOLO(onnx_path, task="detect")
+                        elif device in ("0", "cuda:0") and os.path.exists(fp16_path):
+                            print(
+                                f"[ModelManager] Loading FP16 PPE YOLO model from {fp16_path} on device '{device}'..."
+                            )
+                            try:
+                                model = YOLO(fp16_path, task="detect")
+                            except Exception as fp16_err:
+                                print(
+                                    f"[ModelManager] FP16 load failed ({fp16_err}), falling back to ONNX ({onnx_path})..."
                                 )
                                 if os.path.exists(onnx_path):
                                     model = YOLO(onnx_path, task="detect")

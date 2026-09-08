@@ -1,7 +1,24 @@
 import platform
 import os
+import re
 import subprocess
 import threading
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_think_tags(text: str) -> str:
+    """Qwen3 (and some other reasoning-tuned models) prepend a
+    <think>...</think> chain-of-thought block before the actual answer.
+    Users should only ever see the final response."""
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    # If generation was cut off mid-thought (hit max_tokens before the
+    # closing tag), there's no matching </think> to anchor on - drop
+    # everything from the opening tag onward instead.
+    if "<think>" in cleaned.lower():
+        cleaned = re.split(r"<think>", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
+    return cleaned.strip()
+
 
 class LLMManager:
     """
@@ -168,7 +185,7 @@ class LLMManager:
                 )
 
             # Extract generated text from llama_cpp output format
-            result = response['choices'][0]['text'].strip()
+            result = _strip_think_tags(response['choices'][0]['text'])
 
             print("<<< MODEL RESPONSE:")
             print(result)
@@ -223,7 +240,7 @@ class LLMManager:
                     stop=["USER:", "User:", "<|im_end|>", "<|end_of_text|>", "<eos>"]
                 )
 
-            result = response['choices'][0]['message']['content'].strip()
+            result = _strip_think_tags(response['choices'][0]['message']['content'])
 
             print("<<< MODEL RESPONSE:")
             print(result)

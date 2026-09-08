@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
@@ -53,13 +57,15 @@ class AttendanceRecord {
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class CameraScreen extends StatefulWidget {
-  const CameraScreen({super.key});
+  final int? initialExpandedCameraId;
+  const CameraScreen({super.key, this.initialExpandedCameraId});
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderStateMixin {
+class _CameraScreenState extends State<CameraScreen>
+    with SingleTickerProviderStateMixin {
   // Attendance
   List<AttendanceRecord> _attendance = [];
   WebSocketChannel? _eventsChannel;
@@ -75,13 +81,15 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
   final Map<int, GlobalKey> _streamKeys = {};
 
   // Aetheris colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurface = Color(0xFFd6e3ff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _surfaceContainerHigh = Color(0xFF1c2a41);
-  static const Color _surfaceContainerLowest = Color(0xFF010e24);
-  static const Color _error = Color(0xFFffb4ab);
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurface => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurfaceVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
+  Color get _surfaceContainerHigh =>
+      Theme.of(context).colorScheme.surfaceContainerHigh;
+  Color get _surfaceContainerLowest =>
+      Theme.of(context).colorScheme.surfaceContainerLowest;
+  Color get _error => Theme.of(context).colorScheme.error;
 
   late AnimationController _pulseController;
   bool _showOverlays = true;
@@ -89,6 +97,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
+    _expandedCameraId = widget.initialExpandedCameraId;
     _fetchCameras();
     _connectEventsStream();
     _connectStatusStream();
@@ -145,11 +154,61 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
         if (mounted) {
           final data = jsonDecode(message) as Map<String, dynamic>;
           setState(() {
-            _cameraStatus = data.map((k, v) => MapEntry(int.parse(k), v as bool));
+            _cameraStatus =
+                data.map((k, v) => MapEntry(int.parse(k), v as bool));
           });
         }
       }, onError: (_) {}, onDone: () {});
     } catch (_) {}
+  }
+
+  String _csvEscape(String value) {
+    if (value.contains(',') || value.contains('"') || value.contains('\n')) {
+      return '"${value.replaceAll('"', '""')}"';
+    }
+    return value;
+  }
+
+  Future<void> _exportAttendanceLog() async {
+    if (_attendance.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No attendance records to export.')),
+      );
+      return;
+    }
+
+    final buffer = StringBuffer();
+    buffer.writeln(
+        'Staff Name,Role,Confidence,Entry Time,Last Seen,Exit Time,Camera');
+    for (final record in _attendance) {
+      buffer.writeln([
+        _csvEscape(record.staffName),
+        _csvEscape(record.role),
+        record.confidence.toStringAsFixed(2),
+        record.entryTime.toIso8601String(),
+        record.lastSeen?.toIso8601String() ?? '',
+        record.exitTime?.toIso8601String() ?? '',
+        _csvEscape(record.cameraName ?? ''),
+      ].join(','));
+    }
+
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final fileName =
+          'attendance_log_${DateTime.now().millisecondsSinceEpoch}.csv';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsString(buffer.toString());
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exported to ${file.path}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
   }
 
   Future<void> _fetchAttendance() async {
@@ -202,16 +261,21 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
       behavior: HitTestBehavior.opaque,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isPrimary ? _primaryFixedDim.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.05),
-            width: isPrimary ? 2 : 1,
-          ),
-          boxShadow: [
-            if (isPrimary) BoxShadow(color: _primaryFixedDim.withValues(alpha: 0.2), blurRadius: 10, spreadRadius: 2)
-          ]
-        ),
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isPrimary
+                  ? _primaryFixedDim.withValues(alpha: 0.5)
+                  : Colors.white.withValues(alpha: 0.05),
+              width: isPrimary ? 2 : 1,
+            ),
+            boxShadow: [
+              if (isPrimary)
+                BoxShadow(
+                    color: _primaryFixedDim.withValues(alpha: 0.2),
+                    blurRadius: 10,
+                    spreadRadius: 2)
+            ]),
         clipBehavior: Clip.hardEdge,
         child: Stack(
           fit: StackFit.expand,
@@ -228,17 +292,16 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
               child: IgnorePointer(
                 child: Container(
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        _primaryFixedDim.withValues(alpha: 0.0),
-                        _primaryFixedDim.withValues(alpha: 0.05),
-                        _primaryFixedDim.withValues(alpha: 0.0),
-                      ],
-                      stops: const [0.0, 0.5, 1.0],
-                    )
-                  ),
+                      gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      _primaryFixedDim.withValues(alpha: 0.0),
+                      _primaryFixedDim.withValues(alpha: 0.05),
+                      _primaryFixedDim.withValues(alpha: 0.0),
+                    ],
+                    stops: const [0.0, 0.5, 1.0],
+                  )),
                 ),
               ),
             ),
@@ -249,7 +312,8 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.6),
                       borderRadius: BorderRadius.circular(4),
@@ -260,33 +324,54 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                           FadeTransition(
                             opacity: _pulseController,
                             child: Container(
-                              width: 6, height: 6,
-                              decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                  color: Colors.redAccent,
+                                  shape: BoxShape.circle),
                             ),
                           ),
                           const SizedBox(width: 6),
-                          const Text('LIVE', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                          const Text('LIVE',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1)),
                         ] else ...[
                           Container(
-                            width: 6, height: 6,
-                            decoration: BoxDecoration(color: Colors.grey.shade400, shape: BoxShape.circle),
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                                color: Colors.grey.shade400,
+                                shape: BoxShape.circle),
                           ),
                           const SizedBox(width: 6),
-                          Text('OFFLINE', style: TextStyle(color: Colors.grey.shade400, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                          Text('OFFLINE',
+                              style: TextStyle(
+                                  color: Colors.grey.shade400,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1)),
                         ]
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.6),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       (camera['name'] as String).toUpperCase(),
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1),
                     ),
                   ),
                 ],
@@ -299,7 +384,8 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                 right: 16,
                 top: 16,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(20),
@@ -313,18 +399,35 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('AI OVERLAYS', style: TextStyle(color: _showOverlays ? Colors.white : Colors.white54, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                        Text('AI OVERLAYS',
+                            style: TextStyle(
+                                color: _showOverlays
+                                    ? Colors.white
+                                    : Colors.white54,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5)),
                         const SizedBox(width: 8),
                         Container(
-                          width: 28, height: 16,
+                          width: 28,
+                          height: 16,
                           decoration: BoxDecoration(
-                            color: _showOverlays ? _primaryFixedDim : Colors.grey[800],
-                            borderRadius: BorderRadius.circular(8)
-                          ),
+                              color: _showOverlays
+                                  ? _primaryFixedDim
+                                  : Colors.grey[800],
+                              borderRadius: BorderRadius.circular(8)),
                           child: AnimatedAlign(
                             duration: const Duration(milliseconds: 200),
-                            alignment: _showOverlays ? Alignment.centerRight : Alignment.centerLeft,
-                            child: Container(margin: const EdgeInsets.all(2), width: 12, height: 12, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+                            alignment: _showOverlays
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                                margin: const EdgeInsets.all(2),
+                                width: 12,
+                                height: 12,
+                                decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle)),
                           ),
                         )
                       ],
@@ -387,7 +490,7 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
 
   Widget _cameraGrid({required bool isMobile}) {
     if (_savedCameras.isEmpty) {
-      return const Center(
+      return Center(
         child: Text('No cameras configured.',
             style: TextStyle(color: _onSurfaceVariant)),
       );
@@ -401,7 +504,8 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                 ? 1
                 : 2;
         const spacing = 16.0;
-        final tileWidth = (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        final tileWidth =
+            (constraints.maxWidth - spacing * (columns - 1)) / columns;
         final tileHeight = tileWidth * 9 / 16;
         final standardTileHeight = tileHeight.clamp(200.0, 400.0).toDouble();
 
@@ -420,7 +524,8 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
             return _cameraTile(
               camera,
               isPrimary: false,
-              onTap: () => setState(() => _expandedCameraId = camera['id'] as int),
+              onTap: () =>
+                  setState(() => _expandedCameraId = camera['id'] as int),
             );
           },
         );
@@ -504,34 +609,60 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            const Column(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Live Camera Grid', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: _primary)),
-                SizedBox(height: 4),
-                Text('Real-time neural monitoring active across 4 primary zones.', style: TextStyle(fontSize: 14, color: _onSurfaceVariant)),
+                Text('Live Camera Grid',
+                    style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: _primary)),
+                const SizedBox(height: 4),
+                Text(
+                    'Real-time neural monitoring active across 4 primary zones.',
+                    style: TextStyle(fontSize: 14, color: _onSurfaceVariant)),
               ],
             ),
             if (!isMobile)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
                   color: _surfaceContainerHigh.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.05)),
                 ),
                 child: Row(
                   children: [
-                    const Text('Auto-Rotation', style: TextStyle(color: _onSurface, fontSize: 12, fontWeight: FontWeight.bold)),
+                    Text('Auto-Rotation',
+                        style: TextStyle(
+                            color: _onSurface,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold)),
                     const SizedBox(width: 12),
                     Container(
-                      width: 40, height: 20,
-                      decoration: BoxDecoration(color: _surfaceContainerLowest, borderRadius: BorderRadius.circular(10)),
+                      width: 40,
+                      height: 20,
+                      decoration: BoxDecoration(
+                          color: _surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(10)),
                       child: Stack(
                         children: [
                           Positioned(
-                            right: 4, top: 4,
-                            child: Container(width: 12, height: 12, decoration: const BoxDecoration(color: _primaryFixedDim, shape: BoxShape.circle, boxShadow: [BoxShadow(color: _primaryFixedDim, blurRadius: 4)])),
+                            right: 4,
+                            top: 4,
+                            child: Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                    color: _primaryFixedDim,
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                          color: _primaryFixedDim,
+                                          blurRadius: 4)
+                                    ])),
                           )
                         ],
                       ),
@@ -542,7 +673,6 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
           ],
         ),
         const SizedBox(height: 24),
-
         isMobile
             ? SizedBox(
                 height: _expandedCameraId == null ? 400 : 500,
@@ -568,16 +698,29 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Staff Attendance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primary)),
+                Text('Staff Attendance',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: _primary)),
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Recent Detections', style: TextStyle(color: _onSurfaceVariant, fontSize: 14)),
+                    Text('Recent Detections',
+                        style:
+                            TextStyle(color: _onSurfaceVariant, fontSize: 14)),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(color: _primaryFixedDim.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-                      child: const Text('AUTO-SYNC ON', style: TextStyle(color: _primaryFixedDim, fontSize: 10, fontWeight: FontWeight.bold)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: _primaryFixedDim.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4)),
+                      child: Text('AUTO-SYNC ON',
+                          style: TextStyle(
+                              color: _primaryFixedDim,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold)),
                     )
                   ],
                 )
@@ -595,13 +738,15 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
               width: double.infinity,
               height: 48,
               child: ElevatedButton.icon(
-                onPressed: () {},
+                onPressed: _exportAttendanceLog,
                 icon: const Icon(Icons.download, size: 20),
-                label: const Text('Export Attendance Log', style: TextStyle(fontWeight: FontWeight.bold)),
+                label: const Text('Export Attendance Log',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _primaryFixedDim,
                   foregroundColor: const Color(0xFF00382d),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
               ),
             ),
@@ -618,12 +763,10 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
               Expanded(
                 child: isMobile
                     ? ListView(
                         children: [
-
                           cameraPanel,
                           const SizedBox(height: 24),
                           SizedBox(height: 500, child: attendancePanel),
@@ -653,8 +796,9 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
 
   Widget _attendanceList() {
     if (_attendance.isEmpty) {
-      return const Center(
-        child: Text('No recent detections.', style: TextStyle(color: _onSurfaceVariant)),
+      return Center(
+        child: Text('No recent detections.',
+            style: TextStyle(color: _onSurfaceVariant)),
       );
     }
 
@@ -665,7 +809,8 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
       itemBuilder: (_, i) {
         final r = _attendance[i];
         final t = r.entryTime.toLocal();
-        final entryStr = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+        final entryStr =
+            '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
         final pct = (r.confidence * 100).toStringAsFixed(1);
         final pctValue = r.confidence;
 
@@ -681,33 +826,53 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 48, height: 48,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: _surfaceContainerHigh,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.1)),
                     ),
-                    child: const Icon(Icons.person, color: _onSurfaceVariant, size: 28),
+                    child:
+                        Icon(Icons.person, color: _onSurfaceVariant, size: 28),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(r.staffName, style: const TextStyle(color: _primary, fontSize: 14, fontWeight: FontWeight.bold)),
+                        Text(r.staffName,
+                            style: TextStyle(
+                                color: _primary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold)),
                         const SizedBox(height: 2),
-                        Text(r.role, style: const TextStyle(color: _onSurfaceVariant, fontSize: 12)),
+                        Text(r.role,
+                            style: TextStyle(
+                                color: _onSurfaceVariant, fontSize: 12)),
                         const SizedBox(height: 2),
-                        Text('• $entryStr', style: const TextStyle(color: _onSurfaceVariant, fontSize: 11)),
+                        Text('• $entryStr',
+                            style: TextStyle(
+                                color: _onSurfaceVariant, fontSize: 11)),
                       ],
                     ),
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text('CONFIDENCE', style: TextStyle(color: _primaryFixedDim, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                      Text('CONFIDENCE',
+                          style: TextStyle(
+                              color: _primaryFixedDim,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5)),
                       const SizedBox(height: 4),
-                      Text('$pct%', style: const TextStyle(color: _primary, fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text('$pct%',
+                          style: TextStyle(
+                              color: _primary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ],
@@ -716,20 +881,24 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
               Container(
                 width: double.infinity,
                 height: 6,
-                decoration: BoxDecoration(color: _surfaceContainerHigh.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(3)),
+                decoration: BoxDecoration(
+                    color: _surfaceContainerHigh.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(3)),
                 child: FractionallySizedBox(
                   alignment: Alignment.centerLeft,
                   widthFactor: pctValue,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: _primaryFixedDim,
-                      borderRadius: BorderRadius.circular(3),
-                      boxShadow: [BoxShadow(color: _primaryFixedDim.withValues(alpha: 0.5), blurRadius: 4)]
-                    ),
+                        color: _primaryFixedDim,
+                        borderRadius: BorderRadius.circular(3),
+                        boxShadow: [
+                          BoxShadow(
+                              color: _primaryFixedDim.withValues(alpha: 0.5),
+                              blurRadius: 4)
+                        ]),
                   ),
                 ),
               ),
-
               if (!r.isCheckedOut)
                 Padding(
                   padding: const EdgeInsets.only(top: 12.0),
@@ -737,10 +906,12 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.logout, size: 16, color: Colors.orange),
+                        icon: const Icon(Icons.logout,
+                            size: 16, color: Colors.orange),
                         tooltip: 'Checkout',
                         onPressed: () async {
-                          await NetworkManager.instance.post(ApiRoutes.attendanceCheckout(r.id));
+                          await NetworkManager.instance
+                              .post(ApiRoutes.attendanceCheckout(r.id));
                           _fetchAttendance();
                         },
                         padding: EdgeInsets.zero,
@@ -748,7 +919,8 @@ class _CameraScreenState extends State<CameraScreen> with SingleTickerProviderSt
                       ),
                       const SizedBox(width: 8),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 16, color: _error),
+                        icon:
+                            Icon(Icons.delete_outline, size: 16, color: _error),
                         onPressed: () => _deleteAttendance(r.id),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),

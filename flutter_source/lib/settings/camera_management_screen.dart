@@ -1,21 +1,16 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../app_router.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import 'camera_status_dot.dart';
-import '../camera/camera_stream_view.dart';
-import 'camera_settings_detail_screen.dart';
-
-const Color _bgBase = Color(0xFF041329);
-const Color _surfaceContainer = Color(0xFF112036);
-const Color _surfaceContainerLow = Color(0xFF0d1c32);
-const Color _tealAccent = Color(0xFF64ffda);
-const Color _textColor = Color(0xFFd6e3ff);
-const Color _textVariant = Color(0xFFbacac3);
-const Color _critical = Color(0xFFffb4ab);
+import 'manage_staff_screen.dart' show DashedRectPainter;
 
 class CameraManagementScreen extends StatefulWidget {
-  const CameraManagementScreen({super.key});
+  CameraManagementScreen({super.key});
 
   @override
   State<CameraManagementScreen> createState() => _CameraManagementScreenState();
@@ -23,7 +18,17 @@ class CameraManagementScreen extends StatefulWidget {
 
 class _CameraManagementScreenState extends State<CameraManagementScreen> {
   List<Map<String, dynamic>> _savedCameras = [];
-  Map<String, dynamic>? _previewCamera;
+
+  // Theme-derived colors
+  Color get _bgBase => Theme.of(context).scaffoldBackgroundColor;
+  Color get _surfaceContainer => Theme.of(context).colorScheme.surfaceContainer;
+  Color get _surfaceContainerLow =>
+      Theme.of(context).colorScheme.surfaceContainerLow;
+  Color get _tealAccent => Theme.of(context).colorScheme.secondary;
+  Color get _textColor => Theme.of(context).colorScheme.onSurface;
+  Color get _textVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _critical => Theme.of(context).colorScheme.error;
+  Color get _hairline => Theme.of(context).colorScheme.outlineVariant;
 
   @override
   void initState() {
@@ -45,23 +50,6 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
     } catch (_) {}
   }
 
-  Future<void> _deleteCamera(Map<String, dynamic> c) async {
-    final resp = await NetworkManager.instance.delete(ApiRoutes.camera(c['id']));
-    if (resp.statusCode != 200 && mounted) {
-      String errorMsg = 'Failed to delete camera.';
-      try {
-        errorMsg = jsonDecode(resp.body)['detail'] ?? errorMsg;
-      } catch (_) {}
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
-    } else {
-      if (_previewCamera?['id'] == c['id']) {
-        setState(() => _previewCamera = null);
-      }
-      await _fetchCameras();
-    }
-  }
-
   Future<void> _showAddCameraDialog() async {
     final nameCtrl = TextEditingController();
     final locationCtrl = TextEditingController();
@@ -75,271 +63,172 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => Theme(
-        data: ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: _bgBase, dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer),
+        data: Theme.of(context).copyWith(
+          scaffoldBackgroundColor: _bgBase,
+          dialogTheme: DialogThemeData(backgroundColor: _surfaceContainer),
         ),
         child: StatefulBuilder(builder: (ctx, setD) {
           final ip = ipCtrl.text.trim();
-          final port = portCtrl.text.trim().isEmpty ? '554' : portCtrl.text.trim();
+          final port =
+              portCtrl.text.trim().isEmpty ? '554' : portCtrl.text.trim();
           final user = userCtrl.text.trim();
           final pass = passCtrl.text.trim();
           var path = pathCtrl.text.trim();
           if (path.isNotEmpty && !path.startsWith('/')) path = '/$path';
-          final creds = (user.isNotEmpty || pass.isNotEmpty) ? '$user:$pass@' : '';
-          final previewUrl = ip.isEmpty ? 'rtsp://[ip]:[port]/[path]' : 'rtsp://$creds$ip:$port$path';
+          final creds =
+              (user.isNotEmpty || pass.isNotEmpty) ? '$user:$pass@' : '';
+          final previewUrl = ip.isEmpty
+              ? 'rtsp://[ip]:[port]/[path]'
+              : 'rtsp://$creds$ip:$port$path';
 
           return AlertDialog(
-            title: const Text('Register New Node', style: TextStyle(color: Colors.white)),
+            title: Text('Add Camera',
+                style: TextStyle(color: _textColor)),
             content: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Camera Name')),
-                const SizedBox(height: 10),
-                TextField(
-                    controller: locationCtrl,
-                    decoration: const InputDecoration(labelText: 'Deployment Zone (optional)')),
-                const SizedBox(height: 10),
-                Row(
+              child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: ipCtrl,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'IP Address / Host', hintText: '192.168.1.100'),
+                    TextField(
+                        controller: nameCtrl,
+                        decoration:
+                            const InputDecoration(labelText: 'Camera Name')),
+                    const SizedBox(height: 10),
+                    TextField(
+                        controller: locationCtrl,
+                        decoration: const InputDecoration(
+                            labelText: 'Deployment Zone (optional)')),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: TextField(
+                            controller: ipCtrl,
+                            onChanged: (_) => setD(() {}),
+                            decoration: const InputDecoration(
+                                labelText: 'IP Address / Host',
+                                hintText: '192.168.1.100'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 1,
+                          child: TextField(
+                            controller: portCtrl,
+                            keyboardType: TextInputType.number,
+                            onChanged: (_) => setD(() {}),
+                            decoration: const InputDecoration(
+                                labelText: 'Port', hintText: '554'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: userCtrl,
+                            onChanged: (_) => setD(() {}),
+                            decoration: const InputDecoration(
+                                labelText: 'Username (optional)'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: passCtrl,
+                            obscureText: true,
+                            onChanged: (_) => setD(() {}),
+                            decoration: const InputDecoration(
+                                labelText: 'Password (optional)'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: pathCtrl,
+                      onChanged: (_) => setD(() {}),
+                      decoration: const InputDecoration(
+                          labelText: 'Stream Path (optional)',
+                          hintText: '/h264Preview_01_main'),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _bgBase,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: Colors.teal.withValues(alpha: 0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('GENERATED RTSP URL PREVIEW',
+                              style: TextStyle(
+                                  color: _textVariant,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(previewUrl,
+                              style: TextStyle(
+                                  color: _tealAccent,
+                                  fontFamily: 'monospace',
+                                  fontSize: 11)),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 1,
-                      child: TextField(
-                        controller: portCtrl,
-                        keyboardType: TextInputType.number,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'Port', hintText: '554'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: userCtrl,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'Username (optional)'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: passCtrl,
-                        obscureText: true,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'Password (optional)'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: pathCtrl,
-                  onChanged: (_) => setD(() {}),
-                  decoration: const InputDecoration(labelText: 'Stream Path (optional)', hintText: '/h264Preview_01_main'),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _bgBase,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('GENERATED RTSP URL PREVIEW', style: TextStyle(color: _textVariant, fontSize: 9, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text(previewUrl, style: const TextStyle(color: _tealAccent, fontFamily: 'monospace', fontSize: 11)),
+                    if (isSaving) ...[
+                      const SizedBox(height: 12),
+                      Center(
+                          child: CircularProgressIndicator(color: _tealAccent))
                     ],
-                  ),
-                ),
-                if (isSaving) ...[
-                  const SizedBox(height: 12),
-                  const Center(child: CircularProgressIndicator(color: _tealAccent))
-                ],
-              ]),
+                  ]),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: _textVariant))),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text('Cancel', style: TextStyle(color: _textVariant))),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: _tealAccent, foregroundColor: _bgBase),
-                onPressed: isSaving ? null : () async {
-                  if (nameCtrl.text.isEmpty || ipCtrl.text.isEmpty) return;
-                  setD(() => isSaving = true);
-                  final resp = await NetworkManager.instance.post(
-                    ApiRoutes.cameras,
-                    headers: {'Content-Type': 'application/json'},
-                    body: jsonEncode({
-                      'name': nameCtrl.text,
-                      'location': locationCtrl.text.isEmpty ? null : locationCtrl.text,
-                      'ip_address': ipCtrl.text.trim(),
-                      'port': int.tryParse(portCtrl.text.trim()) ?? 554,
-                      'username': userCtrl.text.isEmpty ? null : userCtrl.text.trim(),
-                      'password': passCtrl.text.isEmpty ? null : passCtrl.text.trim(),
-                      'stream_path': pathCtrl.text.isEmpty ? null : pathCtrl.text.trim(),
-                    }),
-                  );
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    if (resp.statusCode == 200) await _fetchCameras();
-                  }
-                },
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: _tealAccent, foregroundColor: _bgBase),
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        if (nameCtrl.text.isEmpty || ipCtrl.text.isEmpty)
+                          return;
+                        setD(() => isSaving = true);
+                        final resp = await NetworkManager.instance.post(
+                          ApiRoutes.cameras,
+                          headers: {'Content-Type': 'application/json'},
+                          body: jsonEncode({
+                            'name': nameCtrl.text,
+                            'location': locationCtrl.text.isEmpty
+                                ? null
+                                : locationCtrl.text,
+                            'ip_address': ipCtrl.text.trim(),
+                            'port': int.tryParse(portCtrl.text.trim()) ?? 554,
+                            'username': userCtrl.text.isEmpty
+                                ? null
+                                : userCtrl.text.trim(),
+                            'password': passCtrl.text.isEmpty
+                                ? null
+                                : passCtrl.text.trim(),
+                            'stream_path': pathCtrl.text.isEmpty
+                                ? null
+                                : pathCtrl.text.trim(),
+                          }),
+                        );
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                          if (resp.statusCode == 200) await _fetchCameras();
+                        }
+                      },
                 child: const Text('Save Node'),
-              ),
-            ],
-          );
-        }),
-      ),
-    );
-  }
-
-  Future<void> _showEditCameraDialog(Map<String, dynamic> c) async {
-    final nameCtrl = TextEditingController(text: c['name']);
-    final locationCtrl = TextEditingController(text: c['location'] ?? '');
-    final ipCtrl = TextEditingController(text: c['ip_address'] ?? '');
-    final portCtrl = TextEditingController(text: (c['port'] ?? 554).toString());
-    final userCtrl = TextEditingController(text: c['username'] ?? '');
-    final passCtrl = TextEditingController(text: c['password'] ?? '');
-    final pathCtrl = TextEditingController(text: c['stream_path'] ?? '');
-    bool isSaving = false;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => Theme(
-        data: ThemeData.dark().copyWith(
-          dialogTheme: const DialogThemeData(backgroundColor: _surfaceContainer),
-        ),
-        child: StatefulBuilder(builder: (ctx, setD) {
-          final ip = ipCtrl.text.trim();
-          final port = portCtrl.text.trim().isEmpty ? '554' : portCtrl.text.trim();
-          final user = userCtrl.text.trim();
-          final pass = passCtrl.text.trim();
-          var path = pathCtrl.text.trim();
-          if (path.isNotEmpty && !path.startsWith('/')) path = '/$path';
-          final creds = (user.isNotEmpty || pass.isNotEmpty) ? '$user:$pass@' : '';
-          final previewUrl = ip.isEmpty ? (c['rtsp_url'] ?? 'rtsp://[ip]:[port]/[path]') : 'rtsp://$creds$ip:$port$path';
-
-          return AlertDialog(
-            title: const Text('Configure Node', style: TextStyle(color: Colors.white)),
-            content: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Camera Name')),
-                const SizedBox(height: 10),
-                TextField(controller: locationCtrl, decoration: const InputDecoration(labelText: 'Deployment Zone')),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: ipCtrl,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'IP Address / Host'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 1,
-                      child: TextField(
-                        controller: portCtrl,
-                        keyboardType: TextInputType.number,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'Port'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: userCtrl,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'Username (optional)'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: passCtrl,
-                        obscureText: true,
-                        onChanged: (_) => setD(() {}),
-                        decoration: const InputDecoration(labelText: 'Password (optional)'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: pathCtrl,
-                  onChanged: (_) => setD(() {}),
-                  decoration: const InputDecoration(labelText: 'Stream Path (optional)'),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _bgBase,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('GENERATED RTSP URL PREVIEW', style: TextStyle(color: _textVariant, fontSize: 9, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text(previewUrl, style: const TextStyle(color: _tealAccent, fontFamily: 'monospace', fontSize: 11)),
-                    ],
-                  ),
-                ),
-                if (isSaving) ...[
-                  const SizedBox(height: 12),
-                  const Center(child: CircularProgressIndicator(color: _tealAccent))
-                ],
-              ]),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: _textVariant))),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: _tealAccent, foregroundColor: _bgBase),
-                onPressed: isSaving ? null : () async {
-                  if (nameCtrl.text.isEmpty) return;
-                  setD(() => isSaving = true);
-                  final resp = await NetworkManager.instance.put(
-                    ApiRoutes.camera(c['id']),
-                    headers: {'Content-Type': 'application/json'},
-                    body: jsonEncode({
-                      'name': nameCtrl.text,
-                      'location': locationCtrl.text.isEmpty ? null : locationCtrl.text,
-                      'ip_address': ipCtrl.text.trim(),
-                      'port': int.tryParse(portCtrl.text.trim()) ?? 554,
-                      'username': userCtrl.text.isEmpty ? null : userCtrl.text.trim(),
-                      'password': passCtrl.text.isEmpty ? null : passCtrl.text.trim(),
-                      'stream_path': pathCtrl.text.isEmpty ? null : pathCtrl.text.trim(),
-                    }),
-                  );
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    if (resp.statusCode == 200) await _fetchCameras();
-                  }
-                },
-                child: const Text('Update'),
               ),
             ],
           );
@@ -353,17 +242,19 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
     return Scaffold(
       backgroundColor: _bgBase,
       appBar: AppBar(
-        title: const Text('Camera Node Management', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Camera Node Management',
+            style:
+                TextStyle(color: _textColor, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddCameraDialog,
-        backgroundColor: _tealAccent,
-        foregroundColor: _bgBase,
-        icon: const Icon(Icons.add),
-        label: const Text('Register New Node', style: TextStyle(fontWeight: FontWeight.bold)),
+        iconTheme: IconThemeData(color: _textColor),
+        // Reached via context.go(), which replaces the whole route stack —
+        // there's nothing for the default back button to pop to, so it's
+        // spelled out explicitly instead.
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/settings'),
+        ),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -373,9 +264,7 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
             children: [
               _buildOverviewHeader(),
               const SizedBox(height: 24),
-              _buildDataTable(),
-              const SizedBox(height: 24),
-              _buildInfrastructureCards(),
+              _buildCameraGrid(),
             ],
           ),
         ),
@@ -387,213 +276,183 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Active Node Registry', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-              SizedBox(height: 8),
-              Text('Centralized control for high-bandwidth RTSP surveillance assets. All feeds are currently routed through the local encryption layer.', style: TextStyle(color: _textVariant, fontSize: 14)),
+              Text('Active Node Registry',
+                  style: TextStyle(
+                      color: _textColor,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                  'Centralized control for high-bandwidth RTSP surveillance assets. All feeds are currently routed through the local encryption layer.',
+                  style: TextStyle(color: _textVariant, fontSize: 14)),
             ],
           ),
         ),
         const SizedBox(width: 32),
         Row(
           children: [
-             _buildStatBox('Managed', '${_savedCameras.length}', _tealAccent),
-             const SizedBox(width: 16),
-             _buildStatBox('Faults', '0', _critical, isError: true),
+            _buildStatBox('Managed', '${_savedCameras.length}', _tealAccent),
+            const SizedBox(width: 16),
+            _buildStatBox('Faults', '0', _critical, isError: true),
           ],
         )
       ],
     );
   }
 
-  Widget _buildStatBox(String label, String value, Color color, {bool isError = false}) {
+  Widget _buildStatBox(String label, String value, Color color,
+      {bool isError = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         color: _surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isError ? color.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(
+            color: isError ? color.withValues(alpha: 0.3) : _hairline),
       ),
       child: Column(
         children: [
-          Text(label.toUpperCase(), style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+          Text(label.toUpperCase(),
+              style: TextStyle(
+                  color: color,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0)),
           const SizedBox(height: 4),
-          Text(value, style: TextStyle(color: isError ? color : Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+          Text(value,
+              style: TextStyle(
+                  color: isError ? color : _textColor,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
   }
 
-  Widget _buildDataTable() {
-    return Container(
-      decoration: BoxDecoration(
-        color: _surfaceContainer,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+  void _openAnalytics(int cameraId) {
+    // go() (not push()) so the URL actually reflects the camera being
+    // managed. This screen remounts fresh — and refetches — whenever the
+    // detail screen navigates back here via context.go, so there's no
+    // need to await a result to know when to refresh.
+    context.go('$settingsCamerasPath/$cameraId');
+  }
+
+  Widget _buildCameraGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _savedCameras.length + 1,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 320,
+        mainAxisExtent: 184,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(_surfaceContainerLow),
-              dataRowColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) {
-                  return _tealAccent.withValues(alpha: 0.1);
-                }
-                return Colors.transparent;
-              }),
-              columns: const [
-                DataColumn(label: Text('IDENTIFIER', style: TextStyle(color: _textVariant, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
-                DataColumn(label: Text('DEPLOYMENT ZONE', style: TextStyle(color: _textVariant, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
-                DataColumn(label: Text('STREAM CONFIGURATION', style: TextStyle(color: _textVariant, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
-                DataColumn(label: Text('LIVE STATUS', style: TextStyle(color: _textVariant, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
-                DataColumn(label: Text('OPERATIONS', style: TextStyle(color: _textVariant, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
-              ],
-              rows: _savedCameras.map((c) {
-                final isSelected = _previewCamera?['id'] == c['id'];
-                return DataRow(
-                  selected: isSelected,
-                  onSelectChanged: (val) {
-                    setState(() {
-                      _previewCamera = isSelected ? null : c;
-                    });
-                  },
-                  cells: [
-                    DataCell(Text(c['name'] ?? '', style: const TextStyle(color: _tealAccent, fontFamily: 'monospace', fontWeight: FontWeight.bold))),
-                    DataCell(Text(c['location'] ?? 'Unassigned', style: const TextStyle(color: Colors.white))),
-                    DataCell(
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(color: _bgBase, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.white.withValues(alpha: 0.1))),
-                        child: Text(c['rtsp_url'] ?? '', style: const TextStyle(color: _textVariant, fontFamily: 'monospace', fontSize: 11)),
-                      ),
-                    ),
-                    DataCell(
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CameraStatusDot(cameraId: c['id'] as int, size: 10),
-                          const SizedBox(width: 8),
-                          const Text('Operational', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                        ],
-                      )
-                    ),
-                    DataCell(
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(icon: const Icon(Icons.videocam, color: Colors.white54, size: 20), onPressed: () {
-                            setState(() => _previewCamera = c);
-                          }),
-                          IconButton(icon: const Icon(Icons.settings, color: Colors.white54, size: 20), onPressed: () => _showEditCameraDialog(c)),
-                          IconButton(icon: const Icon(Icons.delete_outline, color: _critical, size: 20), onPressed: () => _deleteCamera(c)),
-                        ],
-                      )
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
+      itemBuilder: (context, i) {
+        if (i == 0) return _buildAddCameraCard();
+        return _buildCameraCard(_savedCameras[i - 1]);
+      },
+    );
+  }
+
+  Widget _buildAddCameraCard() {
+    return InkWell(
+      onTap: _showAddCameraDialog,
+      borderRadius: BorderRadius.circular(16),
+      child: CustomPaint(
+        painter: DashedRectPainter(
+          color: _textVariant.withValues(alpha: 0.12),
+          strokeWidth: 2,
+          gap: 6,
+          dash: 6,
+          radius: 16,
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _surfaceContainer,
+                ),
+                child: Icon(Icons.add, size: 28, color: _textVariant),
+              ),
+              const SizedBox(height: 14),
+              Text('Add Camera',
+                  style: TextStyle(
+                      color: _textColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15)),
+              const SizedBox(height: 6),
+              Text('Register a new RTSP surveillance node.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: _textVariant, fontSize: 12)),
+            ],
           ),
-          if (_previewCamera != null) ...[
-             const Divider(color: Colors.white24, height: 1),
-             _buildLivePreview(),
-          ]
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildLivePreview() {
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
+  Widget _buildCameraCard(Map<String, dynamic> c) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+          color: _surfaceContainer,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _hairline)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Live Preview: ${_previewCamera!['name']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.settings, size: 16),
-                label: const Text('Manage Analytics'),
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => CameraSettingsDetailScreen(camera: _previewCamera!)));
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: _tealAccent, foregroundColor: _bgBase),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                    color: _tealAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10)),
+                child: Icon(Icons.videocam, color: _tealAccent, size: 20),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(c['name'] ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: _textColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15)),
+              ),
+              const SizedBox(width: 8),
+              CameraStatusDot(cameraId: c['id'] as int, size: 8),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          Text(c['location'] ?? 'Unassigned',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: _textVariant, fontSize: 13)),
+          const Spacer(),
           SizedBox(
-            height: 400,
-            child: Container(
-              decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withValues(alpha: 0.1))),
-              clipBehavior: Clip.hardEdge,
-              child: CameraStreamView(cameraId: _previewCamera!['id'], mode: 'manage'),
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.settings, size: 16),
+              label: const Text('Manage'),
+              onPressed: () => _openAnalytics(c['id'] as int),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: _tealAccent, foregroundColor: _bgBase),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildInfrastructureCards() {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(16), border: Border.all(color: _tealAccent.withValues(alpha: 0.2))),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: _tealAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(12)),
-                  child: const Icon(Icons.security, color: _tealAccent),
-                ),
-                const SizedBox(width: 16),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Stream Integrity', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                      SizedBox(height: 4),
-                      Text('System-wide AES-256 encryption is active.', style: TextStyle(color: _textVariant, fontSize: 12)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withValues(alpha: 0.05))),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Load Profile', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: _tealAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4), border: Border.all(color: _tealAccent.withValues(alpha: 0.2))), child: const Text('STABLE', style: TextStyle(color: _tealAccent, fontSize: 10, fontWeight: FontWeight.bold))),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                LinearProgressIndicator(value: 0.42, backgroundColor: const Color(0xFF27354c), color: _tealAccent, minHeight: 6, borderRadius: BorderRadius.circular(3)),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

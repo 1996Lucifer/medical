@@ -9,14 +9,13 @@ class SoapNoteView extends StatelessWidget {
 
   const SoapNoteView({super.key, required this.noteData, this.onDelete, this.isSuperAdmin = false});
 
-  // Aetheris Colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _surfaceContainerHighest = Color(0xFF27354c);
-
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final onSurface = scheme.onSurface;
+    final onSurfaceVariant = scheme.onSurfaceVariant;
+    final secondary = scheme.secondary;
+    final surfaceContainerHighest = scheme.surfaceContainerHighest;
     final transcript = noteData['transcript'] ?? 'No transcript available.';
     final summary = noteData['discharge_summary'] ?? 'No summary available.';
     final patientName = noteData['patient_name'] ?? 'Unknown Patient';
@@ -32,16 +31,16 @@ class SoapNoteView extends StatelessWidget {
             children: [
               Text(
                 'Patient: $patientName',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: _primary),
+                    color: onSurface),
               ),
               Row(
                 children: [
                   Text(
                     date.substring(0, 10), // just the date part
-                    style: const TextStyle(fontSize: 16, color: _primaryFixedDim),
+                    style: TextStyle(fontSize: 16, color: secondary),
                   ),
                   if (isSuperAdmin && onDelete != null) ...[
                     const SizedBox(width: 16),
@@ -57,35 +56,35 @@ class SoapNoteView extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           Divider(height: 32, color: Colors.white.withValues(alpha: 0.1)),
-          const Text(
+          Text(
             'SOAP Note (Medical Discharge Summary)',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryFixedDim),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: secondary),
           ),
           const SizedBox(height: 16),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: _surfaceContainerHighest.withValues(alpha: 0.5),
+              color: surfaceContainerHighest.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.3)),
+              border: Border.all(color: secondary.withValues(alpha: 0.3)),
             ),
             child: MarkdownBody(
               data: summary,
               styleSheet: MarkdownStyleSheet(
-                p: const TextStyle(fontSize: 16, height: 1.6, color: _primary),
-                strong: const TextStyle(fontWeight: FontWeight.bold, color: _primaryFixedDim),
-                h1: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryFixedDim),
-                h2: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primaryFixedDim),
-                h3: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryFixedDim),
-                listBullet: const TextStyle(color: _primaryFixedDim),
+                p: TextStyle(fontSize: 16, height: 1.6, color: onSurface),
+                strong: TextStyle(fontWeight: FontWeight.bold, color: secondary),
+                h1: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: secondary),
+                h2: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: secondary),
+                h3: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: secondary),
+                listBullet: TextStyle(color: secondary),
               ),
             ),
           ),
           const SizedBox(height: 32),
-          const Text(
+          Text(
             'Full Transcript',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _onSurfaceVariant),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: onSurfaceVariant),
           ),
           const SizedBox(height: 16),
           Container(
@@ -98,8 +97,8 @@ class SoapNoteView extends StatelessWidget {
             ),
             child: Text(
               transcript,
-              style: const TextStyle(
-                  fontSize: 14, height: 1.6, fontStyle: FontStyle.italic, color: _onSurfaceVariant),
+              style: TextStyle(
+                  fontSize: 14, height: 1.6, fontStyle: FontStyle.italic, color: onSurfaceVariant),
             ),
           ),
         ],

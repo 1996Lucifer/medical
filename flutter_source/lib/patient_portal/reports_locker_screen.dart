@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import '../network/api_routes.dart';
-import 'upload_report_screen.dart';
+import '../network/network_manager.dart';
 import 'package:intl/intl.dart';
 
 class ReportsLockerScreen extends StatefulWidget {
@@ -25,7 +25,7 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
 
   Future<void> _fetchReports() async {
     try {
-      final response = await http.get(Uri.parse('${ApiRoutes.baseUrl}/api/patient-portal/reports/${widget.patientId}'));
+      final response = await NetworkManager.instance.get('${ApiRoutes.baseUrl}/api/patient-portal/reports/${widget.patientId}');
       if (response.statusCode == 200) {
         setState(() {
           _reports = jsonDecode(response.body);
@@ -40,16 +40,20 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => UploadReportScreen(patientId: widget.patientId)),
-          );
-          if (result == true) {
-            setState(() => _isLoading = true);
-            _fetchReports();
-          }
+        onPressed: () {
+          // Same screen is reachable from the real, authenticated patient
+          // view (/patients/:id) and the pre-auth demo (/patient-demo/:id)
+          // — go() to the sibling route matching whichever parent we're
+          // actually under, so the URL reflects it and permissions line up.
+          // The upload screen navigates back here on its own completion,
+          // which remounts fresh (no need to await a result to refresh).
+          final currentPath = GoRouterState.of(context).uri.path;
+          final base = currentPath.startsWith('/patient-demo')
+              ? '/patient-demo'
+              : '/patients';
+          context.go('$base/${widget.patientId}/reports/upload');
         },
         icon: const Icon(Icons.upload_file),
         label: const Text("Upload Report"),
@@ -64,6 +68,7 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
                   itemBuilder: (context, index) {
                     final report = _reports[index];
                     final date = DateTime.parse(report['date']);
+                    final accent = Theme.of(context).colorScheme.secondary;
                     return Card(
                       margin: const EdgeInsets.only(bottom: 16),
                       elevation: 4,
@@ -72,10 +77,10 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withValues(alpha: 0.1),
+                            color: accent.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Icon(Icons.document_scanner, color: Colors.blue),
+                          child: Icon(Icons.document_scanner, color: accent),
                         ),
                         title: const Text("Medical Report", style: TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(DateFormat.yMMMd().add_jm().format(date)),
@@ -86,7 +91,7 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if (report['key_findings'] != null) ...[
-                                  const Text("Key Findings:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                                  Text("Key Findings:", style: TextStyle(fontWeight: FontWeight.bold, color: accent)),
                                   const SizedBox(height: 4),
                                   Text(report['key_findings']),
                                   const Divider(height: 24),

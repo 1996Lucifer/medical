@@ -120,6 +120,20 @@ async def get_cameras_status(db: Session = Depends(get_db)):
     return {cam_id: status for cam_id, status in results}
 
 
+@router.get("/{camera_id}", response_model=CameraResponse)
+def get_camera(camera_id: int, db: Session = Depends(get_db)):
+    """
+    Fetch a single camera by id — needed so the settings-detail page can be
+    reached directly by URL (/settings/cameras/:id) and load its own data
+    instead of requiring the full camera object to be passed in-memory
+    from the list screen.
+    """
+    cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera not found.")
+    return cam
+
+
 
 
 @router.put("/{camera_id}", response_model=CameraResponse)

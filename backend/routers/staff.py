@@ -1,4 +1,7 @@
 import os
+import re
+import secrets
+import string
 import shutil
 import datetime
 import uuid
@@ -12,16 +15,81 @@ from pydantic import BaseModel, ConfigDict
 from database import get_db
 import models
 from camera.vision_service import vision_service
+from routers.auth import get_password_hash
 
 router = APIRouter(prefix="/api/staff", tags=["staff"])
 ws_router = APIRouter(prefix="/api/staff", tags=["staff_ws"])
+
+# Characters excluded from generated temp passwords/usernames: visually
+# ambiguous (l/I/1/O/0) so an admin reading it aloud to a new hire doesn't
+# transcribe it wrong.
+_TEMP_PASSWORD_ALPHABET = "".join(
+    c for c in (string.ascii_letters + string.digits) if c not in "lIO01"
+)
+
+
+def _generate_staff_username(db: Session, name: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", ".", name.strip().lower()).strip(".")
+    if not base:
+        base = "staff"
+    candidate = base
+    suffix = 1
+    while db.query(models.User).filter(models.User.username == candidate).first():
+        suffix += 1
+        candidate = f"{base}{suffix}"
+    return candidate
+
+
+def _generate_temp_password(length: int = 10) -> str:
+    return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(length))
+
+
+def _create_login_for_staff(db: Session, name: str, role: Optional[str]):
+    """
+    Create a login account alongside a new Staff (biometric) record, with a
+    system-generated temporary password. The account starts in
+    "change_password" status so the first login forces a change — the
+    admin communicates this one-time password to the new hire, it is
+    never stored or shown again.
+    Returns (models.User, plaintext_temp_password), or (None, None) if
+    account creation failed — staff registration itself must not be
+    blocked by this.
+    """
+    try:
+        username = _generate_staff_username(db, name)
+        temp_password = _generate_temp_password()
+        new_user = models.User(
+            username=username,
+            hashed_password=get_password_hash(temp_password),
+            role=role or "Medical Staff",
+            status="change_password",
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return new_user, temp_password
+    except Exception as e:
+        db.rollback()
+        print(f"[Staff] Failed to create login account for {name}: {e}")
+        return None, None
+
 
 class StaffResponse(BaseModel):
     id: int
     name: str
     role: Optional[str] = "Medical Staff"
+    category: Optional[str] = "Medical Staff"
     photo_count: int = 0
     photo_url: Optional[str] = None
+    # The linked login account's lifecycle status ("active",
+    # "change_password", "inactive", ...) — None if this staff member has
+    # no linked account (registered before this existed).
+    status: Optional[str] = None
+    # Only populated on the creation response — a one-time temporary
+    # credential the admin must relay to the new hire. Never re-sent by
+    # any other endpoint (the plaintext isn't stored anywhere).
+    username: Optional[str] = None
+    temp_password: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class StaffActivityResponse(BaseModel):
@@ -50,6 +118,7 @@ class StaffPhotoResponse(BaseModel):
 class StaffUpdate(BaseModel):
     name: str
     role: Optional[str] = "Medical Staff"
+    category: Optional[str] = "Medical Staff"
 
 
 def load_staff_list(db: Session) -> list:
@@ -77,10 +146,14 @@ def update_global_embeddings(db: Session):
 
 @router.post("", response_model=StaffResponse)
 async def register_staff(
-    name: str, role: Optional[str] = "Medical Staff", file: Optional[UploadFile] = None, db: Session = Depends(get_db)
+    name: str,
+    role: Optional[str] = "Medical Staff",
+    category: Optional[str] = "Medical Staff",
+    file: Optional[UploadFile] = None,
+    db: Session = Depends(get_db),
 ):
     """Register a new staff member with an optional first face photo."""
-    db_staff = models.Staff(name=name, role=role)
+    db_staff = models.Staff(name=name, role=role, category=category)
     filename = None
     
     if file is not None:
@@ -115,18 +188,28 @@ async def register_staff(
     db.add(db_staff)
     db.commit()
     db.refresh(db_staff)
-    
+
     _log_activity(db, "New Staff Onboarded", f"{name} was registered as {role}.", "green")
-    
+
     if file is not None:
         update_global_embeddings(db)
 
+    new_user, temp_password = _create_login_for_staff(db, name, role)
+    if new_user is not None:
+        db_staff.user_id = new_user.id
+        db.commit()
+        db.refresh(db_staff)
+
     return StaffResponse(
-        id=db_staff.id, 
-        name=db_staff.name, 
+        id=db_staff.id,
+        name=db_staff.name,
         role=db_staff.role,
-        photo_count=1 if file is not None else 0, 
-        photo_url=f"/{db_staff.photo_path}" if db_staff.photo_path else None
+        category=db_staff.category,
+        photo_count=1 if file is not None else 0,
+        photo_url=f"/{db_staff.photo_path}" if db_staff.photo_path else None,
+        status=new_user.status if new_user else None,
+        username=new_user.username if new_user else None,
+        temp_password=temp_password,
     )
 
 
@@ -237,49 +320,47 @@ def update_staff(staff_id: int, body: StaffUpdate, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Staff not found.")
     staff.name = body.name
     staff.role = body.role
+    staff.category = body.category
     db.commit()
     db.refresh(staff)
-    
+
     _log_activity(db, "Profile Updated", f"{staff.name} role changed to {staff.role}.", "orange")
-    
+
     photo_url = f"/{staff.photo_path}" if staff.photo_path else None
-    
+
     return StaffResponse(
-        id=staff.id, 
-        name=staff.name, 
+        id=staff.id,
+        name=staff.name,
         role=staff.role,
+        category=staff.category,
         photo_count=len(staff.photos) + (1 if staff.embedding is not None else 0),
-        photo_url=photo_url
+        photo_url=photo_url,
+        status=staff.user.status if staff.user else None,
     )
 
 
 @router.delete("/{staff_id}")
 def delete_staff(staff_id: int, db: Session = Depends(get_db)):
-    """Remove a staff member and all their photos."""
+    """
+    "Revoke" a staff member. This used to hard-delete the Staff row (and
+    its photos/embeddings) entirely; it now only disables their linked
+    login account (status -> "inactive") so the row, photos, and
+    attendance history stay in the database — nothing to recover from a
+    backup if a revoke turns out to be a mistake, and the staff list can
+    keep showing them with their current status instead of silently
+    disappearing.
+    """
     staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found.")
-        
-    # Clear attendance foreign keys before deleting staff
-    db.query(models.Attendance).filter(models.Attendance.staff_id == staff_id).update({"staff_id": None})
-    
-    # Delete primary photo from filesystem
-    if staff.photo_path and os.path.exists(staff.photo_path):
-        os.remove(staff.photo_path)
-        
-    # Delete additional photos from filesystem
-    for p in staff.photos:
-        if p.photo_path and os.path.exists(p.photo_path):
-            os.remove(p.photo_path)
-            
-    name = staff.name
-    db.delete(staff)
-    db.commit()
-    
-    _log_activity(db, "Access Revoked", f"{name}'s access was revoked.", "red")
-    
-    update_global_embeddings(db)
-    return {"status": "deleted"}
+
+    if staff.user is not None:
+        staff.user.status = "inactive"
+        db.commit()
+
+    _log_activity(db, "Access Revoked", f"{staff.name}'s access was revoked.", "red")
+
+    return {"status": "revoked"}
 
 
 @router.get("", response_model=List[StaffResponse])
@@ -289,19 +370,21 @@ def get_staff(db: Session = Depends(get_db)):
     for s in staff_records:
         count = 1 if s.embedding is not None else 0
         count += len(s.photos)
-        
+
         photo_url = f"/{s.photo_path}" if s.photo_path else None
         if not photo_url:
             front_photo = next((p for p in s.photos if p.label == 'front'), None)
             if front_photo and front_photo.photo_path:
                 photo_url = f"/{front_photo.photo_path}"
-                
+
         result.append(StaffResponse(
-            id=s.id, 
-            name=s.name, 
+            id=s.id,
+            name=s.name,
             role=s.role,
+            category=s.category,
             photo_count=count,
-            photo_url=photo_url
+            photo_url=photo_url,
+            status=s.user.status if s.user else None,
         ))
     return result
 

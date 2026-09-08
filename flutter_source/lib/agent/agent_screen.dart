@@ -1,8 +1,8 @@
 import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 
@@ -39,15 +39,26 @@ class _AgentScreenState extends State<AgentScreen>
   final ScrollController _scrollController = ScrollController();
   bool _showScrollToBottom = false;
 
-  // Aetheris colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurface = Color(0xFFd6e3ff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
+  void _handleSend(AgentProvider provider) {
+    final txt = _controller.text;
+    if (txt.trim().isEmpty && provider.attachedFile == null) {
+      return;
+    }
+    _controller.clear();
+    provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
+  }
 
-  static const Color _onPrimaryContainer = Color(0xFF00725e);
-  static const Color _surfaceContainerHighest = Color(0xFF27354c);
-  static const Color _surfaceContainerLowest = Color(0xFF010e24);
+  // Theme-derived colors
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurface => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurfaceVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
+
+  Color get _onPrimaryContainer => Theme.of(context).colorScheme.onSecondary;
+  Color get _surfaceContainerHighest =>
+      Theme.of(context).colorScheme.surfaceContainerHighest;
+  Color get _surfaceContainerLowest =>
+      Theme.of(context).colorScheme.surfaceContainerLowest;
 
   late AnimationController _pulseController;
 
@@ -132,8 +143,8 @@ class _AgentScreenState extends State<AgentScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Text("CHAT HISTORY",
                 style: TextStyle(
                     fontSize: 12,
@@ -142,55 +153,60 @@ class _AgentScreenState extends State<AgentScreen>
                     color: _onSurfaceVariant)),
           ),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: provider.sessions.length,
-              itemBuilder: (context, index) {
-                final session = provider.sessions[index];
-                final isSelected = session['id'] == provider.currentSessionId;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
-                  child: ListTile(
-                    dense: true,
-                    leading: Icon(Icons.chat_bubble_outline,
-                        size: 18,
-                        color:
-                            isSelected ? _primaryFixedDim : _onSurfaceVariant),
-                    title: Text(
-                      "Chat ${session['id']}",
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: isSelected ? _primary : _onSurfaceVariant,
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.normal,
+            child: Material(
+              type: MaterialType.transparency,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: provider.sessions.length,
+                itemBuilder: (context, index) {
+                  final session = provider.sessions[index];
+                  final isSelected = session['id'] == provider.currentSessionId;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.chat_bubble_outline,
+                          size: 18,
+                          color: isSelected
+                              ? _primaryFixedDim
+                              : _onSurfaceVariant),
+                      title: Text(
+                        "Chat ${session['id']}",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isSelected ? _primary : _onSurfaceVariant,
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      selected: isSelected,
+                      selectedTileColor:
+                          _primaryFixedDim.withValues(alpha: 0.1),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                              color: isSelected
+                                  ? _primaryFixedDim.withValues(alpha: 0.3)
+                                  : Colors.transparent)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            size: 16, color: Colors.redAccent),
+                        onPressed: () => provider.deleteSession(session['id']),
+                        splashRadius: 20,
+                        tooltip: "Delete Chat",
+                      ),
+                      onTap: () {
+                        if (!isSelected) {
+                          provider.loadSession(session['id']);
+                          _scrollToBottomDelayed();
+                        }
+                      },
                     ),
-                    selected: isSelected,
-                    selectedTileColor: _primaryFixedDim.withValues(alpha: 0.1),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                            color: isSelected
-                                ? _primaryFixedDim.withValues(alpha: 0.3)
-                                : Colors.transparent)),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline,
-                          size: 16, color: Colors.redAccent),
-                      onPressed: () => provider.deleteSession(session['id']),
-                      splashRadius: 20,
-                      tooltip: "Delete Chat",
-                    ),
-                    onTap: () {
-                      if (!isSelected) {
-                        provider.loadSession(session['id']);
-                        _scrollToBottomDelayed();
-                      }
-                    },
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -238,18 +254,18 @@ class _AgentScreenState extends State<AgentScreen>
                                         child: Image.network(
                                           config.fullLogoUrl!,
                                           fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              const Icon(Icons.smart_toy,
-                                                  color: _primaryFixedDim,
-                                                  size: 20),
+                                          errorBuilder: (_, __, ___) => Icon(
+                                              Icons.smart_toy,
+                                              color: _primaryFixedDim,
+                                              size: 20),
                                         ),
                                       )
-                                    : const Icon(Icons.smart_toy,
+                                    : Icon(Icons.smart_toy,
                                         color: _primaryFixedDim, size: 20),
                               ),
                               const SizedBox(width: 16),
                               Text("${config.agentName} is processing...",
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: _onSurfaceVariant,
                                       fontStyle: FontStyle.italic)),
                             ],
@@ -268,7 +284,7 @@ class _AgentScreenState extends State<AgentScreen>
                   child: FloatingActionButton.small(
                     onPressed: _scrollToBottom,
                     backgroundColor: _surfaceContainerHighest,
-                    child: const Icon(Icons.arrow_downward, color: _primary),
+                    child: Icon(Icons.arrow_downward, color: _primary),
                   ),
                 ),
               if (_scrollController.hasClients &&
@@ -279,7 +295,7 @@ class _AgentScreenState extends State<AgentScreen>
                   child: FloatingActionButton.small(
                     onPressed: _scrollToTop,
                     backgroundColor: _surfaceContainerHighest,
-                    child: const Icon(Icons.arrow_upward, color: _primary),
+                    child: Icon(Icons.arrow_upward, color: _primary),
                   ),
                 ),
             ],
@@ -317,8 +333,8 @@ class _AgentScreenState extends State<AgentScreen>
               children: [
                 Text(
                   '${siteConfig.agentName} Command',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.white),
+                  style:
+                      TextStyle(fontWeight: FontWeight.bold, color: _primary),
                 ),
                 const SizedBox(width: 16),
                 Container(
@@ -327,8 +343,7 @@ class _AgentScreenState extends State<AgentScreen>
                   decoration: BoxDecoration(
                     color: _surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(16),
-                    border:
-                        Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                    border: Border.all(color: _primary.withValues(alpha: 0.2)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -338,7 +353,7 @@ class _AgentScreenState extends State<AgentScreen>
                         child: Container(
                           width: 8,
                           height: 8,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                               color: _primaryFixedDim,
                               shape: BoxShape.circle,
                               boxShadow: [
@@ -348,7 +363,7 @@ class _AgentScreenState extends State<AgentScreen>
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Text('CLINICAL AGENT ACTIVE',
+                      Text('CLINICAL AGENT ACTIVE',
                           style: TextStyle(
                               color: _primaryFixedDim,
                               fontSize: 10,
@@ -361,7 +376,7 @@ class _AgentScreenState extends State<AgentScreen>
             );
           },
         ),
-        backgroundColor: Colors.black.withValues(alpha: 0.3),
+        backgroundColor: _surfaceContainerHighest.withValues(alpha: 0.3),
         elevation: 0,
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -371,10 +386,10 @@ class _AgentScreenState extends State<AgentScreen>
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
-          child: Container(
-              color: Colors.white.withValues(alpha: 0.05), height: 1.0),
+          child:
+              Container(color: _primary.withValues(alpha: 0.05), height: 1.0),
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: _primary),
       ),
       body: GlassBackground(
         child: SizedBox.expand(
@@ -457,8 +472,8 @@ class _AgentScreenState extends State<AgentScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: Text("QUICK ACTIONS",
                 style: TextStyle(
                     fontSize: 12,
@@ -491,13 +506,13 @@ class _AgentScreenState extends State<AgentScreen>
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.auto_awesome,
+                          Icon(Icons.auto_awesome,
                               size: 16, color: _primaryFixedDim),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(text,
-                                style: const TextStyle(
-                                    fontSize: 13, color: _onSurface),
+                                style:
+                                    TextStyle(fontSize: 13, color: _onSurface),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis),
                           ),
@@ -587,48 +602,47 @@ class _AgentScreenState extends State<AgentScreen>
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               IconButton(
-                icon: const Icon(Icons.add_circle_outline,
+                icon: Icon(Icons.add_circle_outline,
                     color: _onSurfaceVariant, size: 28),
                 onPressed: () => _pickFile(provider),
                 tooltip: "Attach Document or Image",
               ),
               Expanded(
-                child: TextField(
-                  controller: _controller,
-                  style: const TextStyle(color: _primary, fontSize: 16),
-                  minLines: 1,
-                  maxLines: 4,
-                  decoration: InputDecoration(
-                    hintText:
-                        "Inquire about clinical data, protocols, or patient status...",
-                    hintStyle: TextStyle(
-                        color: _onSurfaceVariant.withValues(alpha: 0.5)),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                  ),
-                  onSubmitted: (_) {
-                    final txt = _controller.text;
-                    if (txt.trim().isEmpty && provider.attachedFile == null) {
-                      return;
+                child: Focus(
+                  onKeyEvent: (node, event) {
+                    if (event is KeyDownEvent &&
+                        event.logicalKey == LogicalKeyboardKey.enter) {
+                      if (HardwareKeyboard.instance.isMetaPressed) {
+                        return KeyEventResult.ignored;
+                      }
+                      _handleSend(provider);
+                      return KeyEventResult.handled;
                     }
-                    _controller.clear();
-                    provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
+                    return KeyEventResult.ignored;
                   },
+                  child: TextField(
+                    controller: _controller,
+                    style: TextStyle(color: _primary, fontSize: 16),
+                    minLines: 1,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText:
+                          "Inquire about clinical data, protocols, or patient status...",
+                      hintStyle: TextStyle(
+                          color: _onSurfaceVariant.withValues(alpha: 0.5)),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                    ),
+                    onSubmitted: (_) => _handleSend(provider),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Padding(
                 padding: const EdgeInsets.only(bottom: 4.0, right: 4.0),
                 child: ElevatedButton(
-                  onPressed: () {
-                    final txt = _controller.text;
-                    if (txt.trim().isEmpty && provider.attachedFile == null) {
-                      return;
-                    }
-                    _controller.clear();
-                    provider.sendMessage(txt, onScroll: _scrollToBottomDelayed);
-                  },
+                  onPressed: () => _handleSend(provider),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _primaryFixedDim,
                     foregroundColor: _onPrimaryContainer,
@@ -660,17 +674,18 @@ class _MessageBubble extends StatelessWidget {
   final AgentMessage msg;
   const _MessageBubble({required this.msg});
 
-  // Aetheris colors inside bubble
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurface = Color(0xFFd6e3ff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _primaryContainer = Color(0xFF5ffbd6);
-  static const Color _onPrimaryContainer = Color(0xFF00725e);
-  static const Color _surfaceContainerHighest = Color(0xFF27354c);
-
   @override
   Widget build(BuildContext context) {
+    // Theme-derived colors (local, since this StatelessWidget's build() is
+    // the only place these are used — shadows nothing at class scope).
+    final scheme = Theme.of(context).colorScheme;
+    final _primary = scheme.onSurface;
+    final _onSurface = scheme.onSurface;
+    final _onSurfaceVariant = scheme.onSurfaceVariant;
+    final _primaryFixedDim = scheme.secondary;
+    final _primaryContainer = scheme.primaryContainer;
+    final _onPrimaryContainer = scheme.onSecondary;
+    final _surfaceContainerHighest = scheme.surfaceContainerHighest;
     final siteConfig = Provider.of<SiteConfigProvider>(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 24.0),
@@ -694,14 +709,11 @@ class _MessageBubble extends StatelessWidget {
                       child: Image.network(
                         siteConfig.fullLogoUrl!,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(
-                            Icons.smart_toy,
-                            color: _primaryFixedDim,
-                            size: 20),
+                        errorBuilder: (_, __, ___) => Icon(Icons.smart_toy,
+                            color: _primaryFixedDim, size: 20),
                       ),
                     )
-                  : const Icon(Icons.smart_toy,
-                      color: _primaryFixedDim, size: 20),
+                  : Icon(Icons.smart_toy, color: _primaryFixedDim, size: 20),
             ),
             const SizedBox(width: 16),
           ],
@@ -800,12 +812,12 @@ class _MessageBubble extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.info_outline,
+                      Icon(Icons.info_outline,
                           size: 12, color: _onSurfaceVariant),
                       const SizedBox(width: 4),
                       Text(
                         "Routed via: ${msg.intent} (${msg.engine})",
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 10,
                             color: _onSurfaceVariant,
                             fontWeight: FontWeight.bold),
@@ -825,8 +837,7 @@ class _MessageBubble extends StatelessWidget {
                 color: _primaryFixedDim,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.person,
-                  color: _onPrimaryContainer, size: 20),
+              child: Icon(Icons.person, color: _onPrimaryContainer, size: 20),
             ),
           ],
         ],

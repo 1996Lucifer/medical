@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flutter-web",
+      "runtimeExecutable": "/Users/dj/fvm/cache.git/bin/flutter",
+      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "5173", "--web-hostname", "0.0.0.0"],
+      "port": 5173
+    }
+  ]
+}

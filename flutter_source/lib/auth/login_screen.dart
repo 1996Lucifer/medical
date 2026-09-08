@@ -1,13 +1,15 @@
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+
 import '../main.dart';
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import '../providers/auth_provider.dart';
 import '../providers/site_config_provider.dart';
-import '../patient_portal/patient_dashboard_screen.dart' as patient_portal;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -22,35 +24,53 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
 
   // Aetheris Colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _surfaceContainerHighest = Color(0xFF27354c);
-  static const Color _error = Color(0xFFffb4ab);
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurfaceVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
+  Color get _error => Theme.of(context).colorScheme.error;
 
   @override
   void initState() {
     super.initState();
-    _checkSetupAdmin();
+    _checkSetupStatus();
   }
 
-  Future<void> _checkSetupAdmin() async {
+  /// A fresh deployment (no admin account created yet) gets redirected to
+  /// the setup wizard instead of showing the login form — see
+  /// routers/setup.py for why this replaced the old auto-created
+  /// "admin"/"admin" behavior.
+  Future<void> _checkSetupStatus() async {
     try {
-      final res = await NetworkManager.instance.post(ApiRoutes.setupAdmin);
+      final res = await NetworkManager.instance.get(ApiRoutes.setupStatus);
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        if (data['msg'] == 'Admin created') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Default admin account created (admin/admin)', style: TextStyle(color: _primary)),
-              backgroundColor: _surfaceContainerHighest,
-            ),
-          );
+        if (data['initialized'] == false && mounted) {
+          context.go('/setup');
         }
       }
     } catch (e) {
-      debugPrint("Setup Admin Error: $e");
+      debugPrint("Setup status check error: $e");
     }
+  }
+
+  void _showRequestAccessDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Request Access'),
+        content: const Text(
+          'Accounts for this system are provisioned by your hospital '
+          'administrator. Contact your IT/security administrator to '
+          'have an account created for you.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _login() async {
@@ -68,7 +88,8 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authProvider.error ?? 'Login failed', style: const TextStyle(color: _error)),
+          content: Text(authProvider.error ?? 'Login failed',
+              style: TextStyle(color: _error)),
           backgroundColor: const Color(0xFF93000a), // error container
         ),
       );
@@ -99,34 +120,41 @@ class _LoginScreenState extends State<LoginScreen> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: _primaryFixedDim.withValues(alpha: 0.1),
-                                shape: BoxShape.circle,
-                                border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.3), width: 1),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: _primaryFixedDim.withValues(alpha: 0.2),
-                                    blurRadius: 20,
-                                    spreadRadius: 2,
-                                  )
-                                ]
-                              ),
+                                  color:
+                                      _primaryFixedDim.withValues(alpha: 0.1),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                      color: _primaryFixedDim.withValues(
+                                          alpha: 0.3),
+                                      width: 1),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: _primaryFixedDim.withValues(
+                                          alpha: 0.2),
+                                      blurRadius: 20,
+                                      spreadRadius: 2,
+                                    )
+                                  ]),
                               child: siteConfig.fullLogoUrl != null
-                                ? ClipOval(
-                                    child: Image.network(
-                                      siteConfig.fullLogoUrl!,
-                                      width: 120,
-                                      height: 120,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) =>
-                                        const Icon(Icons.shield, size: 120, color: _primaryFixedDim),
-                                    ),
-                                  )
-                                : const Icon(Icons.shield, size: 120, color: _primaryFixedDim),
+                                  ? ClipOval(
+                                      child: Image.network(
+                                        siteConfig.fullLogoUrl!,
+                                        width: 120,
+                                        height: 120,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Icon(
+                                            Icons.shield,
+                                            size: 120,
+                                            color: _primaryFixedDim),
+                                      ),
+                                    )
+                                  : Icon(Icons.shield,
+                                      size: 120, color: _primaryFixedDim),
                             ),
                             const SizedBox(height: 24),
                             Text(
                               siteConfig.hospitalName,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w700,
                                 color: _primary,
@@ -139,7 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'SECURE PERSONNEL LOGIN',
                       style: TextStyle(
                         fontSize: 12,
@@ -160,7 +188,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       label: 'Security Key / Password',
                       icon: Icons.lock_outline,
                       obscureText: _obscurePassword,
-                      onToggleObscure: () => setState(() => _obscurePassword = !_obscurePassword),
+                      onToggleObscure: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                       onSubmitted: (_) => _login(),
                     ),
                     const SizedBox(height: 32),
@@ -170,8 +199,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _primaryFixedDim,
-                          foregroundColor: const Color(0xFF00382d), // on-primary-fixed
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          foregroundColor:
+                              const Color(0xFF00382d), // on-primary-fixed
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                           elevation: 0,
                         ),
                         onPressed: isLoading ? null : _login,
@@ -179,38 +210,43 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? const SizedBox(
                                 width: 24,
                                 height: 24,
-                                child: CircularProgressIndicator(color: Color(0xFF00382d), strokeWidth: 2))
+                                child: CircularProgressIndicator(
+                                    color: Color(0xFF00382d), strokeWidth: 2))
                             : const Text(
                                 'INITIALIZE SECURE SESSION',
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.0),
                               ),
                       ),
                     ),
                     const SizedBox(height: 24),
                     TextButton(
-                      onPressed: () {
-                        // Request access
-                      },
-                      child: const Text("Request Access", style: TextStyle(color: _onSurfaceVariant, fontSize: 14)),
+                      onPressed: _showRequestAccessDialog,
+                      child: Text("Request Access",
+                          style: TextStyle(
+                              color: _onSurfaceVariant, fontSize: 14)),
                     ),
                     const SizedBox(height: 8),
                     TextButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const patient_portal.PatientDashboardScreen(patientId: 1),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.favorite_border, color: Color(0xFFffb4ab), size: 18),
-                      label: const Text("Enter Patient Portal (Demo)", style: TextStyle(color: Color(0xFFffb4ab), fontSize: 13)),
+                      onPressed: () => context.go('/patient-demo/1'),
+                      icon: const Icon(Icons.favorite_border,
+                          color: Color(0xFFffb4ab), size: 18),
+                      label: const Text("Enter Patient Portal (Demo)",
+                          style: TextStyle(
+                              color: Color(0xFFffb4ab), fontSize: 13)),
                     ),
                     if (kDebugMode) ...[
                       const SizedBox(height: 32),
                       Divider(color: Colors.white.withValues(alpha: 0.1)),
                       const SizedBox(height: 16),
-                      const Text('DEV OVERRIDE (DEBUG)', style: TextStyle(color: _onSurfaceVariant, fontSize: 10, letterSpacing: 1.5, fontWeight: FontWeight.w600)),
+                      Text('DEV OVERRIDE (DEBUG)',
+                          style: TextStyle(
+                              color: _onSurfaceVariant,
+                              fontSize: 10,
+                              letterSpacing: 1.5,
+                              fontWeight: FontWeight.w600)),
                       const SizedBox(height: 16),
                       Wrap(
                         spacing: 8,
@@ -247,16 +283,18 @@ class _LoginScreenState extends State<LoginScreen> {
     return TextField(
       controller: controller,
       obscureText: obscureText,
-      style: const TextStyle(color: _primary),
+      style: TextStyle(color: _primary),
       onSubmitted: onSubmitted,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: _onSurfaceVariant),
+        labelStyle: TextStyle(color: _onSurfaceVariant),
         prefixIcon: Icon(icon, color: _primaryFixedDim.withValues(alpha: 0.7)),
         suffixIcon: onToggleObscure != null
             ? IconButton(
                 icon: Icon(
-                  obscureText ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  obscureText
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
                   color: _onSurfaceVariant,
                 ),
                 onPressed: onToggleObscure,
@@ -270,7 +308,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _primaryFixedDim),
+          borderSide: BorderSide(color: _primaryFixedDim),
         ),
       ),
     );
@@ -278,7 +316,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildRoleChip(String label, String username) {
     return ActionChip(
-      label: Text(label, style: const TextStyle(fontSize: 12, color: _primaryFixedDim)),
+      label:
+          Text(label, style: TextStyle(fontSize: 12, color: _primaryFixedDim)),
       backgroundColor: _primaryFixedDim.withValues(alpha: 0.1),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),

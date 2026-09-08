@@ -19,14 +19,14 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
   int _selectedDays = 7;
 
   // Aetheris colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurface = Color(0xFFd6e3ff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _secondary = Color(0xFFa6e6ff);
-  static const Color _surfaceContainerHigh = Color(0xFF1c2a41);
-  static const Color _surfaceBright = Color(0xFF2c3951);
-  static const Color _error = Color(0xFFffb4ab);
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurface => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurfaceVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
+  Color get _secondary => Theme.of(context).colorScheme.tertiary;
+  Color get _surfaceContainerHigh => Theme.of(context).colorScheme.surfaceContainerHigh;
+  Color get _surfaceBright => Theme.of(context).colorScheme.surfaceBright;
+  Color get _error => Theme.of(context).colorScheme.error;
 
   @override
   void initState() {
@@ -93,7 +93,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
         children: [
           Row(
             children: [
-              const Text(
+              Text(
                 'Staff Activity Analytics',
                 style: TextStyle(
                   fontSize: 24,
@@ -116,9 +116,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                   child: DropdownButton<int>(
                     value: _selectedDays,
                     isDense: true,
-                    icon: const Icon(Icons.expand_more, color: _primaryFixedDim, size: 16),
+                    icon: Icon(Icons.expand_more, color: _primaryFixedDim, size: 16),
                     dropdownColor: _surfaceContainerHigh,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: _onSurface, fontSize: 14, fontWeight: FontWeight.w600),
                     items: const [
                       DropdownMenuItem(value: 1, child: Text('Today')),
@@ -167,7 +167,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(title.toUpperCase(),
-              style: const TextStyle(
+              style: TextStyle(
                   color: _onSurfaceVariant,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -189,7 +189,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     color: _error.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: Text(subtitle, style: const TextStyle(color: _error, fontSize: 10, fontWeight: FontWeight.bold)),
+                  child: Text(subtitle, style: TextStyle(color: _error, fontSize: 10, fontWeight: FontWeight.bold)),
                 )
               else if (showProgress)
                 Expanded(
@@ -197,7 +197,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     padding: const EdgeInsets.only(left: 16.0, bottom: 6),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(2),
-                      child: const LinearProgressIndicator(
+                      child: LinearProgressIndicator(
                         value: 0.92,
                         backgroundColor: _surfaceContainerHigh,
                         valueColor: AlwaysStoppedAnimation<Color>(_secondary),
@@ -213,7 +213,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         color: _primaryFixedDim, size: 14),
                     const SizedBox(width: 4),
                     Text(subtitle,
-                        style: const TextStyle(color: _primaryFixedDim, fontSize: 14)),
+                        style: TextStyle(color: _primaryFixedDim, fontSize: 14)),
                   ],
                 )
             ],
@@ -249,7 +249,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Column(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text("Staff Attendance Hours",
@@ -257,7 +257,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: _primary)),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text("Aggregated data across all active cameras.",
                         style: TextStyle(fontSize: 14, color: _onSurfaceVariant)),
                   ],
@@ -271,7 +271,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                       ),
-                      child: const Text('Filter: All Cameras', style: TextStyle(color: _onSurface, fontSize: 12, fontWeight: FontWeight.w600)),
+                      child: Text('Filter: All Cameras', style: TextStyle(color: _onSurface, fontSize: 12, fontWeight: FontWeight.w600)),
                     ),
                     const SizedBox(width: 8),
                     Container(
@@ -280,7 +280,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         color: Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(Icons.download_rounded, color: _onSurfaceVariant, size: 20),
+                      child: Icon(Icons.download_rounded, color: _onSurfaceVariant, size: 20),
                     ),
                   ],
                 )
@@ -306,7 +306,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Text(total.toStringAsFixed(1),
-                          style: const TextStyle(fontSize: 11, color: _onSurfaceVariant)),
+                          style: TextStyle(fontSize: 11, color: _onSurfaceVariant)),
                       const SizedBox(height: 8),
                       Container(
                         width: 48,
@@ -330,7 +330,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Text(shortDate, style: const TextStyle(fontSize: 12, color: _onSurfaceVariant, fontWeight: FontWeight.w600)),
+                      Text(shortDate, style: TextStyle(fontSize: 12, color: _onSurfaceVariant, fontWeight: FontWeight.w600)),
                     ],
                   );
                 }).toList(),
@@ -362,7 +362,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("Recent Access Logs",
+                Text("Recent Access Logs",
                     style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -378,16 +378,16 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: const Row(
+                      child: Row(
                         children: [
                           Icon(Icons.search, size: 16, color: _onSurfaceVariant),
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           Text('Search logs...', style: TextStyle(color: _onSurfaceVariant, fontSize: 13)),
                         ],
                       ),
                     ),
                     const SizedBox(width: 16),
-                    const Text('View All Logs', style: TextStyle(color: _primaryFixedDim, fontSize: 13, fontWeight: FontWeight.w600)),
+                    Text('View All Logs', style: TextStyle(color: _primaryFixedDim, fontSize: 13, fontWeight: FontWeight.w600)),
                   ],
                 )
               ],
@@ -407,19 +407,19 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                   children: [
                     SizedBox(
                       width: 140,
-                      child: Text(_formatDate(r['date']), style: const TextStyle(color: _onSurfaceVariant, fontSize: 13)),
+                      child: Text(_formatDate(r['date']), style: TextStyle(color: _onSurfaceVariant, fontSize: 13)),
                     ),
                     Expanded(
                       flex: 2,
-                      child: Text(r['staff_name'] ?? 'Unknown', style: const TextStyle(color: _primary, fontWeight: FontWeight.bold, fontSize: 14)),
+                      child: Text(r['staff_name'] ?? 'Unknown', style: TextStyle(color: _primary, fontWeight: FontWeight.bold, fontSize: 14)),
                     ),
                     Expanded(
                       flex: 2,
                       child: Row(
                         children: [
-                          const Icon(Icons.login, color: _primaryFixedDim, size: 16),
+                          Icon(Icons.login, color: _primaryFixedDim, size: 16),
                           const SizedBox(width: 8),
-                          Text('Entry: ${_formatTime(r['entry_time'])}', style: const TextStyle(color: _primaryFixedDim, fontSize: 13)),
+                          Text('Entry: ${_formatTime(r['entry_time'])}', style: TextStyle(color: _primaryFixedDim, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -427,15 +427,15 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                       flex: 2,
                       child: Row(
                         children: [
-                          const Icon(Icons.logout, color: _secondary, size: 16),
+                          Icon(Icons.logout, color: _secondary, size: 16),
                           const SizedBox(width: 8),
-                          Text('Exit: ${_formatTime(r['exit_time'])}', style: const TextStyle(color: _secondary, fontSize: 13)),
+                          Text('Exit: ${_formatTime(r['exit_time'])}', style: TextStyle(color: _secondary, fontSize: 13)),
                         ],
                       ),
                     ),
                     Expanded(
                       flex: 2,
-                      child: Text(r['camera_name'] ?? 'Unknown Cam', style: const TextStyle(color: _onSurfaceVariant, fontSize: 13)),
+                      child: Text(r['camera_name'] ?? 'Unknown Cam', style: TextStyle(color: _onSurfaceVariant, fontSize: 13)),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -444,7 +444,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.2)),
                       ),
-                      child: const Text('VERIFIED', style: TextStyle(color: _primaryFixedDim, fontSize: 10, fontWeight: FontWeight.bold)),
+                      child: Text('VERIFIED', style: TextStyle(color: _primaryFixedDim, fontSize: 10, fontWeight: FontWeight.bold)),
                     )
                   ],
                 ),
@@ -462,9 +462,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       extendBodyBehindAppBar: true,
       body: GlassBackground(
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: _primaryFixedDim))
+            ? Center(child: CircularProgressIndicator(color: _primaryFixedDim))
             : _summaryData.isEmpty
-                ? const Center(child: Text("No attendance data available.", style: TextStyle(color: _onSurface)))
+                ? Center(child: Text("No attendance data available.", style: TextStyle(color: _onSurface)))
                 : ListView(
                     padding: const EdgeInsets.all(40),
                     children: [

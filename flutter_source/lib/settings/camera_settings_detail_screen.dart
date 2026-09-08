@@ -2,17 +2,18 @@ import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../app_router.dart';
 import '../camera/camera_stream_view.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import 'camera_status_dot.dart';
-import 'rbac_mapper_screen.dart';
 
 class CameraSettingsDetailScreen extends StatefulWidget {
-  final Map<String, dynamic> camera;
-  const CameraSettingsDetailScreen({super.key, required this.camera});
+  final int cameraId;
+  const CameraSettingsDetailScreen({super.key, required this.cameraId});
 
   @override
   State<CameraSettingsDetailScreen> createState() =>
@@ -24,6 +25,13 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
   late TabController _tabController;
   bool _isAiEnabled = false;
 
+  // Loaded by cameraId (see _loadCamera) rather than passed in — this
+  // screen is reachable directly by URL (/settings/cameras/:id), so it
+  // can't rely on the caller having the full camera object in memory.
+  Map<String, dynamic>? _camera;
+  String? _loadError;
+  int get _cameraId => widget.cameraId;
+
   // Camera Info
   late TextEditingController _nameCtrl;
   late TextEditingController _locCtrl;
@@ -33,6 +41,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
   late TextEditingController _passwordCtrl;
   late TextEditingController _streamPathCtrl;
   bool _isSavingInfo = false;
+  bool _obscurePassword = true;
 
   // ROIs
   List<Map<String, dynamic>> _savedRois = [];
@@ -49,22 +58,46 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _nameCtrl = TextEditingController();
+    _locCtrl = TextEditingController();
+    _ipCtrl = TextEditingController();
+    _portCtrl = TextEditingController();
+    _usernameCtrl = TextEditingController();
+    _passwordCtrl = TextEditingController();
+    _streamPathCtrl = TextEditingController();
+    _loadCamera();
+  }
 
-    _nameCtrl = TextEditingController(text: widget.camera['name']);
-    _locCtrl = TextEditingController(text: widget.camera['location'] ?? '');
-    _ipCtrl = TextEditingController(text: widget.camera['ip_address'] ?? '');
-    _portCtrl = TextEditingController(text: (widget.camera['port'] ?? 554).toString());
-    _usernameCtrl = TextEditingController(text: widget.camera['username'] ?? '');
-    _passwordCtrl = TextEditingController(text: widget.camera['password'] ?? '');
-    _streamPathCtrl = TextEditingController(text: widget.camera['stream_path'] ?? '');
+  Future<void> _loadCamera() async {
+    try {
+      final resp = await NetworkManager.instance.get(ApiRoutes.camera(_cameraId));
+      if (resp.statusCode != 200) {
+        if (mounted) setState(() => _loadError = 'Camera not found.');
+        return;
+      }
+      final camera = jsonDecode(resp.body) as Map<String, dynamic>;
 
-    if (_locCtrl.text.isNotEmpty && !_zones.contains(_locCtrl.text)) {
-      _zones.add(_locCtrl.text);
+      _nameCtrl.text = camera['name'] ?? '';
+      _locCtrl.text = camera['location'] ?? '';
+      _ipCtrl.text = camera['ip_address'] ?? '';
+      _portCtrl.text = (camera['port'] ?? 554).toString();
+      _usernameCtrl.text = camera['username'] ?? '';
+      _passwordCtrl.text = camera['password'] ?? '';
+      _streamPathCtrl.text = camera['stream_path'] ?? '';
+
+      if (_locCtrl.text.isNotEmpty && !_zones.contains(_locCtrl.text)) {
+        _zones.add(_locCtrl.text);
+      }
+      _selectedZone = _zones.first;
+
+      if (!mounted) return;
+      setState(() => _camera = camera);
+
+      _fetchROIs();
+      _fetchRules();
+    } catch (e) {
+      if (mounted) setState(() => _loadError = 'Could not reach the server: $e');
     }
-    _selectedZone = _zones.first;
-
-    _fetchROIs();
-    _fetchRules();
   }
 
   @override
@@ -86,7 +119,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
     setState(() => _isLoadingRois = true);
     try {
       final resp = await NetworkManager.instance
-          .get(ApiRoutes.cameraRois(widget.camera['id']));
+          .get(ApiRoutes.cameraRois(_cameraId));
       if (resp.statusCode == 200 && mounted) {
         final data = jsonDecode(resp.body) as List<dynamic>;
         setState(() {
@@ -110,7 +143,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
     setState(() => _isLoadingRois = true);
     try {
       final resp = await NetworkManager.instance.post(
-        ApiRoutes.cameraRois(widget.camera['id']),
+        ApiRoutes.cameraRois(_cameraId),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'zone_name': _selectedZone,
@@ -175,7 +208,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
     setState(() => _isSavingInfo = true);
     try {
       final resp = await NetworkManager.instance.put(
-        ApiRoutes.camera(widget.camera['id']),
+        ApiRoutes.camera(_cameraId),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name': _nameCtrl.text,
@@ -195,19 +228,91 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
     if (mounted) setState(() => _isSavingInfo = false);
   }
 
+  Future<void> _deleteCamera() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Camera Node'),
+        content: Text(
+            'This will permanently remove "${_nameCtrl.text}" and its saved zones/rules mapping. This cannot be undone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final resp = await NetworkManager.instance
+          .delete(ApiRoutes.camera(_cameraId));
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        context.go(settingsCamerasPath);
+      } else {
+        String errorMsg = 'Failed to delete camera.';
+        try {
+          errorMsg = jsonDecode(resp.body)['detail'] ?? errorMsg;
+        } catch (_) {}
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error removing camera: $e'),
+          backgroundColor: Colors.red));
+    }
+  }
+
   // --- UI ---
 
   @override
   Widget build(BuildContext context) {
+    // Reached via context.go(), which replaces the whole route stack — the
+    // default back button has nothing to pop to, so every return point
+    // here gets it spelled out explicitly instead.
+    final backButton = IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => context.go(settingsCamerasPath),
+    );
+    if (_loadError != null) {
+      return Scaffold(
+        appBar: AppBar(
+            title: const Text('Manage Camera'), leading: backButton),
+        body: GlassBackground(
+          child: Center(
+            child: Text(_loadError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ),
+        ),
+      );
+    }
+    if (_camera == null) {
+      return Scaffold(
+        appBar: AppBar(
+            title: const Text('Manage Camera'), leading: backButton),
+        body: const GlassBackground(
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: Text('Manage: ${_nameCtrl.text}',
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-        backgroundColor: Colors.white.withValues(alpha: 0.6),
+            style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onSurface)),
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.6),
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.teal),
+        leading: backButton,
+        iconTheme: IconThemeData(color: Theme.of(context).colorScheme.primary),
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
@@ -274,7 +379,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
             ),
             child: Row(
               children: [
-                CameraStatusDot(cameraId: widget.camera['id']),
+                CameraStatusDot(cameraId: _cameraId),
                 const SizedBox(width: 8),
                 const Text('Live View',
                     style: TextStyle(
@@ -302,7 +407,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
                   children: [
                     Positioned.fill(
                       child: CameraStreamView(
-                        cameraId: widget.camera['id'],
+                        cameraId: _cameraId,
                         mode: _isAiEnabled ? 'ai' : 'manage',
                         fit: BoxFit.fill,
                       ),
@@ -484,14 +589,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () async {
-              await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) =>
-                          const RBACMapperScreen(initialRulesMode: true)));
-              _fetchRules();
-            },
+            onPressed: () => context.go('$settingsRbacPath?rulesMode=true'),
             icon: const Icon(Icons.schema_rounded),
             label: const Text('Go to Access Node Mapper (Security Rules)'),
             style: ElevatedButton.styleFrom(
@@ -513,7 +611,7 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
     var path = _streamPathCtrl.text.trim();
     if (path.isNotEmpty && !path.startsWith('/')) path = '/$path';
     final creds = (user.isNotEmpty || pass.isNotEmpty) ? '$user:$pass@' : '';
-    final previewUrl = ip.isEmpty ? (widget.camera['rtsp_url'] ?? 'rtsp://[ip]:[port]/[path]') : 'rtsp://$creds$ip:$port$path';
+    final previewUrl = ip.isEmpty ? (_camera?['rtsp_url'] ?? 'rtsp://[ip]:[port]/[path]') : 'rtsp://$creds$ip:$port$path';
 
     return SingleChildScrollView(
       child: Column(
@@ -563,9 +661,18 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
               Expanded(
                 child: TextField(
                   controller: _passwordCtrl,
-                  obscureText: true,
+                  obscureText: _obscurePassword,
                   onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(labelText: 'Password (optional)'),
+                  decoration: InputDecoration(
+                    labelText: 'Password (optional)',
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined),
+                      onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -595,15 +702,29 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
             ),
           ),
           const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isSavingInfo ? null : _updateCameraInfo,
-              icon: const Icon(Icons.save),
-              label:
-                  Text(_isSavingInfo ? 'Saving...' : 'Update Connection Info'),
-            ),
-          )
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isSavingInfo ? null : _updateCameraInfo,
+                  icon: const Icon(Icons.save),
+                  label: Text(
+                      _isSavingInfo ? 'Saving...' : 'Update Connection Info'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _deleteCamera,
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  label: const Text('Remove Camera Node',
+                      style: TextStyle(color: Colors.red)),
+                  style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red)),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

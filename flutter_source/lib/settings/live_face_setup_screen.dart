@@ -3,21 +3,15 @@ import 'dart:convert';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../app_router.dart';
 import '../network/api_routes.dart';
-
-const Color _bgBase = Color(0xFF041329);
-const Color _tealAccent = Color(0xFF5ffbd6);
-const Color _surfaceContainer = Color(0xFF112036);
-const Color _surfaceContainerHigh = Color(0xFF1c2a41);
-const Color _textColor = Color(0xFFd6e3ff);
-const Color _textVariant = Color(0xFFbacac3);
-const Color _outlineVariant = Color(0xFF3c4a45);
 
 class LiveFaceSetupScreen extends StatefulWidget {
   final int staffId;
-  const LiveFaceSetupScreen({super.key, required this.staffId});
+  LiveFaceSetupScreen({super.key, required this.staffId});
 
   @override
   State<LiveFaceSetupScreen> createState() => _LiveFaceSetupScreenState();
@@ -25,6 +19,16 @@ class LiveFaceSetupScreen extends StatefulWidget {
 
 class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
     with SingleTickerProviderStateMixin {
+  // Theme-derived colors
+  Color get _bgBase => Theme.of(context).scaffoldBackgroundColor;
+  Color get _tealAccent => Theme.of(context).colorScheme.secondary;
+  Color get _surfaceContainer => Theme.of(context).colorScheme.surfaceContainer;
+  Color get _surfaceContainerHigh =>
+      Theme.of(context).colorScheme.surfaceContainerHigh;
+  Color get _textColor => Theme.of(context).colorScheme.onSurface;
+  Color get _textVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _outlineVariant => Theme.of(context).colorScheme.outlineVariant;
+
   CameraController? _controller;
   WebSocketChannel? _channel;
   Timer? _timer;
@@ -87,7 +91,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
   Future<void> _switchCamera() async {
     if (_cameras.length <= 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No other cameras found')));
+          const SnackBar(content: const Text('No other cameras found')));
       return;
     }
 
@@ -121,9 +125,11 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
             _isComplete = true;
             _timer?.cancel();
             Future.delayed(const Duration(seconds: 2), () {
-              if (mounted) {
-                Navigator.pop(context, true); // true indicates success
-              }
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('✓ 3D Face Profile successfully registered!'),
+                  backgroundColor: Colors.green));
+              context.go(settingsStaffPath);
             });
           }
         });
@@ -209,14 +215,20 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
     return Scaffold(
       backgroundColor: _bgBase,
       appBar: AppBar(
-        title: const Text('Staff Biometric Registration',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        // Reached via context.go(), which replaces the whole route stack —
+        // there's nothing for the default back button to pop to.
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go(settingsStaffPath),
+        ),
+        title: Text('Staff Biometric Registration',
+            style: TextStyle(color: _textColor, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: _textColor),
         actions: [
           IconButton(
-            icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+            icon: Icon(Icons.flip_camera_ios, color: _textColor),
             onPressed: _switchCamera,
             tooltip: 'Switch Camera',
           ),
@@ -224,7 +236,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
         ],
       ),
       body: _isInitializing
-          ? const Center(child: CircularProgressIndicator(color: _tealAccent))
+          ? Center(child: CircularProgressIndicator(color: _tealAccent))
           : LayoutBuilder(
               builder: (context, constraints) {
                 if (constraints.maxWidth > 900) {
@@ -248,7 +260,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
 
   Widget _buildCameraFeed() {
     if (_controller == null || !_controller!.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator(color: _tealAccent));
+      return Center(child: CircularProgressIndicator(color: _tealAccent));
     }
 
     return Padding(
@@ -314,7 +326,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
                             right: 0,
                             child: Container(
                               height: 2,
-                              decoration: const BoxDecoration(
+                              decoration: BoxDecoration(
                                   gradient: LinearGradient(
                                     colors: [
                                       Colors.transparent,
@@ -344,7 +356,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
                             color: _tealAccent,
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Text(
+                          child: Text(
                             'SUBJECT_DETECTED',
                             style: TextStyle(
                                 color: _bgBase,
@@ -437,16 +449,15 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
                     color: _tealAccent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.fingerprint,
-                      color: _tealAccent, size: 28),
+                  child: Icon(Icons.fingerprint, color: _tealAccent, size: 28),
                 ),
                 const SizedBox(width: 16),
-                const Column(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Live AI Enrollment',
                         style: TextStyle(
-                            color: Colors.white,
+                            color: _textColor,
                             fontSize: 24,
                             fontWeight: FontWeight.bold)),
                     Text('Follow the prompts to configure access.',
@@ -456,7 +467,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
               ],
             ),
             const SizedBox(height: 48),
-            const Text('CURRENT INSTRUCTION',
+            Text('CURRENT INSTRUCTION',
                 style: TextStyle(
                     color: _tealAccent,
                     fontSize: 10,
@@ -474,14 +485,14 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
               ),
               child: Text(
                 _currentInstruction,
-                style: const TextStyle(
-                    color: Colors.white,
+                style: TextStyle(
+                    color: _textColor,
                     fontSize: 18,
                     fontWeight: FontWeight.w600),
               ),
             ),
             const SizedBox(height: 32),
-            const Text('BIOMETRIC PROGRESS',
+            Text('BIOMETRIC PROGRESS',
                 style: TextStyle(
                     color: _tealAccent,
                     fontSize: 10,
@@ -513,10 +524,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green),
-                    SizedBox(width: 12),
-                    Text('Biometric Profile Completed',
-                        style: TextStyle(
+                    const Icon(Icons.check_circle, color: Colors.green),
+                    const SizedBox(width: 12),
+                    const Text('Biometric Profile Completed',
+                        style: const TextStyle(
                             color: Colors.green,
                             fontWeight: FontWeight.bold,
                             fontSize: 16)),

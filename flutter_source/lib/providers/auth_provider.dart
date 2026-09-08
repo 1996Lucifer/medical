@@ -19,6 +19,7 @@ class AuthProvider extends ChangeNotifier {
   String? _role;
   List<String> _permissions = [];
   String? _username;
+  bool _mustChangePassword = false;
 
   bool get isAuthenticated => _isAuthenticated;
   bool get isLoading => _isLoading;
@@ -27,6 +28,7 @@ class AuthProvider extends ChangeNotifier {
   String? get role => _role;
   List<String> get permissions => _permissions;
   String? get username => _username;
+  bool get mustChangePassword => _mustChangePassword;
 
   bool hasPermission(String perm) {
     if (_role == 'superadmin') return true;
@@ -67,6 +69,7 @@ class AuthProvider extends ChangeNotifier {
         _role = data['role'];
         _username = data['username'];
         _permissions = (data['permissions'] as List).cast<String>();
+        _mustChangePassword = data['must_change_password'] ?? false;
         _isAuthenticated = true;
       } else {
         // Token expired or invalid — clear it
@@ -96,6 +99,7 @@ class AuthProvider extends ChangeNotifier {
         _role = data['role'];
         _username = data['username'];
         _permissions = (data['permissions'] as List).cast<String>();
+        _mustChangePassword = data['must_change_password'] ?? false;
         notifyListeners();
       }
     } catch (e) {
@@ -134,17 +138,23 @@ class AuthProvider extends ChangeNotifier {
 
         _role = data['role'];
         _username = data['username'];
+        _mustChangePassword = data['must_change_password'] ?? false;
         await fetchMe();
 
         _isLoading = false;
         notifyListeners();
         return true;
       } else {
-        _error = 'Login failed: ${response.statusCode} - ${response.body}';
+        try {
+          final data = jsonDecode(response.body);
+          _error = data['detail']?.toString() ?? 'Login failed.';
+        } catch (_) {
+          _error = 'Login failed (${response.statusCode}).';
+        }
       }
     } catch (e) {
       _error = 'Network error: $e';
-      log("====> " + e.toString());
+      log("====> $e");
       rethrow;
     }
 
@@ -153,11 +163,46 @@ class AuthProvider extends ChangeNotifier {
     return false;
   }
 
+  Future<bool> changePassword(
+      String currentPassword, String newPassword) async {
+    _error = null;
+    try {
+      final response = await NetworkManager.instance.post(
+        ApiRoutes.changePassword,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'current_password': currentPassword,
+          'new_password': newPassword,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        _mustChangePassword = false;
+        notifyListeners();
+        return true;
+      }
+
+      try {
+        final data = jsonDecode(response.body);
+        _error = data['detail']?.toString() ?? 'Failed to change password.';
+      } catch (_) {
+        _error = 'Failed to change password.';
+      }
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _error = 'Network error: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
   void logout() async {
     _isAuthenticated = false;
     _role = null;
     _username = null;
     _permissions = [];
+    _mustChangePassword = false;
     NetworkManager.instance.clearToken();
     // Remove persisted token
     try {

@@ -8,7 +8,6 @@ import tempfile
 import fitz  # PyMuPDF
 
 from database import get_db
-from routers.auth import get_current_user
 import models
 
 # Import the new AI Gateway
@@ -33,7 +32,8 @@ async def chat_with_agent(
     session_id: str = Form("default"),
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
-    # current_user: models.User = Depends(get_current_user) # Disabled for testing
+    # Auth is enforced at the router level (main.py: dependencies=auth_dep on
+    # agent.router) rather than per-route here.
 ):
     """
     Unified AI Agent endpoint powered by deterministic RAG pipeline and Multimodal support.

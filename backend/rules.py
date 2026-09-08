@@ -19,6 +19,7 @@ class SecurityRulesEngine:
         self._check_ppe_violation(event_type, camera_id, camera_name, confidence, details)
         self._check_unauthorized_entry(event_type, camera_id, camera_name, confidence, details)
         self._check_rule_violation(event_type, camera_id, camera_name, confidence, details)
+        self._check_camera_tampered(event_type, camera_id, camera_name, confidence, details)
 
     def _check_theft_rule(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
         """
@@ -217,6 +218,50 @@ class SecurityRulesEngine:
             self._broadcast_alert(alert, camera_name)
         except Exception as e:
             print(f"[RulesEngine] Error in unauthorized entry rule: {e}")
+        finally:
+            db.close()
+
+    def _check_camera_tampered(self, event_type: str, camera_id: int, camera_name: str, confidence: float, details: dict):
+        """
+        Camera Tampering / Obstruction:
+        Raises a proper Security Vault notification when the feed itself
+        appears blocked, covered, or tampered with (low contrast/dark/blurry,
+        detected in worker.py). Previously this only reached the generic
+        SystemEvent log — it never created a SecurityAlert row, so it never
+        showed up in the Security Vault alert feed or its websocket.
+        """
+        if event_type != "CameraTampered":
+            return
+
+        if not camera_id:
+            return
+
+        db: Session = SessionLocal()
+        try:
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+
+            import json
+
+            alert_details = {
+                "reason": details.get("alert", "Camera tampered or blocked"),
+                "camera_name": camera_name,
+                "confidence": confidence,
+            }
+
+            alert = models.SecurityAlert(
+                rule_name="Camera Tampered",
+                severity="critical",
+                camera_id=camera_id,
+                details=json.dumps(alert_details),
+                timestamp=now,
+            )
+            db.add(alert)
+            db.commit()
+            print(f"[Security] 🚨 CAMERA TAMPERED ALERT: {camera_name} appears blocked or tampered with!")
+
+            self._broadcast_alert(alert, camera_name)
+        except Exception as e:
+            print(f"[RulesEngine] Error in camera tamper rule: {e}")
         finally:
             db.close()
 

@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 
 from camera.model_manager import ModelManager, get_best_device
 from camera.compliance_engine import compliance_engine
+from camera.security_rules_service import get_required_ppe_items
 
 from camera.constants.vision_constants import (
     REJECTION_THRESHOLD,
@@ -35,6 +36,7 @@ from camera.constants.vision_constants import (
     PPE_DETECTION_INTERVAL_FRAMES,
     PPE_EVIDENCE_TTL_FRAMES,
     PPE_REVOCATION_MISSED_SAMPLES,
+    PPE_CONFIRMATION_STREAK,
     ZONE_TYPE_OBSERVATION,
     ZONE_TYPE_VERIFICATION,
     ZONE_TYPE_RESTRICTED,
@@ -68,6 +70,9 @@ class VisionServiceZones:
             YOLO_CPU_IMGSZ
             if self.runtime_config["backend"] == "cpu" and self.device == "cpu"
             else YOLO_GPU_IMGSZ
+        )
+        self.ppe_interval = self.runtime_config.get(
+            "ppe_interval", PPE_DETECTION_INTERVAL_FRAMES
         )
         print(
             f"[VisionServiceZones] Using backend: {self.runtime_config['label']} (device: '{self.device}')"
@@ -104,6 +109,7 @@ class VisionServiceZones:
         self._last_ppe_sample: Dict[int, int] = {}  # track_id → last frame PPE crops were sampled
         self._ppe_evidence: Dict[int, dict] = {}
         self._ppe_miss_streak: Dict[int, dict] = {}
+        self._ppe_hit_streak: Dict[int, dict] = {}
         self._last_ppe_boxes: List[dict] = []
 
 
@@ -543,7 +549,7 @@ class VisionServiceZones:
         self, frame: np.ndarray, tracked_people: List[Tuple[int, list]]
     ) -> Dict[int, dict]:
         """Associate mask and glove detections with the current person tracks."""
-        if self._frame_count % PPE_DETECTION_INTERVAL_FRAMES != 0:
+        if self._frame_count % self.ppe_interval != 0:
             return self._current_ppe_evidence(tracked_people)
 
         detector = ModelManager().get_ppe_detector()
@@ -559,6 +565,7 @@ class VisionServiceZones:
                 frame,
                 conf=PPE_DETECTION_CONFIDENCE_THRESHOLD,
                 device=self.device,
+                imgsz=self.yolo_imgsz,
                 verbose=False,
             )
             boxes = results[0].boxes if results else None
@@ -634,27 +641,48 @@ class VisionServiceZones:
                         current[track_id]["mask"] = True
                         if box_dict is not None:
                             box_dict["class"] = "mask"
+                            # Tag with the owning person's track so the
+                            # display-smoothing layer can key on (tid, class)
+                            # instead of falling back to raw IoU matching,
+                            # which flickers/re-IDs on any small frame-to-
+                            # frame jitter.
+                            box_dict["tid"] = track_id
                     elif label == "glove":
                         side = "left_glove" if center_x >= (px1 + px2) / 2 else "right_glove"
-                        # If the side we determined is already True, and this is a SECOND glove, 
+                        # If the side we determined is already True, and this is a SECOND glove,
                         # assign it to the other hand instead of discarding it!
                         if current[track_id].get(side):
                             other_side = "right_glove" if side == "left_glove" else "left_glove"
                             current[track_id][other_side] = True
+                            if box_dict is not None:
+                                box_dict["class"] = other_side
+                                box_dict["tid"] = track_id
                         else:
                             current[track_id][side] = True
+                            if box_dict is not None:
+                                box_dict["class"] = side
+                                box_dict["tid"] = track_id
 
             for track_id, _ in tracked_people:
                 evidence = current.get(track_id, {})
                 cached = self._ppe_evidence.setdefault(track_id, {})
                 miss_streak = self._ppe_miss_streak.setdefault(track_id, {})
+                hit_streak = self._ppe_hit_streak.setdefault(track_id, {})
 
                 for item in ["mask", "left_glove", "right_glove"]:
                     if evidence.get(item, False):
-                        cached[f"{item}_frame"] = self._frame_count
                         miss_streak[item] = 0
+                        hit_streak[item] = hit_streak.get(item, 0) + 1
+                        # Require a short streak of consecutive positive
+                        # detections before trusting it — a single noisy
+                        # frame (e.g. a 51%-confidence false "mask") should
+                        # not be enough to grant PPE_EVIDENCE_TTL_FRAMES of
+                        # "present" evidence on its own.
+                        if hit_streak[item] >= PPE_CONFIRMATION_STREAK:
+                            cached[f"{item}_frame"] = self._frame_count
                     else:
                         miss_streak[item] = miss_streak.get(item, 0) + 1
+                        hit_streak[item] = 0
 
                 # improper_mask doesn't need a miss streak for revocation, but we cache the frame
                 if evidence.get("improper_mask", False):
@@ -792,6 +820,11 @@ class VisionServiceZones:
 
         for det in tracked_human_objects:
             bbox = det["bbox"]
+            # `bbox` is the extrapolated body region (face size x a fixed
+            # ratio) used for zone classification and PPE cropping — it's
+            # deliberately oversized to reach hands/torso. `face_bbox` is the
+            # actual InsightFace detection and is what gets drawn on screen.
+            face_bbox = det.get("face_bbox", bbox)
             track_id = det["track_id"]
             det_conf = det["det_conf"]
             name = det["name"]
@@ -836,42 +869,69 @@ class VisionServiceZones:
                     token = None
                     is_verified = False
 
-            if zone_type in (ZONE_TYPE_VERIFICATION, ZONE_TYPE_RESTRICTED):
-                # We now verify compliance LIVE on every frame using the real-time PPE YOLO boxes.
-                if name != "Unknown" and not is_verified:
-                    has_m = observed_ppe.get("mask", False)
-                    has_l = observed_ppe.get("left_glove", False)
-                    has_r = observed_ppe.get("right_glove", False)
+            # What PPE this specific person actually needs here, per the
+            # Security Rules configured in the Rules-mode graph editor — NOT
+            # unconditionally mask + both gloves. An empty set means no rule
+            # was ever mapped to their role for this zone, so there is
+            # nothing to verify or alert on.
+            required_ppe = get_required_ppe_items(name, zone_name)
 
-                    if has_m and has_l and has_r:
-                        compliance_engine.record_verification(
-                            staff_name=name,
-                            has_mask=has_m,
-                            has_left_glove=has_l,
-                            has_right_glove=has_r,
-                            camera_id=camera_id,
-                            confidence=0.8,
-                        )
+            if zone_type in (ZONE_TYPE_VERIFICATION, ZONE_TYPE_RESTRICTED):
+                if name != "Unknown" and not is_verified:
+                    if not required_ppe:
                         is_verified = True
-                        token = compliance_engine.get_token(name)
+                    else:
+                        has_m = observed_ppe.get("mask", False)
+                        has_l = observed_ppe.get("left_glove", False)
+                        has_r = observed_ppe.get("right_glove", False)
+
+                        satisfied = (
+                            ("mask" not in required_ppe or has_m)
+                            and ("left glove" not in required_ppe or has_l)
+                            and ("right glove" not in required_ppe or has_r)
+                        )
+                        if satisfied:
+                            compliance_engine.record_verification(
+                                staff_name=name,
+                                has_mask=has_m,
+                                has_left_glove=has_l,
+                                has_right_glove=has_r,
+                                camera_id=camera_id,
+                                confidence=0.8,
+                                required_items=list(required_ppe),
+                            )
+                            is_verified = True
+                            token = compliance_engine.get_token(name)
 
             if zone_type == ZONE_TYPE_RESTRICTED:
-                # In restricted zone: check if verified, alert if not
-                if name != "Unknown" and not is_verified:
+                # In restricted zone: check if verified, alert if not — but
+                # only when this person actually has PPE requirements mapped
+                # to their role for this zone.
+                if name != "Unknown" and not is_verified and required_ppe:
+                    observed_key = {
+                        "mask": "mask",
+                        "left glove": "left_glove",
+                        "right glove": "right_glove",
+                    }
+                    missing = [
+                        item
+                        for item in required_ppe
+                        if not observed_ppe.get(observed_key[item], False)
+                    ]
                     ppe_events.append(
                         {
                             "type": "unauthorized_entry",
                             "name": name,
                             "bbox": bbox,
                             "zone": zone_name,
-                            "missing": compliance_engine.get_missing_items(name),
+                            "missing": missing,
                         }
                     )
 
             # ── Step 6: Draw Annotations ──────────────────────────────────
             self._draw_person(
                 frame,
-                bbox,
+                face_bbox,
                 track_id,
                 name,
                 staff_id,
@@ -890,6 +950,7 @@ class VisionServiceZones:
                     "name": name,
                     "score": score,
                     "bbox": bbox,
+                    "face_bbox": face_bbox,
                     "has_mask": bool(observed_ppe.get("mask", False)),
                     "has_improper_mask": bool(observed_ppe.get("improper_mask", False)),
                     "has_left_glove": bool(observed_ppe.get("left_glove", False)),
@@ -901,6 +962,7 @@ class VisionServiceZones:
                     "zone_name": zone_name,
                     "zone_type": zone_type,
                     "is_verified": is_verified,
+                    "required_ppe": sorted(required_ppe),
                     "kps": None,
                     "staff_id": staff_id,
                 }
@@ -929,6 +991,37 @@ class VisionServiceZones:
         return frame, face_events, equipment_events, incident_events, ppe_events
 
     # _schedule_vlm_verification and verification_session_manager were removed.
+    @staticmethod
+    def _draw_targeting_reticle(
+        frame: np.ndarray,
+        bbox: list,
+        color: tuple,
+        thickness: int = 2,
+        corner_ratio: float = 0.22,
+    ) -> None:
+        """
+        Draw a Person of Interest-style targeting reticle: four short L-shaped
+        corner brackets instead of a full rectangle outline. Reads as "tracking
+        a face" rather than "boxing in a region."
+        """
+        x1, y1, x2, y2 = bbox
+        w, h = x2 - x1, y2 - y1
+        cl_x = max(6, int(w * corner_ratio))
+        cl_y = max(6, int(h * corner_ratio))
+
+        # Top-left
+        cv2.line(frame, (x1, y1), (x1 + cl_x, y1), color, thickness)
+        cv2.line(frame, (x1, y1), (x1, y1 + cl_y), color, thickness)
+        # Top-right
+        cv2.line(frame, (x2, y1), (x2 - cl_x, y1), color, thickness)
+        cv2.line(frame, (x2, y1), (x2, y1 + cl_y), color, thickness)
+        # Bottom-left
+        cv2.line(frame, (x1, y2), (x1 + cl_x, y2), color, thickness)
+        cv2.line(frame, (x1, y2), (x1, y2 - cl_y), color, thickness)
+        # Bottom-right
+        cv2.line(frame, (x2, y2), (x2 - cl_x, y2), color, thickness)
+        cv2.line(frame, (x2, y2), (x2, y2 - cl_y), color, thickness)
+
     def _draw_person(
         self,
         frame: np.ndarray,
@@ -943,8 +1036,23 @@ class VisionServiceZones:
         det_conf: float,
         observed_ppe: Optional[dict] = None,
     ) -> None:
-        """Draw person bounding box with zone-aware coloring and PPE status."""
-        x1, y1, x2, y2 = bbox
+        """
+        Draw a tight face-tracking reticle with zone-aware coloring and PPE
+        status. `bbox` here is the actual face detection (not the extrapolated
+        body region used for zone/PPE logic) — padded slightly so the reticle
+        doesn't clip the chin/forehead.
+        """
+        fh, fw = frame.shape[:2]
+        raw_x1, raw_y1, raw_x2, raw_y2 = bbox
+        # Pad ~15% around the raw face detection so the reticle sits just
+        # outside the face rather than clipping the chin/hairline.
+        pad_x = max(4, int((raw_x2 - raw_x1) * 0.15))
+        pad_y = max(4, int((raw_y2 - raw_y1) * 0.15))
+        x1 = max(0, raw_x1 - pad_x)
+        y1 = max(0, raw_y1 - pad_y)
+        x2 = min(fw, raw_x2 + pad_x)
+        y2 = min(fh, raw_y2 + pad_y)
+
         token = compliance_engine.get_token(name) if name != "Unknown" else None
         obs = observed_ppe or {}
 
@@ -984,8 +1092,8 @@ class VisionServiceZones:
                 color = (0, 255, 0)  # Green for known with PPE
             status = get_ppe_status_text()
 
-        # Draw bounding box
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        # Draw targeting reticle (tight on the face, POI-HUD style)
+        self._draw_targeting_reticle(frame, (x1, y1, x2, y2), color, thickness=2)
 
         # Draw label
         if staff_id is not None:

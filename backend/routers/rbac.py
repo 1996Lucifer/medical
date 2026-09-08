@@ -114,3 +114,21 @@ def create_permission(req: NodeCreateRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_perm)
     return {"status": "success", "id": new_perm.id}
+
+@router.delete("/groups/{group_id}")
+def delete_group(group_id: int, db: Session = Depends(get_db)):
+    group = db.query(models.RBACGroup).get(group_id)
+    if not group:
+        raise HTTPException(404, "Group not found")
+    db.delete(group)
+    db.commit()
+    return {"status": "success"}
+
+@router.delete("/permissions/{permission_id}")
+def delete_permission(permission_id: int, db: Session = Depends(get_db)):
+    perm = db.query(models.RBACPermission).get(permission_id)
+    if not perm:
+        raise HTTPException(404, "Permission not found")
+    db.delete(perm)
+    db.commit()
+    return {"status": "success"}

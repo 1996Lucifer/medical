@@ -1,155 +1,300 @@
 {
   "intents": {
     "PATIENT": {
-      "keywords": ["patient", "mrn", "health"],
-      "zero_shot_label": "patient profile demographic details"
+      "keywords": [
+        "patient",
+        "mrn",
+        "health",
+        "diagnosis",
+        "diagnosed",
+        "symptom",
+        "medication",
+        "medicine",
+        "prescription",
+        "prescribed",
+        "treatment",
+        "disease",
+        "condition",
+        "allergy",
+        "allergic",
+        "vitals",
+        "blood pressure",
+        "heart rate",
+        "dosage",
+        "dose",
+        "surgery",
+        "admitted",
+        "discharge",
+        "ward",
+        "bed number"
+      ]
     },
     "MEDICAL_REPORT": {
-      "keywords": ["report", "result"],
-      "zero_shot_label": "medical report scan test results"
+      "keywords": [
+        "report",
+        "result",
+        "scan",
+        "x-ray",
+        "xray",
+        "mri",
+        "ct scan",
+        "lab test",
+        "blood test",
+        "biopsy",
+        "pathology",
+        "radiology",
+        "findings",
+        "abnormality"
+      ]
     },
     "CONSULTATION": {
-      "keywords": ["consultation", "visit"],
-      "zero_shot_label": "consultation transcript doctor visit"
+      "keywords": [
+        "consultation",
+        "visit",
+        "checkup",
+        "check-up",
+        "appointment",
+        "doctor said",
+        "physician",
+        "transcript",
+        "follow-up",
+        "followup"
+      ]
     },
     "ATTENDANCE": {
-      "keywords": ["attendance", "clock", "staff"],
-      "zero_shot_label": "attendance staff present clocked in"
+      "keywords": [
+        "attendance",
+        "clock",
+        "staff"
+      ]
     },
     "EQUIPMENT": {
-      "keywords": ["equipment", "wheelchair"],
-      "zero_shot_label": "equipment wheelchair ventilator bed location"
+      "keywords": [
+        "equipment",
+        "wheelchair"
+      ]
     },
     "CAMERA": {
-      "keywords": ["camera", "cctv", "footage"],
-      "zero_shot_label": "camera cctv video feed footage"
+      "keywords": [
+        "camera",
+        "cctv",
+        "footage"
+      ]
     },
     "SECURITY": {
-      "keywords": ["security", "alert", "breach"],
-      "zero_shot_label": "security alert breach unauthorized"
+      "keywords": [
+        "security",
+        "alert",
+        "breach"
+      ]
     },
     "ADMIN": {
-      "keywords": ["admin", "system", "restart", "rule"],
-      "zero_shot_label": "admin system configuration restart"
+      "keywords": [
+        "admin",
+        "system",
+        "restart",
+        "rule"
+      ]
     },
     "GENERAL": {
-      "keywords": [],
-      "zero_shot_label": "general greeting question chat"
+      "keywords": [
+        "hello",
+        "hi",
+        "hey",
+        "thanks",
+        "thank you",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "bye",
+        "goodbye"
+      ]
     }
   },
   "tools": {
     "patient_details": {
       "sql_template": "SELECT * FROM patients WHERE name ILIKE :patient_name LIMIT 1",
-      "required_parameters": ["Patient Name"],
-      "allowed_roles": ["admin", "doctor"],
+      "required_parameters": [
+        "Patient Name"
+      ],
+      "allowed_roles": [
+        "admin",
+        "doctor"
+      ],
       "description": "Fetch basic demographic details for a patient."
     },
     "patient_by_mrn": {
       "sql_template": "SELECT * FROM patients WHERE mrn ILIKE :mrn LIMIT 1",
-      "required_parameters": ["MRN"],
-      "allowed_roles": ["admin", "doctor"],
+      "required_parameters": [
+        "MRN"
+      ],
+      "allowed_roles": [
+        "admin",
+        "doctor"
+      ],
       "description": "Fetch patient details by MRN."
     },
     "patient_latest_report": {
       "sql_template": "SELECT * FROM medical_reports r JOIN patients p ON r.patient_id = p.id WHERE p.name ILIKE :patient_name ORDER BY r.date DESC LIMIT 1",
-      "required_parameters": ["Patient Name"],
-      "allowed_roles": ["admin", "doctor"],
+      "required_parameters": [
+        "Patient Name"
+      ],
+      "allowed_roles": [
+        "admin",
+        "doctor"
+      ],
       "description": "Fetch the latest medical report for a specific patient."
     },
     "patient_history": {
       "sql_template": "SELECT * FROM consultations c JOIN patients p ON c.patient_id = p.id WHERE p.name ILIKE :patient_name ORDER BY c.date DESC LIMIT 10",
-      "required_parameters": ["Patient Name"],
-      "allowed_roles": ["admin", "doctor"],
+      "required_parameters": [
+        "Patient Name"
+      ],
+      "allowed_roles": [
+        "admin",
+        "doctor"
+      ],
       "description": "Fetch consultation history for a patient."
     },
     "attendance_today": {
       "sql_template": "SELECT * FROM attendance WHERE staff_name ILIKE :staff_name AND date = CURRENT_DATE LIMIT 1",
-      "required_parameters": ["Staff Name"],
-      "allowed_roles": ["admin", "hr"],
+      "required_parameters": [
+        "Staff Name"
+      ],
+      "allowed_roles": [
+        "admin",
+        "hr"
+      ],
       "description": "Check if a specific staff member is present today."
     },
     "equipment_location": {
       "sql_template": "SELECT * FROM equipment_items WHERE equipment_id ILIKE :equipment_id LIMIT 1",
-      "required_parameters": ["Equipment ID"],
-      "allowed_roles": ["admin", "nurse"],
+      "required_parameters": [
+        "Equipment ID"
+      ],
+      "allowed_roles": [
+        "admin",
+        "nurse"
+      ],
       "description": "Find the last known location of a piece of equipment."
     },
     "camera_status": {
       "sql_template": "SELECT * FROM cameras WHERE name ILIKE :camera_name LIMIT 1",
-      "required_parameters": ["Camera Name"],
-      "allowed_roles": ["admin", "security"],
+      "required_parameters": [
+        "Camera Name"
+      ],
+      "allowed_roles": [
+        "admin",
+        "security"
+      ],
       "description": "Check the status and location of a camera."
     },
     "unresolved_security_alerts": {
       "sql_template": "SELECT * FROM security_alerts WHERE resolved = FALSE ORDER BY timestamp DESC LIMIT 10",
       "required_parameters": [],
-      "allowed_roles": ["admin", "security"],
+      "allowed_roles": [
+        "admin",
+        "security"
+      ],
       "description": "Fetch all unresolved security alerts."
     },
     "all_active_security_rules": {
       "sql_template": "SELECT * FROM security_rules WHERE is_active = TRUE",
       "required_parameters": [],
-      "allowed_roles": ["admin", "security"],
+      "allowed_roles": [
+        "admin",
+        "security"
+      ],
       "description": "Fetch all active security rules."
     },
     "recent_camera_events": {
       "sql_template": "SELECT * FROM events ORDER BY timestamp DESC LIMIT 15",
       "required_parameters": [],
-      "allowed_roles": ["admin", "security"],
+      "allowed_roles": [
+        "admin",
+        "security"
+      ],
       "description": "Fetch the most recent events and updates across all cameras."
     },
     "all_cameras_status": {
       "sql_template": "SELECT * FROM cameras ORDER BY name ASC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "security"],
+      "allowed_roles": [
+        "admin",
+        "security"
+      ],
       "description": "Fetch the status of all registered cameras."
     },
     "all_equipment_types": {
       "sql_template": "SELECT * FROM equipment_types ORDER BY name ASC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "nurse"],
+      "allowed_roles": [
+        "admin",
+        "nurse"
+      ],
       "description": "List all known equipment types."
     },
     "recent_equipment_tracking": {
       "sql_template": "SELECT * FROM equipment_tracking ORDER BY timestamp DESC LIMIT 15",
       "required_parameters": [],
-      "allowed_roles": ["admin", "nurse"],
+      "allowed_roles": [
+        "admin",
+        "nurse"
+      ],
       "description": "Fetch the latest tracking movements for all equipment."
     },
     "all_patients": {
       "sql_template": "SELECT * FROM patients ORDER BY name ASC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "doctor"],
+      "allowed_roles": [
+        "admin",
+        "doctor"
+      ],
       "description": "Fetch a list of all patients."
     },
     "all_medical_reports": {
       "sql_template": "SELECT * FROM medical_reports ORDER BY date DESC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "doctor"],
+      "allowed_roles": [
+        "admin",
+        "doctor"
+      ],
       "description": "Fetch a list of all medical reports."
     },
     "all_consultations": {
       "sql_template": "SELECT * FROM consultations ORDER BY date DESC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "doctor"],
+      "allowed_roles": [
+        "admin",
+        "doctor"
+      ],
       "description": "Fetch a list of all consultations."
     },
     "all_attendance": {
       "sql_template": "SELECT * FROM attendance ORDER BY date DESC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "hr"],
+      "allowed_roles": [
+        "admin",
+        "hr"
+      ],
       "description": "Fetch a list of all attendance records."
     },
     "all_equipment_items": {
       "sql_template": "SELECT * FROM equipment_items ORDER BY equipment_id ASC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "nurse"],
+      "allowed_roles": [
+        "admin",
+        "nurse"
+      ],
       "description": "Fetch a list of all equipment items."
     },
     "all_security_alerts": {
       "sql_template": "SELECT * FROM security_alerts ORDER BY timestamp DESC",
       "required_parameters": [],
-      "allowed_roles": ["admin", "security"],
+      "allowed_roles": [
+        "admin",
+        "security"
+      ],
       "description": "Fetch a list of all security alerts."
     }
   },

@@ -61,7 +61,7 @@ def get_alerts(unresolved_only: bool = False, db: Session = Depends(get_db), cur
     return result
 
 @router.post("/alerts/{alert_id}/resolve")
-def resolve_alert(alert_id: int, db: Session = Depends(get_db)):
+def resolve_alert(alert_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     alert = db.query(models.SecurityAlert).filter(models.SecurityAlert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")

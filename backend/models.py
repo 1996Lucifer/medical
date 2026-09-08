@@ -83,6 +83,16 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     role = Column(String, nullable=False, default="admin")
+    # Account lifecycle, kept in one place instead of deleting rows (e.g.
+    # "Revoke" on a staff member) so history/audit trail is preserved:
+    #   - "active": normal login.
+    #   - "change_password": login succeeds but the caller must change the
+    #     password before using the app (system-generated temp password,
+    #     e.g. a newly onboarded staff member).
+    #   - "inactive": login is refused outright ("Access Denied. Contact
+    #     admin.") — this is what "Revoke" sets instead of deleting the row.
+    #   - "pending": reserved, behavior not defined yet.
+    status = Column(String, nullable=False, default="active")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     groups = relationship("RBACGroup", secondary=user_groups, back_populates="users")
@@ -161,17 +171,26 @@ class Staff(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     role = Column(String, nullable=True, default="Medical Staff")
+    # Broad staff category (Doctor, Nurse, Security, Morgue, ...) — distinct
+    # from `role`, which is a specific job title (e.g. "Head of Radiology").
+    # Used for filtering/grouping in the staff list.
+    category = Column(String, nullable=True, default="Medical Staff")
     embedding = Column(Vector(512))  # Primary (first) photo embedding
     upper_embedding = Column(
         Vector(512), nullable=True
     )  # Upper 45% mask tracking embedding
     photo_path = Column(String, nullable=True)  # Path to the saved photo file
+    # The login account created alongside this staff member at onboarding
+    # (see routers/staff.py::_create_login_for_staff). Nullable because
+    # staff created before this existed have no linked account.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Additional photos for multi-angle recognition
     photos = relationship(
         "StaffPhoto", back_populates="staff", cascade="all, delete-orphan"
     )
+    user = relationship("User")
 
 
 class StaffPhoto(Base):

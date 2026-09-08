@@ -3,6 +3,7 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import models
@@ -25,6 +26,20 @@ from camera.vision_worker import vision_process_manager
 from database import SessionLocal
 from events import event_engine, is_zone_alerted, set_zone_alert
 import camera.constants.message_constants as msg_const
+
+# Shared pool for disk/DB I/O that must not block the real-time capture loop
+# (incident snapshot writes, periodic ROI refresh).
+_io_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="camera-io")
+
+
+def _save_snapshot(path: str, frame: np.ndarray) -> None:
+    try:
+        cv2.imwrite(path, frame)
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+
 
 class CameraWorker:
     def __init__(self):
@@ -112,6 +127,54 @@ class CameraWorker:
         return [int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))]
 
     @staticmethod
+    def _draw_tamper_badge(frame, frame_w):
+        """
+        Small persistent "audio alert" badge (top-right of the frame) shown
+        for as long as the tamper condition holds. cv2 has no emoji font, so
+        the speaker glyph is drawn from plain shapes: a body + cone plus two
+        sound-wave arcs.
+        """
+        badge_w, badge_h = 150, 34
+        margin = 10
+        bx1 = frame_w - badge_w - margin
+        by1 = margin
+        bx2 = bx1 + badge_w
+        by2 = by1 + badge_h
+        red = (0, 0, 255)
+
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (bx1, by1), (bx2, by2), (20, 20, 20), -1)
+        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+        cv2.rectangle(frame, (bx1, by1), (bx2, by2), red, 1)
+
+        # Speaker glyph, anchored near the badge's left edge.
+        icon_cx, icon_cy = bx1 + 18, by1 + badge_h // 2
+        body_pts = np.array(
+            [
+                [icon_cx - 8, icon_cy - 4],
+                [icon_cx - 3, icon_cy - 4],
+                [icon_cx + 4, icon_cy - 9],
+                [icon_cx + 4, icon_cy + 9],
+                [icon_cx - 3, icon_cy + 4],
+                [icon_cx - 8, icon_cy + 4],
+            ],
+            np.int32,
+        )
+        cv2.fillPoly(frame, [body_pts], red)
+        cv2.ellipse(frame, (icon_cx + 6, icon_cy), (5, 7), 0, -60, 60, red, 1)
+        cv2.ellipse(frame, (icon_cx + 9, icon_cy), (8, 11), 0, -60, 60, red, 1)
+
+        cv2.putText(
+            frame,
+            "TAMPERED",
+            (icon_cx + 20, icon_cy + 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            red,
+            1,
+        )
+
+    @staticmethod
     def _iou(boxA, boxB):
         xA = max(boxA[0], boxB[0])
         yA = max(boxA[1], boxB[1])
@@ -132,6 +195,15 @@ class CameraWorker:
         if kind == "equipment":
             tid = event.get("track_id")
             return ("equipment", event.get("class"), tid) if tid is not None and tid != -1 else None
+        if kind == "ppe":
+            # Mask/glove detections carry the owning person's track id (see
+            # vision_service_zones.py's PPE matching) — key on (tid, class)
+            # so the SAME mask/glove keeps its identity across frames instead
+            # of falling back to raw IoU-overlap matching, which loses lock
+            # on any small jitter and causes visible flicker.
+            tid = event.get("tid")
+            cls = event.get("class")
+            return ("ppe", tid, cls) if tid is not None and cls else None
         return None
 
     def _match_display_track(self, tracks, kind, event):
@@ -177,6 +249,12 @@ class CameraWorker:
                 state["next_id"] = int(state.get("next_id", 1)) + 1
 
             raw_box = [float(v) for v in bbox]
+            raw_face_box = event.get("face_bbox")
+            raw_face_box = (
+                [float(v) for v in raw_face_box]
+                if raw_face_box and len(raw_face_box) == 4
+                else None
+            )
             if track:
                 dt = max(0.015, min(0.30, now - float(track.get("updated_at", now))))
                 prev = track["bbox"]
@@ -199,17 +277,42 @@ class CameraWorker:
                     pred_box[i] + ((raw_box[i] - pred_box[i]) * gain)
                     for i in range(4)
                 ]
+
+                # Ride the same velocity/gain solved for the body box so the
+                # face reticle (drawn from face_bbox) glides between AI
+                # inference samples instead of jumping — the AI worker only
+                # runs every few frames.
+                prev_face = track.get("face_bbox")
+                if raw_face_box and prev_face:
+                    pred_face_box = [
+                        prev_face[0] + vx * dt,
+                        prev_face[1] + vy * dt,
+                        prev_face[2] + vx * dt,
+                        prev_face[3] + vy * dt,
+                    ]
+                    filtered_face = [
+                        pred_face_box[i] + ((raw_face_box[i] - pred_face_box[i]) * gain)
+                        for i in range(4)
+                    ]
+                else:
+                    filtered_face = raw_face_box
             else:
                 vx = vy = 0.0
                 filtered = raw_box
+                filtered_face = raw_face_box
 
             clipped = self._clip_bbox(filtered, frame_shape)
             if clipped is None:
                 continue
+            clipped_face = (
+                self._clip_bbox(filtered_face, frame_shape) if filtered_face else None
+            )
 
             updated_event = dict(event)
             updated_event["raw_bbox"] = [int(round(v)) for v in raw_box]
             updated_event["bbox"] = clipped
+            if clipped_face:
+                updated_event["face_bbox"] = clipped_face
             updated_event["track_vx_sec"] = vx
             updated_event["track_vy_sec"] = vy
             updated_event["track_ts"] = now
@@ -217,6 +320,7 @@ class CameraWorker:
             tracks[key] = {
                 "kind": kind,
                 "bbox": [float(v) for v in clipped],
+                "face_bbox": [float(v) for v in clipped_face] if clipped_face else None,
                 "event": updated_event,
                 "class": event.get("class"),
                 "vx": vx,
@@ -247,13 +351,27 @@ class CameraWorker:
             if clipped is None:
                 del tracks[key]
                 continue
+            prev_face = track.get("face_bbox")
+            coasted_face_clipped = None
+            if prev_face:
+                coasted_face = [
+                    prev_face[0] + vx * dt,
+                    prev_face[1] + vy * dt,
+                    prev_face[2] + vx * dt,
+                    prev_face[3] + vy * dt,
+                ]
+                coasted_face_clipped = self._clip_bbox(coasted_face, frame_shape)
             track["bbox"] = [float(v) for v in clipped]
+            if coasted_face_clipped:
+                track["face_bbox"] = [float(v) for v in coasted_face_clipped]
             track["vx"] = vx
             track["vy"] = vy
             track["updated_at"] = now
             track["misses"] = int(track.get("misses", 0)) + 1
             coasted_event = dict(track.get("event", {}))
             coasted_event["bbox"] = clipped
+            if coasted_face_clipped:
+                coasted_event["face_bbox"] = coasted_face_clipped
             coasted_event["_coasted"] = True
             coasted_event["track_vx_sec"] = vx
             coasted_event["track_vy_sec"] = vy
@@ -288,10 +406,23 @@ class CameraWorker:
             FONT_STYLE, FONT_SCALE_TITLE, FONT_SCALE_SUBTITLE, FONT_THICKNESS_TITLE, FONT_THICKNESS_SUBTITLE,
             PANEL_PADDING, PANEL_MARGIN_BOTTOM, PANEL_OPACITY_BG, PANEL_OPACITY_FG
         )
-        bbox = ev.get("bbox")
+        # This is the actual live-stream render path (the SEPARATE
+        # vision_service_zones.py::_draw_person is never used here — it runs
+        # in a different subprocess that only returns event data). `bbox` is
+        # a body region extrapolated from face size (~4.5x face height) for
+        # zone/PPE-crop purposes; `face_bbox` is the real face detection and
+        # is what should actually be drawn on screen.
+        bbox = ev.get("face_bbox") or ev.get("bbox")
         if not bbox:
             return
-        x1, y1, x2, y2 = bbox
+        raw_x1, raw_y1, raw_x2, raw_y2 = bbox
+        pad_x = max(4, int((raw_x2 - raw_x1) * 0.15))
+        pad_y = max(4, int((raw_y2 - raw_y1) * 0.15))
+        frame_h, frame_w = frame.shape[:2]
+        x1 = max(0, raw_x1 - pad_x)
+        y1 = max(0, raw_y1 - pad_y)
+        x2 = min(frame_w, raw_x2 + pad_x)
+        y2 = min(frame_h, raw_y2 + pad_y)
         name = ev.get("name", "Unknown")
         zone_type = ev.get("zone_type", "observation")
         is_verified = bool(ev.get("is_verified", False))
@@ -395,6 +526,7 @@ class CameraWorker:
         self._jpeg_quality = jpeg_quality
         target_fps = runtime_config["target_fps"]
         frame_interval = 1.0 / target_fps
+        ai_sample_interval = runtime_config.get("ai_sample_interval", 5)
 
         retry_count = 0
 
@@ -462,6 +594,27 @@ class CameraWorker:
 
             last_rule_check = {}  # Dict[str, float] to throttle rule checks
 
+            # Background ROI refresh state — the DB query runs off the
+            # capture/render loop so a slow DB never stalls frame pacing.
+            roi_state = {"rois": [], "lock": threading.Lock(), "fetching": False}
+
+            def _refresh_rois():
+                try:
+                    db = SessionLocal()
+                    rois = (
+                        db.query(models.CameraROI)
+                        .filter(models.CameraROI.camera_id == camera_id)
+                        .all()
+                    )
+                    db.close()
+                    with roi_state["lock"]:
+                        roi_state["rois"] = rois
+                except Exception:
+                    pass
+                finally:
+                    with roi_state["lock"]:
+                        roi_state["fetching"] = False
+
             while reader_running[0] and self._running:
                 t0 = time.monotonic()
 
@@ -477,17 +630,14 @@ class CameraWorker:
                 manage_frame = frame.copy()
 
                 if frame_count % 30 == 0:
-                    try:
-                        db = SessionLocal()
-                        cached_rois = (
-                            db
-                            .query(models.CameraROI)
-                            .filter(models.CameraROI.camera_id == camera_id)
-                            .all()
-                        )
-                        db.close()
-                    except Exception:
-                        pass
+                    with roi_state["lock"]:
+                        should_fetch = not roi_state["fetching"]
+                        if should_fetch:
+                            roi_state["fetching"] = True
+                    if should_fetch:
+                        _io_pool.submit(_refresh_rois)
+                with roi_state["lock"]:
+                    cached_rois = roi_state["rois"]
                 frame_count += 1
 
                 h, w = frame.shape[:2]
@@ -511,8 +661,9 @@ class CameraWorker:
 
                 try:
                     if is_ai_active:
-                        # CPU Optimization: Only send 1 in every 5 frames to the heavy AI pipeline
-                        if frame_count % 5 == 0:
+                        # Sample rate is hardware-profile-driven (see ai_sample_interval
+                        # in vision_constants.py) so CPU-only boxes throttle harder than GPU ones.
+                        if frame_count % ai_sample_interval == 0:
                             vision_process_manager.process_frame_async(
                                 self.camera_key, frame, frame_count
                             )
@@ -673,16 +824,34 @@ class CameraWorker:
                                 (0, 0, 255),
                                 3,
                             )
+                            # Small persistent badge (top-right of the frame)
+                            # so the tamper state is visible even if a viewer
+                            # glances past the big centered warning text — a
+                            # speaker glyph (cv2 has no emoji font) plus label,
+                            # drawn every frame the condition holds, not just
+                            # once on the cooldown-gated alert.
+                            self._draw_tamper_badge(processed, w)
+
+                            camera_display_name = camera_name or "this camera"
                             tamper_key = f"{camera_name}_tamper"
                             if not is_zone_alerted(tamper_key):
                                 event_engine.publish_event(
-                                    event_type="SecurityAlert",
+                                    event_type="CameraTampered",
                                     camera_id=camera_id,
                                     camera_name=camera_name,
                                     confidence=1.0,
                                     details={
-                                        "alert": "Camera tampers or is blocked (low contrast/dark/blurry)"
+                                        "alert": "Camera tampered or blocked (low contrast/dark/blurry)"
                                     },
+                                )
+                                from camera.audio_service import audio_service
+                                warning = msg_const.WARNING_CAMERA_TAMPERED.format(
+                                    camera_name=camera_display_name
+                                )
+                                audio_service.speak(
+                                    camera_url,
+                                    f"{warning} {warning}",
+                                    vendor="tapo",
                                 )
                                 set_zone_alert(
                                     tamper_key, duration_sec=TAMPER_ALERT_COOLDOWN_SEC
@@ -811,7 +980,7 @@ class CameraWorker:
                                     os.makedirs("uploads/incidents", exist_ok=True)
                                     snapshot_filename = f"unknown_{camera_id}_{int(time.time())}.jpg"
                                     snapshot_path = f"uploads/incidents/{snapshot_filename}"
-                                    cv2.imwrite(snapshot_path, manage_frame)
+                                    _io_pool.submit(_save_snapshot, snapshot_path, manage_frame.copy())
 
                                     event_engine.publish_event(
                                         event_type=EVENT_TYPE_UNAUTHORIZED_ENTRY,
@@ -842,26 +1011,46 @@ class CameraWorker:
                                 last_rule_check.pop(unknown_duration_key, None)
 
                             if staff_name != "Unknown":
+                                # What PPE this person actually needs here, per
+                                # the configured Security Rules — computed
+                                # upstream in vision_service_zones.py. Falls
+                                # back to the old all-three default only if an
+                                # AI worker hasn't been restarted with this
+                                # field yet.
+                                required_ppe = set(
+                                    ev.get(
+                                        "required_ppe",
+                                        ["mask", "left glove", "right glove"],
+                                    )
+                                )
+
                                 # Synchronize local compliance_engine with AI worker state
                                 is_verified_in_ai = ev.get("is_verified", False)
                                 is_verified_in_main = compliance_engine.is_verified(staff_name)
-                                
+
                                 if is_verified_in_ai and not is_verified_in_main:
                                     compliance_engine.record_verification(
-                                        staff_name, True, True, True, ev.get("score", 0.0)
+                                        staff_name,
+                                        ev.get("has_mask", False),
+                                        ev.get("has_left_glove", False),
+                                        ev.get("has_right_glove", False),
+                                        ev.get("score", 0.0),
+                                        required_items=list(required_ppe),
                                     )
                                 elif not is_verified_in_ai and is_verified_in_main:
                                     _revoked = []
-                                    if not ev.get("has_mask"): _revoked.append("mask")
-                                    if not ev.get("has_left_glove"): _revoked.append("left glove")
-                                    if not ev.get("has_right_glove"): _revoked.append("right glove")
+                                    if "mask" in required_ppe and not ev.get("has_mask"): _revoked.append("mask")
+                                    if "left glove" in required_ppe and not ev.get("has_left_glove"): _revoked.append("left glove")
+                                    if "right glove" in required_ppe and not ev.get("has_right_glove"): _revoked.append("right glove")
                                     compliance_engine.revoke(staff_name, reason="Sync from AI", missing_items=_revoked)
 
-                                if not is_verified_in_ai:
+                                # No PPE rule mapped to this person's role for
+                                # this zone — nothing to verify or alert on.
+                                if required_ppe and not is_verified_in_ai:
                                     missing = []
-                                    if not ev.get("has_mask"): missing.append("mask")
-                                    if not ev.get("has_left_glove"): missing.append("left glove")
-                                    if not ev.get("has_right_glove"): missing.append("right glove")
+                                    if "mask" in required_ppe and not ev.get("has_mask"): missing.append("mask")
+                                    if "left glove" in required_ppe and not ev.get("has_left_glove"): missing.append("left glove")
+                                    if "right glove" in required_ppe and not ev.get("has_right_glove"): missing.append("right glove")
                                     if not is_zone_alerted(f"{effective_cam_name}_{staff_name}"):
                                         from camera.constants.vision_constants import (
                                             WARNING_ALERT_COOLDOWN_SEC,
@@ -889,7 +1078,7 @@ class CameraWorker:
                                         os.makedirs("uploads/incidents", exist_ok=True)
                                         snapshot_filename = f"ppe_{camera_id}_{staff_name.replace(' ', '_')}_{int(time.time())}.jpg"
                                         snapshot_path = f"uploads/incidents/{snapshot_filename}"
-                                        cv2.imwrite(snapshot_path, manage_frame)
+                                        _io_pool.submit(_save_snapshot, snapshot_path, manage_frame.copy())
 
                                         event_engine.publish_event(
                                             event_type="PPEViolation",

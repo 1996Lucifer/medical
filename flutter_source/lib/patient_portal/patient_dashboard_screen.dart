@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:go_router/go_router.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'reports_locker_screen.dart';
 import 'consultations_screen.dart';
 import '../network/api_routes.dart';
+import '../network/network_manager.dart';
 
 class PatientDashboardScreen extends StatefulWidget {
   final int patientId;
@@ -27,7 +28,7 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
 
   Future<void> _fetchDashboardData() async {
     try {
-      final response = await http.get(Uri.parse('${ApiRoutes.baseUrl}/api/patient-portal/dashboard/${widget.patientId}'));
+      final response = await NetworkManager.instance.get('${ApiRoutes.baseUrl}/api/patient-portal/dashboard/${widget.patientId}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
@@ -41,6 +42,7 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
   }
 
   Widget _buildDashboard() {
+    final accent = Theme.of(context).colorScheme.secondary;
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_chartData.isEmpty) {
       return const Center(child: Text("No health data available. Please upload reports."));
@@ -76,12 +78,12 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.blue.withValues(alpha: 0.1), Colors.purple.withValues(alpha: 0.1)],
+                  colors: [accent.withValues(alpha: 0.15), accent.withValues(alpha: 0.03)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
+                border: Border.all(color: accent.withValues(alpha: 0.2)),
               ),
               child: LineChart(
                 LineChartData(
@@ -96,13 +98,13 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
                     LineChartBarData(
                       spots: heartRateSpots,
                       isCurved: true,
-                      color: Colors.blue,
+                      color: accent,
                       barWidth: 4,
                       isStrokeCapRound: true,
                       dotData: const FlDotData(show: true),
                       belowBarData: BarAreaData(
                         show: true,
-                        color: Colors.blue.withValues(alpha: 0.2),
+                        color: accent.withValues(alpha: 0.2),
                       ),
                     ),
                   ],
@@ -118,32 +120,104 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final onAccent = ThemeData.estimateBrightnessForColor(scheme.secondary) ==
+            Brightness.dark
+        ? Colors.white
+        : Colors.black87;
     final List<Widget> pages = [
       _buildDashboard(),
       ReportsLockerScreen(patientId: widget.patientId),
       ConsultationsScreen(patientId: widget.patientId),
     ];
 
+    // Reached via context.go() from either the real, authenticated patient
+    // list (/patients) or the pre-auth demo link on the login screen
+    // (/patient-demo) — go() replaces the whole route stack, so there's
+    // nothing for the default back button to pop to; send it back to
+    // whichever parent this instance was actually opened from.
+    final isDemo =
+        GoRouterState.of(context).uri.path.startsWith('/patient-demo');
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go(isDemo ? '/login' : '/patients'),
+        ),
         title: const Text('Patient Portal'),
         elevation: 0,
         backgroundColor: Colors.transparent,
       ),
       body: pages[_currentIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-            if (index == 0) _fetchDashboardData();
-          });
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_outlined), label: "Dashboard"),
-          NavigationDestination(icon: Icon(Icons.medical_information_outlined), label: "Reports"),
-          NavigationDestination(icon: Icon(Icons.history_edu), label: "Consultations"),
-        ],
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [scheme.secondary, scheme.primaryContainer],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(Icons.local_hospital, color: onAccent, size: 48),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Patient Portal',
+                    style: TextStyle(
+                      color: onAccent,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: Icon(Icons.dashboard_outlined, color: _currentIndex == 0 ? scheme.secondary : null),
+              title: Text("Dashboard", style: TextStyle(fontWeight: _currentIndex == 0 ? FontWeight.bold : FontWeight.normal)),
+              selected: _currentIndex == 0,
+              selectedTileColor: scheme.secondary.withValues(alpha: 0.1),
+              onTap: () {
+                setState(() {
+                  _currentIndex = 0;
+                  _fetchDashboardData();
+                });
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.medical_information_outlined, color: _currentIndex == 1 ? scheme.secondary : null),
+              title: Text("Reports", style: TextStyle(fontWeight: _currentIndex == 1 ? FontWeight.bold : FontWeight.normal)),
+              selected: _currentIndex == 1,
+              selectedTileColor: scheme.secondary.withValues(alpha: 0.1),
+              onTap: () {
+                setState(() {
+                  _currentIndex = 1;
+                });
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.history_edu, color: _currentIndex == 2 ? scheme.secondary : null),
+              title: Text("Consultations", style: TextStyle(fontWeight: _currentIndex == 2 ? FontWeight.bold : FontWeight.normal)),
+              selected: _currentIndex == 2,
+              selectedTileColor: scheme.secondary.withValues(alpha: 0.1),
+              onTap: () {
+                setState(() {
+                  _currentIndex = 2;
+                });
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

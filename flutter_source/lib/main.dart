@@ -1,27 +1,19 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import 'admin/super_admin_dashboard.dart';
-import 'agent/agent_screen.dart';
-import 'analytics/analytics_screen.dart';
-import 'auth/login_screen.dart';
-import 'camera/camera_screen.dart';
-import 'camera/camera_status_service.dart';
-import 'consultation/consultation_screen.dart';
+import 'app_router.dart';
 import 'network/environment.dart';
-import 'patients/patients_list_screen.dart';
-import 'security/security_dashboard.dart';
-import 'settings/settings_screen.dart';
-import 'widgets/shared_app_drawer.dart';
-
-import 'providers/auth_provider.dart';
 import 'providers/agent_provider.dart';
-import 'providers/consultation_provider.dart';
-import 'providers/camera_provider.dart';
 import 'providers/analytics_provider.dart';
+import 'providers/auth_provider.dart';
+import 'providers/camera_provider.dart';
+import 'providers/consultation_provider.dart';
 import 'providers/security_provider.dart';
 import 'providers/site_config_provider.dart';
+import 'providers/theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,52 +21,55 @@ void main() async {
 
   final authProvider = AuthProvider();
   final siteConfigProvider = SiteConfigProvider();
+  final themeProvider = ThemeProvider();
   // Kick off session restoration from persisted JWT before first frame
   authProvider.tryAutoLogin();
   // Load hospital branding config
   siteConfigProvider.fetchConfig();
+  // Restore a previously-chosen light/dark preference, if any
+  themeProvider.loadSavedTheme();
+
+  final router = buildAppRouter(authProvider);
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider.value(value: siteConfigProvider),
+        ChangeNotifierProvider.value(value: themeProvider),
         ChangeNotifierProvider(create: (_) => AgentProvider()),
         ChangeNotifierProvider(create: (_) => ConsultationProvider()),
         ChangeNotifierProvider(create: (_) => CameraProvider()),
         ChangeNotifierProvider(create: (_) => AnalyticsProvider()),
         ChangeNotifierProvider(create: (_) => SecurityProvider()),
       ],
-      child: const MyApp(),
+      child: MyApp(router: router),
     ),
   );
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final GoRouter router;
+  const MyApp({super.key, required this.router});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Healthcare Operations Copilot',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0F172A), // Dark slate
-          primary: const Color(0xFF38BDF8), // Light blue for accents
-          secondary: const Color(0xFF2DD4BF), // Teal for secondary accents
-          brightness: Brightness.dark,
-        ),
-        scaffoldBackgroundColor: Colors.transparent,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
-      ),
-      home: Consumer<AuthProvider>(
-        builder: (context, auth, _) {
-          // Show a splash screen while we check for a persisted JWT
-          if (auth.isRestoringSession) {
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, _) {
+        return MaterialApp.router(
+          title: 'Healthcare Operations Copilot',
+          debugShowCheckedModeBanner: false,
+          themeMode: themeProvider.themeMode,
+          darkTheme: ThemeProvider.darkTheme,
+          theme: ThemeProvider.lightTheme,
+          routerConfig: router,
+          // Session restoration is a brief, route-independent gate: show
+          // the splash over whatever the router is about to resolve to,
+          // rather than making it a redirect target (which would flash
+          // the real route in the URL bar before restoration finishes).
+          builder: (context, child) {
+            final auth = context.watch<AuthProvider>();
+            if (!auth.isRestoringSession) return child ?? const SizedBox();
             return Consumer<SiteConfigProvider>(
               builder: (context, siteConfig, _) {
                 return Scaffold(
@@ -91,11 +86,15 @@ class MyApp extends StatelessWidget {
                               width: 80,
                               height: 80,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const Icon(Icons.shield, size: 56, color: Color(0xFF38debb)),
+                              errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.shield,
+                                  size: 56,
+                                  color: Color(0xFF38debb)),
                             ),
                           )
                         else
-                          const Icon(Icons.shield, size: 56, color: Color(0xFF38debb)),
+                          const Icon(Icons.shield,
+                              size: 56, color: Color(0xFF38debb)),
                         const SizedBox(height: 24),
                         Text(
                           siteConfig.hospitalName,
@@ -119,178 +118,11 @@ class MyApp extends StatelessWidget {
                     ),
                   ),
                 );
-              }
+              },
             );
-          }
-          return auth.isAuthenticated
-              ? MainLayout()
-              : const LoginScreen();
-        },
-      ),
-    );
-  }
-}
-
-final GlobalKey<MainLayoutState> mainLayoutKey = GlobalKey<MainLayoutState>();
-
-class MainLayout extends StatefulWidget {
-  MainLayout({Key? key}) : super(key: mainLayoutKey);
-
-  @override
-  State<MainLayout> createState() => MainLayoutState();
-}
-
-class MainLayoutState extends State<MainLayout> {
-  int currentIndex = 0;
-
-  void changeTab(int index) {
-    setState(() {
-      currentIndex = index;
-    });
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    GlobalCameraStatus.startPolling();
-  }
-
-  @override
-  void dispose() {
-    GlobalCameraStatus.stopPolling();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-    final isDesktop = MediaQuery.of(context).size.width > 900;
-
-    final List<Widget> screens = [];
-    final List<NavigationDestination> destinations = [];
-
-    if (auth.hasPermission('view_admin')) {
-      screens.add(const SuperAdminDashboardScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.grid_view),
-        label: 'Command Center',
-      ));
-    }
-
-    if (auth.hasPermission('view_patients')) {
-      screens.add(const PatientsListScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.people_alt_outlined),
-        label: 'Patients',
-      ));
-    }
-
-    if (auth.hasPermission('view_consultation')) {
-      screens.add(const ConsultationScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.medical_services_outlined),
-        label: 'Consultation',
-      ));
-    }
-
-    if (auth.hasPermission('view_camera')) {
-      screens.add(const CameraScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.videocam_outlined),
-        label: 'AI Camera',
-      ));
-    }
-
-    if (auth.hasPermission('view_analytics')) {
-      screens.add(const AnalyticsDashboardScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.analytics_outlined),
-        label: 'AI Analytics',
-      ));
-    }
-
-    if (auth.hasPermission('view_security')) {
-      screens.add(const SecurityDashboardScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.lock_outline),
-        label: 'Security Vault',
-      ));
-    }
-
-    if (auth.hasPermission('view_agent')) {
-      screens.add(const AgentScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.chat_bubble_outline),
-        label: 'Agent',
-      ));
-    }
-
-    if (auth.hasPermission('view_settings')) {
-      screens.add(const SettingsScreen());
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.settings_system_daydream_outlined),
-        label: 'System Health',
-      ));
-    }
-
-    if (screens.isEmpty) {
-      screens.add(const Center(child: Text("No permissions assigned.")));
-      destinations.add(const NavigationDestination(
-        icon: Icon(Icons.error),
-        label: 'No Access',
-      ));
-    }
-
-    if (currentIndex >= screens.length) {
-      currentIndex = 0;
-    }
-
-    Widget content = IndexedStack(
-      index: currentIndex,
-      children: screens,
-    );
-
-    if (isDesktop) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF041329), // Aetheris background
-        body: Row(
-          children: [
-            SharedAppDrawer(
-              currentIndex: currentIndex,
-              onIndexChanged: changeTab,
-            ),
-            Expanded(child: content),
-          ],
-        ),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF041329),
-      drawer: Drawer(
-        backgroundColor: const Color(0xFF071A33),
-        child: SharedAppDrawer(
-          currentIndex: currentIndex,
-          onIndexChanged: changeTab,
-        ),
-      ),
-      body: Stack(
-        children: [
-          content,
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 8,
-            child: Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.menu, color: Colors.white, shadows: [
-                  Shadow(color: Colors.black54, blurRadius: 4)
-                ]),
-                onPressed: () => Scaffold.of(ctx).openDrawer(),
-              ),
-            ),
-          ),
-        ],
-      ),
+          },
+        );
+      },
     );
   }
 }
@@ -317,6 +149,11 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = Theme.of(context).cardColor;
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.1)
+        : Theme.of(context).colorScheme.outline.withValues(alpha: 0.2);
     return Container(
       width: width,
       height: height,
@@ -338,10 +175,11 @@ class GlassCard extends StatelessWidget {
           child: Container(
             padding: padding ?? const EdgeInsets.all(16.0),
             decoration: BoxDecoration(
-              color: const Color(0xFF112036).withValues(alpha: 0.6), // surface-container
+              color: surfaceColor.withValues(
+                  alpha: isDark ? 0.6 : 0.9), // surface-container
               borderRadius: BorderRadius.circular(borderRadius),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.1),
+                color: borderColor,
                 width: 1.0,
               ),
             ),
@@ -360,10 +198,11 @@ class GlassBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Stack(
       children: [
         Container(
-          color: const Color(0xFF041329), // Background color
+          color: Theme.of(context).scaffoldBackgroundColor, // Theme-aware base
         ),
         Positioned(
           top: -100,
@@ -373,7 +212,8 @@ class GlassBackground extends StatelessWidget {
             height: 600,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF38debb).withValues(alpha: 0.05), // Primary-fixed-dim leak
+              color:
+                  scheme.primary.withValues(alpha: 0.05), // Primary accent leak
             ),
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 120.0, sigmaY: 120.0),
@@ -389,7 +229,8 @@ class GlassBackground extends StatelessWidget {
             height: 400,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF14d1ff).withValues(alpha: 0.05), // Secondary-container leak
+              color: scheme.secondary
+                  .withValues(alpha: 0.05), // Secondary accent leak
             ),
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 100.0, sigmaY: 100.0),

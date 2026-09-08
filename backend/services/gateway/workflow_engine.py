@@ -19,6 +19,14 @@ class WorkflowEngine:
     """
     Controls the execution pipeline for AI requests.
     """
+
+    # Max L2 distance (all-MiniLM-L6-v2 embeddings) for a stored memory fact
+    # to be considered relevant enough to inject into the prompt. Without
+    # this, the nearest-3 lookup below always returns *something* even when
+    # nothing stored is actually related to the current message, and the
+    # LLM ends up mixing unrelated facts (e.g. camera logs from an earlier
+    # turn) into an answer about a completely different topic.
+    MEMORY_RELEVANCE_THRESHOLD = 0.8
     def execute_workflow(self, message: str, db: Session, session_id: str = "default", base64_img: str = None) -> str:
         start_time = time.time()
         
@@ -50,10 +58,14 @@ class WorkflowEngine:
             # Retrieve relevant long-term memory facts via vector similarity
             try:
                 query_embedding = vector_retriever.embedding_model.encode(message).tolist()
-                memory_records = db.query(AgentMemory).filter(
+                distance = AgentMemory.embedding.l2_distance(query_embedding)
+                memory_records = db.query(AgentMemory, distance.label("distance")).filter(
                     AgentMemory.session_id == session_id
-                ).order_by(AgentMemory.embedding.l2_distance(query_embedding)).limit(3).all()
-                memory_facts = [m.fact for m in memory_records]
+                ).order_by(distance).limit(3).all()
+                memory_facts = [
+                    m.fact for m, dist in memory_records
+                    if dist is not None and dist <= self.MEMORY_RELEVANCE_THRESHOLD
+                ]
             except Exception as e:
                 print(f"[WorkflowEngine] Failed to retrieve memory facts: {e}")
 

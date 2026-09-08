@@ -5,16 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:frontend/network/environment.dart';
 
 import '../network/admin_dashboard_service.dart';
-
-// Brand Colors from Aetheris Command
-const Color _bgBase = Color(0xFF041329);
-const Color _surfaceContainer = Color(0xFF112036);
-const Color _surfaceBright = Color(0xFF2c3951);
-const Color _tealAccent = Color(0xFF64ffda);
-const Color _cyanAccent = Color(0xFF00d1ff);
-const Color _textVariant = Color(0xFFbacac3);
-const Color _critical = Color(0xFFffb4ab);
-const Color _criticalContainer = Color(0xFF93000a);
+import '../network/network_manager.dart';
 
 class SuperAdminDashboardScreen extends StatefulWidget {
   const SuperAdminDashboardScreen({super.key});
@@ -35,6 +26,17 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
   List<dynamic>? _departmentResources;
   List<dynamic>? _patientFlow;
   List<dynamic>? _securityVault;
+
+  // Theme-derived colors (Aetheris Command dark / Clinical Clarity light)
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _bgBase => Theme.of(context).scaffoldBackgroundColor;
+  Color get _surfaceContainer => Theme.of(context).colorScheme.surfaceContainer;
+  Color get _surfaceBright => Theme.of(context).colorScheme.surfaceBright;
+  Color get _tealAccent => Theme.of(context).colorScheme.secondary;
+  Color get _cyanAccent => Theme.of(context).colorScheme.tertiary;
+  Color get _textVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _critical => Theme.of(context).colorScheme.error;
+  Color get _criticalContainer => Theme.of(context).colorScheme.errorContainer;
 
   @override
   void initState() {
@@ -85,12 +87,12 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
         children: [
           Expanded(
             child: _isLoading
-                ? const Center(
+                ? Center(
                     child: CircularProgressIndicator(color: _tealAccent))
                 : _error != null
                     ? Center(
                         child: Text('Error: $_error',
-                            style: const TextStyle(color: _critical)))
+                            style: TextStyle(color: _critical)))
                     : SingleChildScrollView(
                         padding: const EdgeInsets.all(32.0),
                         child: Column(
@@ -116,17 +118,17 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'System Health',
               style: TextStyle(
-                  color: Colors.white,
+                  color: _primary,
                   fontSize: 24,
                   fontWeight: FontWeight.bold),
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
               'Real-time neural network performance across the local node.',
               style: TextStyle(color: _textVariant, fontSize: 14),
@@ -145,10 +147,10 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
               Container(
                   width: 8,
                   height: 8,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                       color: _tealAccent, shape: BoxShape.circle)),
               const SizedBox(width: 8),
-              const Text('Live Stream Active',
+              Text('Live Stream Active',
                   style: TextStyle(
                       color: _tealAccent,
                       fontWeight: FontWeight.bold,
@@ -203,11 +205,11 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           ),
           const SizedBox(height: 24),
           Text('${gpuValue.toStringAsFixed(1)}%',
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: _primary,
                   fontSize: 36,
                   fontWeight: FontWeight.bold)),
-          const Text('GPU UTILIZATION',
+          Text('GPU UTILIZATION',
               style: TextStyle(
                   color: _textVariant,
                   fontSize: 11,
@@ -221,10 +223,10 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
               minHeight: 4,
               borderRadius: BorderRadius.circular(2)),
           const SizedBox(height: 16),
-          const Row(
+          Row(
             children: [
               Icon(Icons.trending_up, color: _textVariant, size: 14),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text('Live analytics streaming active',
                   style: TextStyle(color: _textVariant, fontSize: 11)),
             ],
@@ -245,17 +247,17 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildIconBox(Icons.developer_board, Colors.white),
+              _buildIconBox(Icons.developer_board, _primary),
               _buildNodePill(nodeName),
             ],
           ),
           const SizedBox(height: 24),
           Text('${cpuValue.toStringAsFixed(1)}%',
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: _primary,
                   fontSize: 36,
                   fontWeight: FontWeight.bold)),
-          const Text('CPU CAPACITY',
+          Text('CPU CAPACITY',
               style: TextStyle(
                   color: _textVariant,
                   fontSize: 11,
@@ -265,14 +267,14 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           LinearProgressIndicator(
               value: (cpuValue / 100).clamp(0.0, 1.0),
               backgroundColor: _surfaceBright,
-              color: Colors.white,
+              color: _primary,
               minHeight: 4,
               borderRadius: BorderRadius.circular(2)),
           const SizedBox(height: 16),
-          const Row(
+          Row(
             children: [
               Icon(Icons.check_circle_outline, color: _textVariant, size: 14),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text('Optimized background task distribution',
                   style: TextStyle(color: _textVariant, fontSize: 11)),
             ],
@@ -299,11 +301,11 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           ),
           const SizedBox(height: 24),
           Text('${ramValue.toStringAsFixed(1)}%',
-              style: const TextStyle(
-                  color: Colors.white,
+              style: TextStyle(
+                  color: _primary,
                   fontSize: 36,
                   fontWeight: FontWeight.bold)),
-          const Text('RAM UTILIZATION',
+          Text('RAM UTILIZATION',
               style: TextStyle(
                   color: _textVariant,
                   fontSize: 11,
@@ -317,10 +319,10 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
               minHeight: 4,
               borderRadius: BorderRadius.circular(2)),
           const SizedBox(height: 16),
-          const Row(
+          Row(
             children: [
               Icon(Icons.data_usage, color: _textVariant, size: 14),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text('Live memory tracking active',
                   style: TextStyle(color: _textVariant, fontSize: 11)),
             ],
@@ -348,7 +350,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(text,
-          style: const TextStyle(
+          style: TextStyle(
               color: _textVariant, fontSize: 10, letterSpacing: 0.5)),
     );
   }
@@ -425,12 +427,12 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Departmental Resources',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: _primary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold)),
               Icon(Icons.more_vert, color: _textVariant, size: 20),
@@ -452,13 +454,13 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                         sections: sections,
                       ),
                     ),
-                    const Center(
+                    Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text('LIVE',
                               style: TextStyle(
-                                  color: Colors.white,
+                                  color: _primary,
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold)),
                           Text('TOTAL LOAD',
@@ -500,11 +502,11 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
         const SizedBox(width: 8),
         Expanded(
             child: Text(title,
-                style: const TextStyle(color: Colors.white, fontSize: 12),
+                style: TextStyle(color: _primary, fontSize: 12),
                 overflow: TextOverflow.ellipsis)),
         Text(value,
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: _primary,
                 fontSize: 12,
                 fontWeight: FontWeight.bold)),
       ],
@@ -532,9 +534,9 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Patient Flow (24h)',
+              Text('Patient Flow (24h)',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: _primary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold)),
               Row(
@@ -545,11 +547,11 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                     decoration: BoxDecoration(
                         color: _tealAccent.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4)),
-                    child: const Text('Live',
+                    child: Text('Live',
                         style: TextStyle(color: _tealAccent, fontSize: 11)),
                   ),
                   const SizedBox(width: 8),
-                  const Text('History',
+                  Text('History',
                       style: TextStyle(color: _textVariant, fontSize: 11)),
                 ],
               ),
@@ -634,16 +636,16 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               children: [
                 Icon(Icons.security, color: _tealAccent, size: 24),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 Text('Security Vault',
                     style: TextStyle(
-                        color: Colors.white,
+                        color: _primary,
                         fontSize: 20,
                         fontWeight: FontWeight.bold)),
               ],
@@ -655,7 +657,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                         color: _tealAccent,
                         fontSize: 12,
                         fontWeight: FontWeight.bold)),
-                SizedBox(width: 4),
+                const SizedBox(width: 4),
                 Icon(Icons.arrow_forward, color: _tealAccent, size: 16),
               ],
             )
@@ -670,8 +672,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           ),
           child: Column(
             children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 child: Row(
                   children: [
                     Expanded(
@@ -715,8 +717,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
               ),
               Divider(color: Colors.white.withValues(alpha: 0.05), height: 1),
               if (alerts.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(24.0),
+                Padding(
+                  padding: const EdgeInsets.all(24.0),
                   child: Center(
                       child: Text('No recent security alerts',
                           style: TextStyle(color: _textVariant))),
@@ -751,6 +753,9 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                         severity,
                         riskBg,
                         alert['snapshot_path'],
+                        alert['zone'],
+                        alert['camera_name'],
+                        alert['staff_name'],
                       ),
                       Divider(
                           color: Colors.white.withValues(alpha: 0.05),
@@ -774,7 +779,10 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
       String engine,
       String risk,
       Color riskBg,
-      String? snapshotPath) {
+      String? snapshotPath,
+      String? zone,
+      String? cameraName,
+      String? staffName) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: Row(
@@ -782,7 +790,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           Expanded(
               flex: 2,
               child: Text(time,
-                  style: const TextStyle(color: _textVariant, fontSize: 12))),
+                  style: TextStyle(color: _textVariant, fontSize: 12))),
           Expanded(
             flex: 3,
             child: Row(
@@ -790,8 +798,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                 Icon(icon, color: iconColor, size: 16),
                 const SizedBox(width: 8),
                 Text(type,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: _primary,
                         fontSize: 13,
                         fontWeight: FontWeight.bold)),
               ],
@@ -800,7 +808,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           Expanded(
               flex: 3,
               child: Text(engine,
-                  style: const TextStyle(color: _textVariant, fontSize: 13))),
+                  style: TextStyle(color: _textVariant, fontSize: 13))),
           Expanded(
             flex: 2,
             child: Align(
@@ -810,8 +818,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                 decoration: BoxDecoration(
                     color: riskBg, borderRadius: BorderRadius.circular(4)),
                 child: Text(risk,
-                    style: const TextStyle(
-                        color: Colors.white,
+                    style: TextStyle(
+                        color: _primary,
                         fontSize: 9,
                         fontWeight: FontWeight.bold)),
               ),
@@ -823,44 +831,170 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
               alignment: Alignment.centerRight,
               child: snapshotPath != null
                   ? IconButton(
-                      icon: const Icon(Icons.remove_red_eye_outlined,
+                      icon: Icon(Icons.remove_red_eye_outlined,
                           color: _tealAccent, size: 18),
                       onPressed: () {
                         showDialog(
                           context: context,
-                          builder: (context) => Dialog(
-                            backgroundColor: Colors.transparent,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.network(
-                                    '${EnvironmentConfig.current.baseUrl.replaceAll('/api', '')}/$snapshotPath',
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            const Padding(
-                                      padding: EdgeInsets.all(16.0),
-                                      child: Text("Error loading image",
-                                          style:
-                                              TextStyle(color: Colors.white)),
-                                    ),
-                                  ),
+                          builder: (dialogContext) => GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => Navigator.of(dialogContext).pop(),
+                            child: Dialog(
+                              backgroundColor: Colors.transparent,
+                              insetPadding: const EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 24),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: 520,
+                                  maxHeight:
+                                      MediaQuery.of(dialogContext).size.height *
+                                          0.85,
                                 ),
-                                const SizedBox(height: 16),
-                                TextButton(
-                                  onPressed: () => Navigator.of(context).pop(),
-                                  child: const Text('Close',
-                                      style: TextStyle(color: _tealAccent)),
-                                )
-                              ],
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (zone != null ||
+                                            cameraName != null ||
+                                            staffName != null)
+                                          Container(
+                                            width: double.infinity,
+                                            margin:
+                                                const EdgeInsets.only(bottom: 12),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 16, vertical: 12),
+                                            decoration: BoxDecoration(
+                                              color: Theme.of(dialogContext)
+                                                  .colorScheme
+                                                  .surfaceContainerHigh,
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (zone != null ||
+                                                    cameraName != null)
+                                                  Row(
+                                                    children: [
+                                                      Icon(Icons.location_on,
+                                                          color: _tealAccent,
+                                                          size: 16),
+                                                      const SizedBox(width: 6),
+                                                      Expanded(
+                                                        child: Text(
+                                                          [
+                                                            if (zone != null)
+                                                              zone,
+                                                            if (cameraName !=
+                                                                null)
+                                                              cameraName,
+                                                          ].join(' · '),
+                                                          style: TextStyle(
+                                                              color: _primary,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              fontSize: 14),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                if (zone != null ||
+                                                    cameraName != null)
+                                                  const SizedBox(height: 6),
+                                                Row(
+                                                  children: [
+                                                    Icon(
+                                                        staffName != null
+                                                            ? Icons
+                                                                .badge_outlined
+                                                            : Icons
+                                                                .person_off_outlined,
+                                                        color: staffName != null
+                                                            ? _tealAccent
+                                                            : _critical,
+                                                        size: 16),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                        staffName != null
+                                                            ? 'Recognized: $staffName'
+                                                            : 'Unrecognized person',
+                                                        style: TextStyle(
+                                                            color: staffName !=
+                                                                    null
+                                                                ? _primary
+                                                                : _critical,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600,
+                                                            fontSize: 13)),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        Flexible(
+                                          child: ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            child: Image.network(
+                                              '${EnvironmentConfig.current.baseUrl.replaceAll('/api', '')}/$snapshotPath',
+                                              headers: NetworkManager.instance
+                                                          .token !=
+                                                      null
+                                                  ? {
+                                                      'Authorization':
+                                                          'Bearer ${NetworkManager.instance.token}'
+                                                    }
+                                                  : null,
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (context, error,
+                                                      stackTrace) =>
+                                                  Padding(
+                                                padding:
+                                                    const EdgeInsets.all(16.0),
+                                                child: Text(
+                                                    "Error loading image",
+                                                    style: TextStyle(
+                                                        color: _primary)),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Positioned(
+                                      top: -14,
+                                      right: -14,
+                                      child: Material(
+                                        color: Colors.black87,
+                                        shape: const CircleBorder(),
+                                        child: InkWell(
+                                          customBorder: const CircleBorder(),
+                                          onTap: () =>
+                                              Navigator.of(dialogContext).pop(),
+                                          child: const Padding(
+                                            padding: EdgeInsets.all(8.0),
+                                            child: Icon(Icons.close,
+                                                color: Colors.white, size: 18),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         );
                       },
                     )
-                  : const Icon(Icons.remove_red_eye_outlined,
+                  : Icon(Icons.remove_red_eye_outlined,
                       color: _textVariant, size: 18),
             ),
           ),

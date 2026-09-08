@@ -1,29 +1,30 @@
-import 'dart:ui';
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import '../app_router.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../providers/auth_provider.dart';
 import '../providers/site_config_provider.dart';
-import 'rbac_mapper_screen.dart';
-import 'camera_management_screen.dart';
-import 'analytics_screen.dart';
-import 'manage_staff_screen.dart';
+import '../providers/theme_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Aetheris colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _surfaceContainerLowest = Color(0xFF010e24);
-  static const Color _onPrimaryContainer = Color(0xFF00201a);
+  // Theme-derived colors (read from Theme.of(context) so this screen follows
+  // the light/dark toggle instead of being hardcoded to the dark palette).
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurfaceVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
+  Color get _surfaceContainerLowest =>
+      Theme.of(context).colorScheme.surfaceContainerLowest;
+  Color get _onPrimaryContainer => Theme.of(context).colorScheme.onSecondary;
 
   void _showBrandingSettings(BuildContext context) {
     final siteConfig = Provider.of<SiteConfigProvider>(context, listen: false);
@@ -47,45 +48,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
                           children: [
-                            Icon(Icons.palette_outlined, color: _primaryFixedDim, size: 24),
-                            SizedBox(width: 12),
+                            Icon(Icons.palette_outlined,
+                                color: _primaryFixedDim, size: 24),
+                            const SizedBox(width: 12),
                             Text('Branding Settings',
-                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primary)),
+                                style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: _primary)),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        const Text('Configure your hospital identity and AI agent name.',
-                          style: TextStyle(fontSize: 14, color: _onSurfaceVariant)),
+                        Text(
+                            'Configure your hospital identity and AI agent name.',
+                            style: TextStyle(
+                                fontSize: 14, color: _onSurfaceVariant)),
                         const SizedBox(height: 32),
 
                         // Hospital Logo Section
-                        const Text('HOSPITAL LOGO',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _onSurfaceVariant, letterSpacing: 1.5)),
+                        Text('HOSPITAL LOGO',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _onSurfaceVariant,
+                                letterSpacing: 1.5)),
                         const SizedBox(height: 12),
                         Consumer<SiteConfigProvider>(
                           builder: (context, config, _) {
                             return Row(
                               children: [
                                 Container(
-                                  width: 72, height: 72,
+                                  width: 72,
+                                  height: 72,
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.3),
+                                    color: _onSurfaceVariant.withValues(
+                                        alpha: 0.08),
                                     borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: _primaryFixedDim.withValues(alpha: 0.3)),
+                                    border: Border.all(
+                                        color: _primaryFixedDim.withValues(
+                                            alpha: 0.3)),
                                   ),
                                   child: config.fullLogoUrl != null
-                                    ? ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Image.network(
-                                          config.fullLogoUrl!,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                            const Icon(Icons.broken_image, color: _onSurfaceVariant, size: 32),
-                                        ),
-                                      )
-                                    : const Icon(Icons.add_photo_alternate_outlined, color: _onSurfaceVariant, size: 32),
+                                      ? ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: Image.network(
+                                            config.fullLogoUrl!,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => Icon(
+                                                Icons.broken_image,
+                                                color: _onSurfaceVariant,
+                                                size: 32),
+                                          ),
+                                        )
+                                      : Icon(Icons.add_photo_alternate_outlined,
+                                          color: _onSurfaceVariant, size: 32),
                                 ),
                                 const SizedBox(width: 16),
                                 Column(
@@ -93,46 +112,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   children: [
                                     ElevatedButton.icon(
                                       icon: const Icon(Icons.upload, size: 16),
-                                      label: const Text('Upload Logo', style: TextStyle(fontSize: 13)),
+                                      label: const Text('Upload Logo',
+                                          style: const TextStyle(fontSize: 13)),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: _primaryFixedDim,
                                         foregroundColor: _onPrimaryContainer,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(10)),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 10),
                                       ),
-                                      onPressed: config.isLoading ? null : () async {
-                                        final result = await FilePicker.platform.pickFiles(
-                                          type: FileType.custom,
-                                          allowedExtensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'],
-                                          withData: true,
-                                        );
-                                        if (result != null && result.files.first.bytes != null) {
-                                          final file = result.files.first;
-                                          final success = await config.uploadLogo(
-                                            file.bytes!,
-                                            file.name,
-                                          );
-                                          if (success && ctx.mounted) {
-                                            ScaffoldMessenger.of(ctx).showSnackBar(
-                                              const SnackBar(content: Text('Logo uploaded!')),
-                                            );
-                                          }
-                                        }
-                                      },
+                                      onPressed: config.isLoading
+                                          ? null
+                                          : () async {
+                                              final result = await FilePicker
+                                                  .platform
+                                                  .pickFiles(
+                                                type: FileType.custom,
+                                                allowedExtensions: [
+                                                  'png',
+                                                  'jpg',
+                                                  'jpeg',
+                                                  'svg',
+                                                  'webp'
+                                                ],
+                                                withData: true,
+                                              );
+                                              if (result != null &&
+                                                  result.files.first.bytes !=
+                                                      null) {
+                                                final file = result.files.first;
+                                                final success =
+                                                    await config.uploadLogo(
+                                                  file.bytes!,
+                                                  file.name,
+                                                );
+                                                if (success && ctx.mounted) {
+                                                  ScaffoldMessenger.of(ctx)
+                                                      .showSnackBar(
+                                                    const SnackBar(
+                                                        content: const Text(
+                                                            'Logo uploaded!')),
+                                                  );
+                                                }
+                                              }
+                                            },
                                     ),
                                     if (config.fullLogoUrl != null) ...[
                                       const SizedBox(height: 8),
                                       TextButton.icon(
-                                        icon: Icon(Icons.delete_outline, size: 14, color: Colors.red[300]),
-                                        label: Text('Remove', style: TextStyle(fontSize: 12, color: Colors.red[300])),
-                                        onPressed: config.isLoading ? null : () async {
-                                          final success = await config.deleteLogo();
-                                          if (success && ctx.mounted) {
-                                            ScaffoldMessenger.of(ctx).showSnackBar(
-                                              const SnackBar(content: Text('Logo removed')),
-                                            );
-                                          }
-                                        },
+                                        icon: Icon(Icons.delete_outline,
+                                            size: 14, color: Colors.red[300]),
+                                        label: Text('Remove',
+                                            style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.red[300])),
+                                        onPressed: config.isLoading
+                                            ? null
+                                            : () async {
+                                                final success =
+                                                    await config.deleteLogo();
+                                                if (success && ctx.mounted) {
+                                                  ScaffoldMessenger.of(ctx)
+                                                      .showSnackBar(
+                                                    const SnackBar(
+                                                        content: const Text(
+                                                            'Logo removed')),
+                                                  );
+                                                }
+                                              },
                                       ),
                                     ],
                                   ],
@@ -145,52 +194,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 28),
 
                         // Hospital Name
-                        const Text('HOSPITAL NAME',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _onSurfaceVariant, letterSpacing: 1.5)),
+                        Text('HOSPITAL NAME',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _onSurfaceVariant,
+                                letterSpacing: 1.5)),
                         const SizedBox(height: 8),
                         TextField(
                           controller: hospitalCtrl,
-                          style: const TextStyle(color: _primary),
+                          style: TextStyle(color: _primary),
                           decoration: InputDecoration(
                             hintText: 'e.g. City General Hospital',
-                            hintStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.5)),
+                            hintStyle: TextStyle(
+                                color:
+                                    _onSurfaceVariant.withValues(alpha: 0.5)),
                             filled: true,
-                            fillColor: Colors.black.withValues(alpha: 0.2),
+                            fillColor:
+                                _onSurfaceVariant.withValues(alpha: 0.08),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                              borderSide: BorderSide(
+                                  color: _onSurfaceVariant.withValues(
+                                      alpha: 0.15)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: _primaryFixedDim),
+                              borderSide: BorderSide(color: _primaryFixedDim),
                             ),
-                            prefixIcon: Icon(Icons.local_hospital_outlined, color: _primaryFixedDim.withValues(alpha: 0.7)),
+                            prefixIcon: Icon(Icons.local_hospital_outlined,
+                                color: _primaryFixedDim.withValues(alpha: 0.7)),
                           ),
                         ),
 
                         const SizedBox(height: 20),
 
                         // Agent Name
-                        const Text('AI AGENT NAME',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _onSurfaceVariant, letterSpacing: 1.5)),
+                        Text('AI AGENT NAME',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _onSurfaceVariant,
+                                letterSpacing: 1.5)),
                         const SizedBox(height: 8),
                         TextField(
                           controller: agentCtrl,
-                          style: const TextStyle(color: _primary),
+                          style: TextStyle(color: _primary),
                           decoration: InputDecoration(
                             hintText: 'e.g. MedBot, Athena',
-                            hintStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.5)),
+                            hintStyle: TextStyle(
+                                color:
+                                    _onSurfaceVariant.withValues(alpha: 0.5)),
                             filled: true,
-                            fillColor: Colors.black.withValues(alpha: 0.2),
+                            fillColor:
+                                _onSurfaceVariant.withValues(alpha: 0.08),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                              borderSide: BorderSide(
+                                  color: _onSurfaceVariant.withValues(
+                                      alpha: 0.15)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: _primaryFixedDim),
+                              borderSide: BorderSide(color: _primaryFixedDim),
                             ),
-                            prefixIcon: Icon(Icons.smart_toy_outlined, color: _primaryFixedDim.withValues(alpha: 0.7)),
+                            prefixIcon: Icon(Icons.smart_toy_outlined,
+                                color: _primaryFixedDim.withValues(alpha: 0.7)),
                           ),
                         ),
 
@@ -202,7 +271,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             TextButton(
                               onPressed: () => Navigator.of(dialogCtx).pop(),
-                              child: const Text('Cancel', style: TextStyle(color: _onSurfaceVariant)),
+                              child: Text('Cancel',
+                                  style: TextStyle(color: _onSurfaceVariant)),
                             ),
                             const SizedBox(width: 12),
                             Consumer<SiteConfigProvider>(
@@ -211,30 +281,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: _primaryFixedDim,
                                     foregroundColor: _onPrimaryContainer,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 28, vertical: 14),
                                   ),
-                                  onPressed: config.isLoading ? null : () async {
-                                    final success = await config.updateConfig(
-                                      hospitalName: hospitalCtrl.text.trim(),
-                                      agentName: agentCtrl.text.trim(),
-                                    );
-                                    if (success && dialogCtx.mounted) {
-                                      Navigator.of(dialogCtx).pop();
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Branding updated successfully!'),
-                                            backgroundColor: Color(0xFF27354c),
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  },
+                                  onPressed: config.isLoading
+                                      ? null
+                                      : () async {
+                                          final success =
+                                              await config.updateConfig(
+                                            hospitalName:
+                                                hospitalCtrl.text.trim(),
+                                            agentName: agentCtrl.text.trim(),
+                                          );
+                                          if (success && dialogCtx.mounted) {
+                                            Navigator.of(dialogCtx).pop();
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                const SnackBar(
+                                                  content: const Text(
+                                                      'Branding updated successfully!'),
+                                                  backgroundColor:
+                                                      const Color(0xFF27354c),
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        },
                                   child: config.isLoading
-                                    ? const SizedBox(width: 20, height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00382d)))
-                                    : const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.bold)),
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child:
+                                              const CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color:
+                                                      const Color(0xFF00382d)))
+                                      : const Text('Save Changes',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold)),
                                 );
                               },
                             ),
@@ -278,23 +366,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 border: Border.all(
                     color: isPrimary
                         ? _primaryFixedDim.withValues(alpha: 0.3)
-                        : Colors.white.withValues(alpha: 0.05)),
+                        : _onSurfaceVariant.withValues(alpha: 0.15)),
               ),
-              child: Icon(icon, color: isPrimary ? _primaryFixedDim : Colors.white, size: 28),
+              child: Icon(icon,
+                  color: isPrimary ? _primaryFixedDim : _onSurfaceVariant,
+                  size: 28),
             ),
             const SizedBox(height: 16),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: _primary)),
                 const SizedBox(height: 6),
                 Text(subtitle,
-                    style: const TextStyle(
-                        fontSize: 12, color: _onSurfaceVariant)),
+                    style: TextStyle(fontSize: 12, color: _onSurfaceVariant)),
               ],
             ),
             const SizedBox(height: 16),
@@ -304,7 +393,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: isPrimary ? _primaryFixedDim : _onSurfaceVariant)),
+                        color:
+                            isPrimary ? _primaryFixedDim : _onSurfaceVariant)),
                 const SizedBox(width: 8),
                 Icon(Icons.arrow_forward,
                     size: 16,
@@ -317,6 +407,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildThemeToggleCard() {
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, _) {
+        return GlassCard(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: _surfaceContainerLowest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: _onSurfaceVariant.withValues(alpha: 0.15)),
+                ),
+                child: Icon(
+                    themeProvider.isDarkMode
+                        ? Icons.dark_mode_outlined
+                        : Icons.light_mode_outlined,
+                    color: _onSurfaceVariant,
+                    size: 28),
+              ),
+              const SizedBox(height: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Appearance',
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _primary)),
+                  const SizedBox(height: 6),
+                  Text(
+                      themeProvider.isDarkMode
+                          ? 'Dark mode is on (Aetheris Command theme).'
+                          : 'Light mode is on (Clinical Clarity theme).',
+                      style: TextStyle(fontSize: 12, color: _onSurfaceVariant)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Dark Mode',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _onSurfaceVariant)),
+                  Switch(
+                    value: themeProvider.isDarkMode,
+                    activeThumbColor: _primaryFixedDim,
+                    onChanged: (isDark) => themeProvider.toggleTheme(isDark),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -324,39 +479,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text(
-          'Settings',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        backgroundColor: Colors.black.withValues(alpha: 0.3),
-        elevation: 0,
-        flexibleSpace: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(color: Colors.transparent),
-          ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Container(color: Colors.white.withValues(alpha: 0.05), height: 1.0),
-        ),
-      ),
+      // appBar: AppBar(
+      //   title: Text(
+      //     'Settings',
+      //     style: TextStyle(fontWeight: FontWeight.bold, color: _primary),
+      //   ),
+      //   backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.3),
+      //   elevation: 0,
+      //   flexibleSpace: ClipRRect(
+      //     child: BackdropFilter(
+      //       filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+      //       child: Container(color: Colors.transparent),
+      //     ),
+      //   ),
+      //   bottom: PreferredSize(
+      //     preferredSize: const Size.fromHeight(1.0),
+      //     child: Container(
+      //         color: _primary.withValues(alpha: 0.05), height: 1.0),
+      //   ),
+      // ),
       body: GlassBackground(
         child: Padding(
           padding: EdgeInsets.symmetric(
               horizontal: isMobile ? 24.0 : 40.0,
-              vertical: isMobile ? 100.0 : 120.0),
+              vertical: isMobile ? 24.0 : 40.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('System Settings',
+              Text('System Settings',
                   style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.w900,
                       color: _primary)),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                   'Configure AI recognition parameters, camera node clusters, and biometric staff access.',
                   style: TextStyle(fontSize: 16, color: _onSurfaceVariant)),
               const SizedBox(height: 40),
@@ -374,12 +530,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 'Add, remove, or update staff photos for AI facial recognition and tracking.',
                             icon: Icons.badge,
                             isPrimary: true,
-                            onTap: () {
-                              Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => const ManageStaffScreen()));
-                            }),
+                            onTap: () => context.go(settingsStaffPath)),
                       ),
                       SizedBox(
                         width: isMobile ? double.infinity : 340,
@@ -388,13 +539,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             subtitle:
                                 'Add or remove registered RTSP camera sources and monitor connection statuses.',
                             icon: Icons.videocam,
-                            onTap: () {
-                              Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const CameraManagementScreen()));
-                            }),
+                            onTap: () => context.go(settingsCamerasPath)),
                       ),
                       SizedBox(
                         width: isMobile ? double.infinity : 340,
@@ -403,12 +548,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             subtitle:
                                 'Visually map users and groups to permissions across different clinical zones.',
                             icon: Icons.hub,
-                            onTap: () {
-                              Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => const RBACMapperScreen()));
-                            }),
+                            onTap: () => context.go(settingsRbacPath)),
                       ),
                       SizedBox(
                         width: isMobile ? double.infinity : 340,
@@ -417,29 +557,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             subtitle:
                                 'View real-time efficiency metrics and AI detection logs for the entire facility.',
                             icon: Icons.analytics,
-                            onTap: () {
-                              Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => const AnalyticsScreen()));
-                            }),
+                            onTap: () => context.go(settingsAnalyticsPath)),
                       ),
-                      Consumer<AuthProvider>(
-                        builder: (context, auth, _) {
-                          if (auth.role == 'superadmin') {
-                            return SizedBox(
-                              width: isMobile ? double.infinity : 340,
-                              child: _buildNavCard(
-                                title: 'Branding Settings',
-                                subtitle: 'Configure hospital identity, logo, and AI agent naming.',
-                                icon: Icons.palette_outlined,
-                                onTap: () => _showBrandingSettings(context),
-                              ),
-                            );
-                          }
-                          return const SizedBox.shrink();
+                      SizedBox(
+                        width: isMobile ? double.infinity : 340,
+                        child: _buildThemeToggleCard(),
+                      ),
+                      Consumer<AuthProvider>(builder: (context, auth, _) {
+                        if (auth.role == 'superadmin') {
+                          return SizedBox(
+                            width: isMobile ? double.infinity : 340,
+                            child: _buildNavCard(
+                              title: 'Branding Settings',
+                              subtitle:
+                                  'Configure hospital identity, logo, and AI agent naming.',
+                              icon: Icons.palette_outlined,
+                              onTap: () => _showBrandingSettings(context),
+                            ),
+                          );
                         }
-                      ),
+                        return const SizedBox.shrink();
+                      }),
                     ],
                   ),
                 ),

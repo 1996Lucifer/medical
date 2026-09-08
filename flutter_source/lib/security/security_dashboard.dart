@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../main.dart' show GlassCard, GlassBackground;
@@ -29,16 +30,16 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
   final TextEditingController _ruleController = TextEditingController();
 
   // Aetheris colors
-  static const Color _primary = Color(0xFFffffff);
-  static const Color _onSurface = Color(0xFFd6e3ff);
-  static const Color _onSurfaceVariant = Color(0xFFbacac3);
-  static const Color _primaryFixedDim = Color(0xFF38debb);
-  static const Color _primaryContainer = Color(0xFF5ffbd6);
-  static const Color _secondary = Color(0xFFa6e6ff);
-  static const Color _secondaryContainer = Color(0xFF14d1ff);
-  static const Color _surfaceContainerHigh = Color(0xFF1c2a41);
-  static const Color _surfaceContainerLowest = Color(0xFF010e24);
-  static const Color _error = Color(0xFFffb4ab);
+  Color get _primary => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurface => Theme.of(context).colorScheme.onSurface;
+  Color get _onSurfaceVariant => Theme.of(context).colorScheme.onSurfaceVariant;
+  Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
+  Color get _primaryContainer => Theme.of(context).colorScheme.primaryContainer;
+  Color get _secondary => Theme.of(context).colorScheme.tertiary;
+  Color get _secondaryContainer => Theme.of(context).colorScheme.secondaryContainer;
+  Color get _surfaceContainerHigh => Theme.of(context).colorScheme.surfaceContainerHigh;
+  Color get _surfaceContainerLowest => Theme.of(context).colorScheme.surfaceContainerLowest;
+  Color get _error => Theme.of(context).colorScheme.error;
 
   @override
   void initState() {
@@ -194,7 +195,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(title,
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: _onSurfaceVariant,
                       fontSize: 14,
                       fontWeight: FontWeight.w600)),
@@ -240,10 +241,10 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded,
+                    Icon(Icons.warning_amber_rounded,
                         color: _primaryFixedDim),
                     const SizedBox(width: 12),
-                    const Text("Active Security Alerts",
+                    Text("Active Security Alerts",
                         style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -283,7 +284,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                         padding: const EdgeInsets.only(left: 8.0),
                         child: Text(
                           "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}",
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: _primaryFixedDim, fontSize: 14),
                         ),
                       ),
@@ -306,7 +307,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                               shape: BoxShape.circle)),
                       const SizedBox(width: 8),
                       Text(_isConnected ? 'Live Feed' : 'Disconnected',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: _onSurface)),
@@ -332,8 +333,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             }).toList();
 
             if (filteredAlerts.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.all(40.0),
+              return Padding(
+                padding: const EdgeInsets.all(40.0),
                 child: Center(
                     child: Text('No active security alerts.',
                         style: TextStyle(color: _onSurfaceVariant))),
@@ -391,7 +392,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                                         fontWeight: FontWeight.w600,
                                         fontSize: 14)),
                                 Text(alert['timestamp'].toString(),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         color: _onSurfaceVariant,
                                         fontSize: 12)),
                               ],
@@ -399,7 +400,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                             const SizedBox(height: 4),
                             Text(
                                 'Camera: ${alert['camera_name']}. Details: ${alert['details']}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: _onSurface, fontSize: 13)),
                             const SizedBox(height: 12),
                             if (!isResolved)
@@ -423,7 +424,10 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                                   ),
                                   const SizedBox(width: 12),
                                   OutlinedButton(
-                                    onPressed: () {},
+                                    onPressed: alert['camera_id'] == null
+                                        ? null
+                                        : () => context.go(
+                                            '/camera?expand=${alert['camera_id']}'),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: alertColor,
                                       side: BorderSide(
@@ -462,10 +466,10 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
                   Icon(Icons.smart_toy, color: _primaryContainer),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Text("AI Rules Engine",
                       style: TextStyle(
                           fontSize: 20,
@@ -474,7 +478,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                   "Input natural language to deploy new security protocols across the entire facility.",
                   style: TextStyle(color: _onSurfaceVariant, fontSize: 14)),
               const SizedBox(height: 24),
@@ -488,7 +492,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                 child: TextField(
                   controller: _ruleController,
                   maxLines: 4,
-                  style: const TextStyle(color: _onSurface, fontSize: 14),
+                  style: TextStyle(color: _onSurface, fontSize: 14),
                   decoration: InputDecoration(
                     hintText:
                         'e.g., Alert me if a person enters the pharmacy without a badge after 10 PM',
@@ -523,7 +527,7 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                 ),
               ),
               const SizedBox(height: 32),
-              const Text("Recent Deployments",
+              Text("Recent Deployments",
                   style: TextStyle(
                       color: _onSurfaceVariant,
                       fontSize: 14,
@@ -541,16 +545,16 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                         Container(
                             width: 6,
                             height: 6,
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                                 color: _primaryFixedDim,
                                 shape: BoxShape.circle)),
                         const SizedBox(width: 8),
                         Expanded(
                             child: Text(_rules[i]['rule_text'],
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: _onSurface, fontSize: 12))),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline,
+                          icon: Icon(Icons.delete_outline,
                               color: _error, size: 16),
                           onPressed: () => _deleteRule(_rules[i]['id']),
                           constraints: const BoxConstraints(),
@@ -579,12 +583,12 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                       Colors.transparent,
                     ])),
               ),
-              const Center(
+              Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.language, color: _primaryContainer, size: 40),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text('Network Heatmap Active',
                         style: TextStyle(
                             color: _primaryFixedDim,
@@ -613,13 +617,13 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Security Command Center',
+                Text('Security Command Center',
                     style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.w900,
                         color: _primary)),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                     'Real-time AI-driven monitoring of hospital infrastructure, access points, and personnel compliance.',
                     style: TextStyle(fontSize: 16, color: _onSurfaceVariant)),
                 const SizedBox(height: 32),
