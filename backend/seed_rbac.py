@@ -23,6 +23,7 @@ def setup_rbac():
             {"name": "manage_staff", "description": "Add or remove staff"},
             {"name": "edit_rules", "description": "Create and manage AI security rules"},
             {"name": "view_reports", "description": "View medical reports"},
+            {"name": "manage_devices", "description": "Register RFID devices and enroll staff badges"},
         ]
         
         db_perms = {}
@@ -50,7 +51,18 @@ def setup_rbac():
                 admin_group.permissions.append(perm)
             db.commit()
             print("Mapped all permissions to Administrators group.")
-            
+        else:
+            # Group already existed (e.g. from an earlier run of this
+            # script) — still backfill any newly-added permission (like
+            # manage_devices) onto it so re-running this script after a
+            # feature adds a permission actually grants it, not just seeds
+            # it into rbac_permissions unused.
+            for perm in db_perms.values():
+                if perm not in admin_group.permissions:
+                    admin_group.permissions.append(perm)
+                    print(f"Backfilled permission '{perm.name}' onto Administrators group.")
+            db.commit()
+
         # 4. Seed Default Admin User if missing
         admin_user = db.query(models.User).filter(models.User.username == "admin").first()
         if not admin_user:

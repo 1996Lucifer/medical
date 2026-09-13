@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import 'admin/super_admin_dashboard.dart';
 import 'agent/agent_screen.dart';
 import 'analytics/analytics_screen.dart';
 import 'auth/change_password_screen.dart';
 import 'auth/login_screen.dart';
+import 'auth/patient_login_screen.dart';
 import 'auth/setup_wizard_screen.dart';
 import 'camera/camera_screen.dart';
 import 'camera/camera_status_service.dart';
 import 'consultation/consultation_screen.dart';
+import 'directory/people_directory_screen.dart';
 import 'patient_portal/patient_dashboard_screen.dart';
 import 'patient_portal/upload_report_screen.dart';
-import 'patients/patients_list_screen.dart';
 import 'providers/auth_provider.dart';
 import 'security/security_dashboard.dart';
 import 'settings/analytics_screen.dart' as settings;
@@ -28,7 +30,10 @@ import 'widgets/shared_app_drawer.dart';
 /// and the pre-auth "Patient Portal (Demo)" flow linked from the login
 /// screen. Everything else requires a session (see the redirect below).
 bool _isPublicPath(String path) {
-  return path == '/login' || path == '/setup' || path.startsWith('/patient-demo');
+  return path == '/login' ||
+      path == '/patient-login' ||
+      path == '/setup' ||
+      path.startsWith('/patient-demo');
 }
 
 /// One entry per top-level destination — the single source of truth for
@@ -60,11 +65,16 @@ const List<NavEntry> kNavEntries = [
     builder: _superAdmin,
   ),
   NavEntry(
-    path: '/patients',
+    path: '/directory',
+    // Reuses the same permission the old top-level Patients tab used, so
+    // anyone already granted access to that keeps access here with no RBAC
+    // reconfiguration needed - the Directory is a superset (patients,
+    // doctors, staff, all filterable via choice chips) of what that tab
+    // showed, not a different capability.
     permission: 'view_patients',
     icon: Icons.people_alt_outlined,
-    label: 'Patients',
-    builder: _patients,
+    label: 'Directory',
+    builder: _directory,
   ),
   NavEntry(
     path: '/consultation',
@@ -113,7 +123,7 @@ const List<NavEntry> kNavEntries = [
 // Plain top-level functions (not closures) so `const` NavEntry literals
 // above stay const-constructible.
 Widget _superAdmin(GoRouterState state) => const SuperAdminDashboardScreen();
-Widget _patients(GoRouterState state) => PatientsListScreen();
+Widget _directory(GoRouterState state) => const PeopleDirectoryScreen();
 Widget _consultation(GoRouterState state) => ConsultationScreen();
 Widget _camera(GoRouterState state) {
   // Security Vault's "View Cam" links here as /camera?expand=<id> instead
@@ -140,6 +150,12 @@ const String settingsAnalyticsPath = '/settings/analytics';
 /// null (no gate) for anything not recognized, e.g. /login itself.
 String? permissionForPath(String path) {
   if (path.startsWith('/settings')) return 'view_settings';
+  // /patients/:id (a specific patient's full chart) is no longer a nav tab
+  // itself (superseded by /directory), but it's still reachable directly
+  // by URL/tap-through - without this explicit case it would fall through
+  // to the loop below, match nothing, and end up ungated (any authenticated
+  // user could view any patient's chart regardless of role).
+  if (path.startsWith('/patients/')) return 'view_patients';
   for (final entry in kNavEntries) {
     if (path == entry.path || path.startsWith('${entry.path}/')) {
       return entry.permission;
@@ -186,7 +202,18 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
       if (auth.mustChangePassword) {
         return loc == '/change-password' ? null : '/change-password';
       }
+
+      // A patient-portal account has no RBAC permissions at all (patients
+      // aren't staff), so the generic firstPermittedPath/permissionForPath
+      // logic below would always dead-end at /no-access for them - route
+      // patients to their own portal instead, and keep them there (no
+      // access to any staff screen).
+      if (auth.role == 'patient') {
+        return loc.startsWith('/my-portal') ? null : '/my-portal';
+      }
+
       if (loc == '/login' ||
+          loc == '/patient-login' ||
           loc == '/setup' ||
           loc == '/change-password' ||
           loc == '/') {
@@ -203,6 +230,10 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
     routes: [
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
+        path: '/patient-login',
+        builder: (context, state) => const PatientLoginScreen(),
+      ),
+      GoRoute(
         path: '/setup',
         builder: (context, state) => const SetupWizardScreen(),
       ),
@@ -215,6 +246,38 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
         builder: (context, state) => const Scaffold(
           body: Center(child: Text('No permissions assigned.')),
         ),
+      ),
+      // A real patient's own portal - patientId comes from their own
+      // account (AuthProvider.patientId, set via /me), never from the URL.
+      GoRoute(
+        path: '/my-portal',
+        builder: (context, state) {
+          final patientId = context.watch<AuthProvider>().patientId;
+          if (patientId == null) {
+            return const Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24.0),
+                  child: Text(
+                    'This account has no patient profile linked to it. '
+                    'Contact an administrator.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            );
+          }
+          return PatientDashboardScreen(patientId: patientId);
+        },
+        routes: [
+          GoRoute(
+            path: 'reports/upload',
+            builder: (context, state) {
+              final patientId = context.watch<AuthProvider>().patientId;
+              return UploadReportScreen(patientId: patientId ?? 0);
+            },
+          ),
+        ],
       ),
       // Pre-auth demo flow linked from the login screen — always patient
       // id 1, same as the hardcoded demo it replaced.
@@ -235,13 +298,23 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
       GoRoute(
         path: settingsStaffPath,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const ManageStaffScreen(),
+        builder: (context, state) {
+          final enrollStaffId = state.uri.queryParameters['enrollRfidFor'];
+          return ManageStaffScreen(
+            autoEnrollRfidStaffId:
+                enrollStaffId != null ? int.tryParse(enrollStaffId) : null,
+            autoEnrollRfidStaffName: state.uri.queryParameters['staffName'],
+          );
+        },
         routes: [
           GoRoute(
             // Full path: /settings/staff/:id/live-setup
             path: ':id/live-setup',
             builder: (context, state) => LiveFaceSetupScreen(
               staffId: int.parse(state.pathParameters['id']!),
+              isNewOnboarding:
+                  state.uri.queryParameters['onboarding'] == 'true',
+              staffName: state.uri.queryParameters['staffName'],
             ),
           ),
         ],
@@ -272,6 +345,27 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
         parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const settings.AnalyticsScreen(),
       ),
+      // A specific patient's full chart (reports + consultations) - reached
+      // by tapping a patient card in the Directory. No longer nested under
+      // a "Patients" shell branch (that tab was replaced by /directory),
+      // so it's a standalone root-anchored route like the /settings/*
+      // sub-pages above.
+      GoRoute(
+        path: '/patients/:id',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => PatientDashboardScreen(
+          patientId: int.parse(state.pathParameters['id']!),
+        ),
+        routes: [
+          GoRoute(
+            // Full path: /patients/:id/reports/upload
+            path: 'reports/upload',
+            builder: (context, state) => UploadReportScreen(
+              patientId: int.parse(state.pathParameters['id']!),
+            ),
+          ),
+        ],
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             MainShell(navigationShell: navigationShell),
@@ -282,31 +376,6 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
                 GoRoute(
                   path: entry.path,
                   builder: (context, state) => entry.builder(state),
-                  routes: entry.path == '/patients'
-                      ? [
-                          GoRoute(
-                            // Full path: /patients/:id
-                            path: ':id',
-                            parentNavigatorKey: rootNavigatorKey,
-                            builder: (context, state) =>
-                                PatientDashboardScreen(
-                              patientId:
-                                  int.parse(state.pathParameters['id']!),
-                            ),
-                            routes: [
-                              GoRoute(
-                                // Full path: /patients/:id/reports/upload
-                                path: 'reports/upload',
-                                builder: (context, state) =>
-                                    UploadReportScreen(
-                                  patientId:
-                                      int.parse(state.pathParameters['id']!),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ]
-                      : const [],
                 ),
               ],
             ),

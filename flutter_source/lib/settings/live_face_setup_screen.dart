@@ -11,7 +11,21 @@ import '../network/api_routes.dart';
 
 class LiveFaceSetupScreen extends StatefulWidget {
   final int staffId;
-  LiveFaceSetupScreen({super.key, required this.staffId});
+  // Set when this screen is reached as part of onboarding a brand-new
+  // staff member (see manage_staff_screen.dart's "Onboard New Personnel"
+  // dialog) rather than an existing staff member rescanning their photo -
+  // on completion, it chains straight into RFID card enrollment as the
+  // next onboarding step instead of returning to the staff list, so admins
+  // aren't left to find that staff member again later to badge them
+  // separately.
+  final bool isNewOnboarding;
+  final String? staffName;
+  const LiveFaceSetupScreen({
+    super.key,
+    required this.staffId,
+    this.isNewOnboarding = false,
+    this.staffName,
+  });
 
   @override
   State<LiveFaceSetupScreen> createState() => _LiveFaceSetupScreenState();
@@ -91,7 +105,7 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
   Future<void> _switchCamera() async {
     if (_cameras.length <= 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: const Text('No other cameras found')));
+          const SnackBar(content: Text('No other cameras found')));
       return;
     }
 
@@ -129,7 +143,17 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                   content: Text('✓ 3D Face Profile successfully registered!'),
                   backgroundColor: Colors.green));
-              context.go(settingsStaffPath);
+              if (widget.isNewOnboarding) {
+                context.go(Uri(
+                  path: settingsStaffPath,
+                  queryParameters: {
+                    'enrollRfidFor': '${widget.staffId}',
+                    if (widget.staffName != null) 'staffName': widget.staffName!,
+                  },
+                ).toString());
+              } else {
+                context.go(settingsStaffPath);
+              }
             });
           }
         });
@@ -524,10 +548,10 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.check_circle, color: Colors.green),
-                    const SizedBox(width: 12),
-                    const Text('Biometric Profile Completed',
-                        style: const TextStyle(
+                    Icon(Icons.check_circle, color: Colors.green),
+                    SizedBox(width: 12),
+                    Text('Biometric Profile Completed',
+                        style: TextStyle(
                             color: Colors.green,
                             fontWeight: FontWeight.bold,
                             fontSize: 16)),

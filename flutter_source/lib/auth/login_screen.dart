@@ -213,7 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: CircularProgressIndicator(
                                     color: Color(0xFF00382d), strokeWidth: 2))
                             : const Text(
-                                'INITIALIZE SECURE SESSION',
+                                'LOG IN',
                                 style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold,
@@ -230,10 +230,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 8),
                     TextButton.icon(
-                      onPressed: () => context.go('/patient-demo/1'),
+                      onPressed: () => context.go('/patient-login'),
                       icon: const Icon(Icons.favorite_border,
                           color: Color(0xFFffb4ab), size: 18),
-                      label: const Text("Enter Patient Portal (Demo)",
+                      label: const Text("Patient? Sign in to your portal",
                           style: TextStyle(
                               color: Color(0xFFffb4ab), fontSize: 13)),
                     ),

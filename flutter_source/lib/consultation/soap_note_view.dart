@@ -20,6 +20,12 @@ class SoapNoteView extends StatelessWidget {
     final summary = noteData['discharge_summary'] ?? 'No summary available.';
     final patientName = noteData['patient_name'] ?? 'Unknown Patient';
     final date = noteData['date'] ?? DateTime.now().toIso8601String();
+    // Whoever actually conducted this consultation - a doctor OR a nurse
+    // both attend/refer patients through this same flow, so this shows
+    // whichever one it was rather than assuming "Doctor". Null when the
+    // record predates this field, or the account has no linked staff row.
+    final staffName = noteData['staff_name'] as String?;
+    final staffRole = noteData['staff_role'] as String?;
 
     return GlassCard(
       padding: const EdgeInsets.all(32.0),
@@ -54,6 +60,13 @@ class SoapNoteView extends StatelessWidget {
               ),
             ],
           ),
+          if (staffName != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              staffRole != null ? 'Attended by $staffName ($staffRole)' : 'Attended by $staffName',
+              style: TextStyle(fontSize: 13, color: onSurfaceVariant),
+            ),
+          ],
           const SizedBox(height: 24),
           Divider(height: 32, color: Colors.white.withValues(alpha: 0.1)),
           Text(

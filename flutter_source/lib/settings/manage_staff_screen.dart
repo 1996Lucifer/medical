@@ -13,6 +13,7 @@ import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import '../widgets/shared_app_drawer.dart';
+import 'rfid_enroll_dialog.dart';
 
 /// /uploads is authenticated now (staff photos included) — attach the same
 /// bearer token used for API calls so NetworkImage can still load them.
@@ -22,7 +23,14 @@ Map<String, String> _authHeaders() {
 }
 
 class ManageStaffScreen extends StatefulWidget {
-  const ManageStaffScreen({super.key});
+  final int? autoEnrollRfidStaffId;
+  final String? autoEnrollRfidStaffName;
+
+  const ManageStaffScreen({
+    super.key,
+    this.autoEnrollRfidStaffId,
+    this.autoEnrollRfidStaffName,
+  });
 
   @override
   State<ManageStaffScreen> createState() => _ManageStaffScreenState();
@@ -80,17 +88,31 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
   void initState() {
     super.initState();
     _fetchStaff();
+    if (widget.autoEnrollRfidStaffId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        showRfidEnrollDialog(
+          context,
+          staffId: widget.autoEnrollRfidStaffId!,
+          staffName: widget.autoEnrollRfidStaffName ?? 'New Staff',
+        );
+      });
+    }
   }
 
   Future<void> _fetchStaff() async {
     setState(() => _isLoading = true);
     try {
-      final resp = await NetworkManager.instance
-          .get(ApiRoutes.staff)
-          .timeout(const Duration(seconds: 5));
-      final activityResp = await NetworkManager.instance
-          .get(ApiRoutes.staffActivity)
-          .timeout(const Duration(seconds: 5));
+      // These two requests don't depend on each other — fetching them
+      // concurrently instead of one-after-another roughly halves the time
+      // this screen spends loading (previously: staff request, then wait
+      // for it to fully finish before even starting the activity request).
+      final results = await Future.wait([
+        NetworkManager.instance.get(ApiRoutes.staff).timeout(const Duration(seconds: 5)),
+        NetworkManager.instance.get(ApiRoutes.staffActivity).timeout(const Duration(seconds: 5)),
+      ]);
+      final resp = results[0];
+      final activityResp = results[1];
 
       if (resp.statusCode == 200 && mounted) {
         setState(() {
@@ -777,10 +799,10 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                        [
+                        {
                           staff['category'] as String? ?? 'Medical Staff',
                           staff['role'] as String? ?? 'Medical Staff',
-                        ].toSet().join(' · '),
+                        }.join(' · '),
                         style: TextStyle(color: _textVariant, fontSize: 14)),
                     const SizedBox(height: 12),
                     Row(
@@ -829,6 +851,17 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       staff['name'] as String,
                       staff['role'] as String? ?? 'Medical Staff',
                       staff['category'] as String? ?? 'Medical Staff');
+                }),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildActionBtn(Icons.nfc, 'ENROLL RFID', () {
+                  showRfidEnrollDialog(
+                    context,
+                    staffId: staff['id'] as int,
+                    staffName: staff['name'] as String,
+                    staffRole: staff['role'] as String?,
+                  );
                 }),
               ),
               const SizedBox(width: 8),
@@ -1109,12 +1142,19 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                               }
 
                               // go() (not push()) so the URL reflects the
-                              // live-setup screen; it navigates back here
-                              // via context.go on its own completion/cancel,
-                              // which remounts this screen fresh (refetching
-                              // the just-onboarded staff member).
-                              context.go(
-                                  '$settingsStaffPath/$newStaffId/live-setup');
+                              // live-setup screen. onboarding=true chains
+                              // straight into RFID card enrollment once face
+                              // setup completes (see LiveFaceSetupScreen) -
+                              // badging happens as part of onboarding a new
+                              // hire, not as a separate action found later.
+                              context.go(Uri(
+                                path:
+                                    '$settingsStaffPath/$newStaffId/live-setup',
+                                queryParameters: {
+                                  'onboarding': 'true',
+                                  'staffName': nameController.text,
+                                },
+                              ).toString());
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                                   content: Text(
@@ -1129,7 +1169,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                 style: ElevatedButton.styleFrom(
                     backgroundColor: _tealAccent, foregroundColor: _bgBase),
                 child: const Text('Start Live Setup',
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                    style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
           );

@@ -1,19 +1,22 @@
 import time
 import threading
+from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 from models import AgentMemory
 from services.routing.intent_router import intent_router
 from services.routing.llm_router import llm_router
 from services.entities.entity_extractor import entity_extractor
 from services.gateway.query_planner import query_planner
-from services.tools.tool_executor import tool_executor
+from services.tools.tool_executor import tool_executor, ToolAccessDenied
 from services.retrieval.vector_retriever import vector_retriever
 from services.llm.context_builder import context_builder
 from services.llm.response_formatter import response_formatter
+from services.llm.chart_builder import build_chart_spec
 from services.llm_manager import llm_manager
 from services.metrics.metrics import metrics_tracker
 from services.memory.memory_manager import memory_manager
 from services.memory.memory_extractor import memory_extractor
+from services.security.encryption import decrypt_text
 
 class WorkflowEngine:
     """
@@ -27,9 +30,17 @@ class WorkflowEngine:
     # LLM ends up mixing unrelated facts (e.g. camera logs from an earlier
     # turn) into an answer about a completely different topic.
     MEMORY_RELEVANCE_THRESHOLD = 0.8
-    def execute_workflow(self, message: str, db: Session, session_id: str = "default", base64_img: str = None) -> str:
+    def execute_workflow(
+        self,
+        message: str,
+        db: Session,
+        session_id: str = "default",
+        base64_img: str = None,
+        user_id: Optional[int] = None,
+        role: Optional[str] = None,
+    ) -> Dict[str, Any]:
         start_time = time.time()
-        
+
         # 1. Intent Routing
         intent = intent_router.detect_intent(message)
         model_name = llm_router.route_to_model(intent) if not base64_img else "MedGemma (Vision)"
@@ -44,9 +55,22 @@ class WorkflowEngine:
         # 4. Retrieval (Tools / Vectors)
         rows = []
         vector_chunks = []
-        
+
         if strategy == "SQL" and tool_name:
-            rows = tool_executor.execute_tool(tool_name, entities, db)
+            try:
+                rows = tool_executor.execute_tool(tool_name, entities, db, role=role)
+            except ToolAccessDenied:
+                # Don't silently fall through to the LLM with no data (it
+                # might hallucinate an answer) or leak which tool exists -
+                # just tell the user plainly that this needs a different role.
+                return {
+                    "text": (
+                        "I can't share that - your account role doesn't have "
+                        "permission to access this information. Please contact "
+                        "an administrator if you believe this is incorrect."
+                    ),
+                    "chart": None,
+                }
         elif strategy == "VECTOR":
             vector_chunks = vector_retriever.search(message)
 
@@ -63,7 +87,7 @@ class WorkflowEngine:
                     AgentMemory.session_id == session_id
                 ).order_by(distance).limit(3).all()
                 memory_facts = [
-                    m.fact for m, dist in memory_records
+                    decrypt_text(m.fact) for m, dist in memory_records
                     if dist is not None and dist <= self.MEMORY_RELEVANCE_THRESHOLD
                 ]
             except Exception as e:
@@ -79,6 +103,13 @@ class WorkflowEngine:
         else:
             response = llm_manager.generate(final_prompt, is_clinical=is_clinical)
 
+        # Built directly from the real SQL rows (never from anything the LLM
+        # said), so the chart can't show hallucinated numbers. Only produced
+        # when the user actually asked for a chart/graph/plot - a request
+        # for "tabular"/table data is unaffected and keeps the normal
+        # markdown-table response the system prompt already produces.
+        chart = build_chart_spec(rows, message) if not base64_img else None
+
         # Record metrics
         metrics_tracker.log_interaction({
             "intent": intent,
@@ -87,11 +118,11 @@ class WorkflowEngine:
             "model": model_name,
             "latency": time.time() - start_time
         })
-        
+
         # 7. Save to short-term memory
-        memory_manager.add_message(db, session_id, "user", message)
-        memory_manager.add_message(db, session_id, "assistant", response)
-        
+        memory_manager.add_message(db, session_id, "user", message, user_id=user_id)
+        memory_manager.add_message(db, session_id, "assistant", response, user_id=user_id)
+
         # 8. Background Long-Term Memory Extraction
         threading.Thread(
             target=memory_extractor.extract_and_save_background,
@@ -99,6 +130,6 @@ class WorkflowEngine:
             daemon=True
         ).start()
 
-        return response
+        return {"text": response, "chart": chart}
 
 workflow_engine = WorkflowEngine()

@@ -10,7 +10,7 @@ import '../providers/site_config_provider.dart';
 import '../providers/theme_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
-  SettingsScreen({super.key});
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -113,7 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ElevatedButton.icon(
                                       icon: const Icon(Icons.upload, size: 16),
                                       label: const Text('Upload Logo',
-                                          style: const TextStyle(fontSize: 13)),
+                                          style: TextStyle(fontSize: 13)),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: _primaryFixedDim,
                                         foregroundColor: _onPrimaryContainer,
@@ -152,7 +152,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                                   ScaffoldMessenger.of(ctx)
                                                       .showSnackBar(
                                                     const SnackBar(
-                                                        content: const Text(
+                                                        content: Text(
                                                             'Logo uploaded!')),
                                                   );
                                                 }
@@ -177,7 +177,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                                   ScaffoldMessenger.of(ctx)
                                                       .showSnackBar(
                                                     const SnackBar(
-                                                        content: const Text(
+                                                        content: Text(
                                                             'Logo removed')),
                                                   );
                                                 }
@@ -302,10 +302,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               ScaffoldMessenger.of(context)
                                                   .showSnackBar(
                                                 const SnackBar(
-                                                  content: const Text(
+                                                  content: Text(
                                                       'Branding updated successfully!'),
                                                   backgroundColor:
-                                                      const Color(0xFF27354c),
+                                                      Color(0xFF27354c),
                                                 ),
                                               );
                                             }
@@ -316,12 +316,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           width: 20,
                                           height: 20,
                                           child:
-                                              const CircularProgressIndicator(
+                                              CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                   color:
-                                                      const Color(0xFF00382d)))
+                                                      Color(0xFF00382d)))
                                       : const Text('Save Changes',
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                               fontWeight: FontWeight.bold)),
                                 );
                               },

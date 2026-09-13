@@ -57,7 +57,7 @@ class EnvironmentConfig {
       case 'dev':
       case 'development':
       default:
-        String ipAddress = '192.168.1.45';
+        String ipAddress = '192.168.1.52';
         try {
           // final ip = await NetworkUtils().getLocalIpAddress();
           // if (ip != null && ip.isNotEmpty) {

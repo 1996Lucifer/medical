@@ -8,6 +8,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:frontend/providers/site_config_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -24,7 +25,7 @@ import 'report_analysis_view.dart';
 import 'soap_note_view.dart';
 
 class ConsultationScreen extends StatefulWidget {
-  ConsultationScreen({super.key});
+  const ConsultationScreen({super.key});
 
   @override
   State<ConsultationScreen> createState() => _ConsultationScreenState();
@@ -150,7 +151,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
   Future<void> _startRecording() async {
     if (_patientNameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: const Text('Please enter patient name first')),
+        const SnackBar(content: Text('Please enter patient name first')),
       );
       return;
     }
@@ -209,7 +210,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
   Future<void> _uploadAudioFile() async {
     if (_patientNameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: const Text('Please enter patient name first')),
+        const SnackBar(content: Text('Please enter patient name first')),
       );
       return;
     }
@@ -384,7 +385,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       if (response.statusCode == 200) {
         await SecureStorageService.instance.deleteNoteById(consultationId);
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: const Text('Consultation deleted')));
+            const SnackBar(content: Text('Consultation deleted')));
         _loadSavedNotes();
         if (_currentNote != null && _currentNote!['id'] == consultationId) {
           setState(() => _currentNote = null);
@@ -405,7 +406,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       backgroundColor: _surfaceContainerHighest,
       shape: const RoundedRectangleBorder(
         borderRadius:
-            const BorderRadius.vertical(top: const Radius.circular(20)),
+            BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
         return SafeArea(
@@ -521,7 +522,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                     style: ElevatedButton.styleFrom(
                         backgroundColor: _primaryFixedDim),
                     child: const Text('Save',
-                        style: const TextStyle(color: Colors.black)),
+                        style: TextStyle(color: Colors.black)),
                     onPressed: () {
                       if (nameController.text.trim().isNotEmpty) {
                         Navigator.of(context).pop(nameController.text.trim());
@@ -668,6 +669,12 @@ class _ConsultationScreenState extends State<ConsultationScreen>
     return Scaffold(
       key: _scaffoldKey,
       extendBodyBehindAppBar: true,
+      // This drawer is only ever meant to be opened programmatically, with
+      // _currentNote/_currentReport already set (see _openDrawerWithNote/
+      // _openDrawerWithReport) - Scaffold's default built-in edge-swipe
+      // gesture for endDrawer could open it independently of that, with
+      // nothing selected, showing just the title bar and nothing else.
+      endDrawerEnableOpenDragGesture: false,
       appBar: AppBar(
         title: Text(
           'Medical Consultation',
@@ -677,7 +684,12 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.3),
         elevation: 0,
         actions: [
-          const SizedBox.shrink(),
+          if (context.watch<AuthProvider>().staffId != null)
+            IconButton(
+              icon: Icon(Icons.people_alt_outlined, color: _primary),
+              tooltip: 'People Directory',
+              onPressed: () => context.go('/directory'),
+            ),
         ],
         flexibleSpace: ClipRRect(
           child: BackdropFilter(
@@ -699,7 +711,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         elevation: 24,
         shape: const RoundedRectangleBorder(
             borderRadius:
-                const BorderRadius.horizontal(left: const Radius.circular(32))),
+                BorderRadius.horizontal(left: Radius.circular(32))),
         child: SafeArea(
           child: Column(
             children: [
@@ -749,7 +761,20 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                     child: SingleChildScrollView(
                         padding: const EdgeInsets.all(24),
                         child:
-                            ReportAnalysisView(reportData: _currentReport!))),
+                            ReportAnalysisView(reportData: _currentReport!)))
+              else
+                // Belt-and-suspenders: even with the edge-swipe gesture
+                // disabled above, this keeps the drawer from ever showing
+                // just a title bar and nothing else if it's somehow opened
+                // with neither a note nor a report selected.
+                Expanded(
+                  child: Center(
+                    child: Text('No record selected.',
+                        style: TextStyle(
+                            color: _primary.withValues(alpha: 0.6),
+                            fontSize: 16)),
+                  ),
+                ),
             ],
           ),
         ),
@@ -951,7 +976,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                         decoration: const InputDecoration(
                                             border: InputBorder.none,
                                             contentPadding:
-                                                const EdgeInsets.all(16)),
+                                                EdgeInsets.all(16)),
                                       ),
                                     ),
                                     const SizedBox(height: 20),
@@ -964,7 +989,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           icon: const Icon(Icons.delete_outline,
                                               color: Colors.redAccent),
                                           label: const Text('Discard',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                   color: Colors.redAccent)),
                                         ),
                                         ElevatedButton.icon(
@@ -978,7 +1003,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                                       vertical: 12)),
                                           icon: const Icon(Icons.auto_awesome),
                                           label: const Text('Generate Summary',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                   fontWeight: FontWeight.bold)),
                                         ),
                                       ],
@@ -1027,7 +1052,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           icon: const Icon(Icons.delete_outline,
                                               color: Colors.redAccent),
                                           label: const Text('Discard',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                   color: Colors.redAccent)),
                                         ),
                                         TextButton.icon(
@@ -1049,7 +1074,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                                       vertical: 12)),
                                           icon: const Icon(Icons.text_fields),
                                           label: const Text('Transcribe',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                   fontWeight: FontWeight.bold)),
                                         ),
                                       ],
@@ -1135,7 +1160,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                                           size: 20),
                                       label: const Text(
                                           'Analyze Report (Image/PDF)',
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w700)),
                                       style: ElevatedButton.styleFrom(

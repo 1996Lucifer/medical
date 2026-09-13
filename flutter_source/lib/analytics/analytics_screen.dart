@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../main.dart';
+import '../camera/camera_screen.dart' show attendanceSourceBadge;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 
@@ -143,20 +144,40 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
   }
 
   Widget _buildStatsGrid() {
-    return GridView.count(
-      crossAxisCount: MediaQuery.of(context).size.width > 900 ? 4 : 2,
-      crossAxisSpacing: 24,
-      mainAxisSpacing: 24,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 2.5,
-      children: [
-        _buildStatCard('Active Staff', '${_statsData['active_staff'] ?? '0'}', 'This Week', _primary),
-        _buildStatCard('Avg Shift Length', '${_statsData['avg_shift_length'] ?? '0.0'} hrs', '', _primary),
-        _buildStatCard('System Alerts', '${_statsData['system_alerts'] ?? '0'}', 'UNRESOLVED', _error, isBadge: true),
-        _buildStatCard('AI Utilization', '${_statsData['ai_utilization'] ?? '0'}%', '', _secondary, showProgress: true),
-      ],
-    );
+    // A fixed childAspectRatio (was 2.5) has to guess the right height from
+    // a width that changes with the viewport, and got it wrong - every card
+    // overflowed its bottom edge by 29-45px against the ~110-120px the
+    // title+value+subtitle content actually needs. An explicit height is
+    // robust regardless of viewport width.
+    const cardHeight = 128.0;
+    final cards = [
+      _buildStatCard('Active Staff', '${_statsData['active_staff'] ?? '0'}', 'This Week', _primary),
+      _buildStatCard('Avg Shift Length', '${_statsData['avg_shift_length'] ?? '0.0'} hrs', '', _primary),
+      _buildStatCard('System Alerts', '${_statsData['system_alerts'] ?? '0'}', 'UNRESOLVED', _error, isBadge: true),
+      _buildStatCard('AI Utilization', '${_statsData['ai_utilization'] ?? '0'}%', '', _secondary, showProgress: true),
+    ];
+    final isNarrow = MediaQuery.of(context).size.width <= 900;
+    Widget row(List<Widget> items) => SizedBox(
+          height: cardHeight,
+          child: Row(
+            children: [
+              for (int i = 0; i < items.length; i++) ...[
+                if (i > 0) const SizedBox(width: 24),
+                Expanded(child: items[i]),
+              ],
+            ],
+          ),
+        );
+    if (isNarrow) {
+      return Column(
+        children: [
+          row([cards[0], cards[1]]),
+          const SizedBox(height: 24),
+          row([cards[2], cards[3]]),
+        ],
+      );
+    }
+    return row(cards);
   }
 
   Widget _buildStatCard(String title, String value, String subtitle, Color mainColor, {bool isBadge = false, bool showProgress = false}) {
@@ -167,31 +188,40 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(title.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   color: _onSurfaceVariant,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 1.2)),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       color: mainColor,
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
                       height: 1.0)),
-              if (isBadge)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _error.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(4),
+              if (isBadge) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _error.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: _error, fontSize: 10, fontWeight: FontWeight.bold)),
                   ),
-                  child: Text(subtitle, style: TextStyle(color: _error, fontSize: 10, fontWeight: FontWeight.bold)),
-                )
-              else if (showProgress)
+                ),
+              ] else if (showProgress)
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(left: 16.0, bottom: 6),
@@ -206,16 +236,25 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     ),
                   ),
                 )
-              else
-                Row(
-                  children: [
-                    Icon(subtitle.startsWith('+') ? Icons.trending_up : Icons.trending_down,
-                        color: _primaryFixedDim, size: 14),
-                    const SizedBox(width: 4),
-                    Text(subtitle,
-                        style: TextStyle(color: _primaryFixedDim, fontSize: 14)),
-                  ],
-                )
+              else if (subtitle.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(subtitle.startsWith('+') ? Icons.trending_up : Icons.trending_down,
+                          color: _primaryFixedDim, size: 14),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: _primaryFixedDim, fontSize: 14)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           )
         ],
@@ -411,7 +450,17 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     ),
                     Expanded(
                       flex: 2,
-                      child: Text(r['staff_name'] ?? 'Unknown', style: TextStyle(color: _primary, fontWeight: FontWeight.bold, fontSize: 14)),
+                      child: Row(
+                        children: [
+                          attendanceSourceBadge(r['source'] ?? 'face', size: 13),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(r['staff_name'] ?? 'Unknown',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: _primary, fontWeight: FontWeight.bold, fontSize: 14)),
+                          ),
+                        ],
+                      ),
                     ),
                     Expanded(
                       flex: 2,
@@ -419,7 +468,12 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         children: [
                           Icon(Icons.login, color: _primaryFixedDim, size: 16),
                           const SizedBox(width: 8),
-                          Text('Entry: ${_formatTime(r['entry_time'])}', style: TextStyle(color: _primaryFixedDim, fontSize: 13)),
+                          Flexible(
+                            child: Text('Entry: ${_formatTime(r['entry_time'])}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: _primaryFixedDim, fontSize: 13)),
+                          ),
                         ],
                       ),
                     ),
@@ -429,13 +483,21 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                         children: [
                           Icon(Icons.logout, color: _secondary, size: 16),
                           const SizedBox(width: 8),
-                          Text('Exit: ${_formatTime(r['exit_time'])}', style: TextStyle(color: _secondary, fontSize: 13)),
+                          Flexible(
+                            child: Text('Exit: ${_formatTime(r['exit_time'])}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: _secondary, fontSize: 13)),
+                          ),
                         ],
                       ),
                     ),
                     Expanded(
                       flex: 2,
-                      child: Text(r['camera_name'] ?? 'Unknown Cam', style: TextStyle(color: _onSurfaceVariant, fontSize: 13)),
+                      child: Text(r['camera_name'] ?? 'Unknown Cam',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: _onSurfaceVariant, fontSize: 13)),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

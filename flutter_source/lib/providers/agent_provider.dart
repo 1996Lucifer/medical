@@ -161,6 +161,9 @@ class AgentProvider extends ChangeNotifier {
           isUser: false,
           intent: data['intent'],
           engine: data['engine'],
+          chart: data['chart'] != null
+              ? Map<String, dynamic>.from(data['chart'])
+              : null,
         ));
         if (onScroll != null) onScroll();
         fetchHistory();

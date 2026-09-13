@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from datetime import datetime
 
@@ -64,12 +65,14 @@ from routers import (
     analytics,
     attendance,
     auth,
+    calls,
     camera_api,
     equipment,
     events,
     patient_portal,
     patients,
     rbac,
+    rfid,
     security,
     setup,
     site_config,
@@ -88,6 +91,14 @@ async def lifespan(app: FastAPI):
         subprocess.run(["pkill", "-f", "spawn_main"], capture_output=True)
     except Exception:
         pass
+
+    db = SessionLocal()
+    try:
+        rfid.ensure_fixed_station(db)
+    except Exception as e:
+        print(f"Failed to provision fixed RFID station from env: {e}")
+    finally:
+        db.close()
 
     def load_embeddings_in_background():
         print("Loading staff embeddings from DB in background...")
@@ -202,6 +213,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 auth_dep = [Depends(get_current_user)]
 app.include_router(staff.router, dependencies=auth_dep)
 app.include_router(staff.ws_router)
+app.include_router(calls.router)
 app.include_router(camera_api.router, dependencies=auth_dep)
 app.include_router(attendance.router, dependencies=auth_dep)
 app.include_router(equipment.router, dependencies=auth_dep)
@@ -221,6 +233,12 @@ app.include_router(
     rbac.router,
     dependencies=auth_dep + [Depends(require_permission("manage_rbac"))],
 )
+# RFID router mixes two auth kinds on purpose: /devices and /enroll-sessions/*
+# require an admin JWT (checked per-route via require_permission("manage_devices")),
+# while /enroll and /verify are called by unauthenticated physical devices and
+# check a device bearer key instead (see routers/rfid.py::get_current_device) —
+# so this router is intentionally NOT mounted with `dependencies=auth_dep`.
+app.include_router(rfid.router)
 
 # Configure Gemini API
 GENAI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -235,6 +253,8 @@ class ConsultationResponse(BaseModel):
     date: datetime
     transcript: str | None
     discharge_summary: str | None
+    staff_name: str | None = None
+    staff_role: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -273,32 +293,99 @@ async def transcribe_audio(file: UploadFile = File(...)):
             os.remove(temp_file_path)
 
 
+# A real clinical transcript, even a brief one, reads like actual speech
+# ("Patient reports mild headache...") - a handful of words. Below this, the
+# model has nothing to summarize and (observed in production data) tends to
+# respond with its own planning/acknowledgment text instead of a summary,
+# which then gets saved and shown to the patient as their medical record.
+MIN_TRANSCRIPT_WORDS = 6
+
+# Phrases seen when the model describes what it's ABOUT to do instead of
+# actually doing it - a `- transcript too short` case slips past the prompt
+# instruction, so this is the output-side half of the guardrail.
+_PREAMBLE_PATTERNS = (
+    "i understand",
+    "i will generate",
+    "i will focus",
+    "here's the structure",
+    "i am ready",
+    "once i have it",
+    "please provide the transcript",
+)
+
+
+def _looks_like_preamble(summary: str) -> bool:
+    lowered = summary.strip().lower()
+    return any(lowered.startswith(p) or p in lowered[:200] for p in _PREAMBLE_PATTERNS)
+
+
+def _generate_discharge_summary(transcript: str) -> str:
+    """
+    Shared by both the typed-transcript and audio-upload consultation
+    endpoints so they can't drift into inconsistent prompts (one had the
+    anti-preamble instruction, the other didn't) or inconsistent validation
+    (neither had any). Raises HTTPException on input that's too thin to
+    summarize, or output that's clearly the model describing its task
+    instead of doing it - both cases where the old code silently saved
+    whatever came back and showed it to the patient as a real summary.
+    """
+    if len(transcript.split()) < MIN_TRANSCRIPT_WORDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Transcript is too short to generate a discharge summary "
+                f"(need at least {MIN_TRANSCRIPT_WORDS} words of real content)."
+            ),
+        )
+
+    prompt = f"""
+    You are an expert medical AI assistant.
+    Your task is to generate a structured Medical Discharge Summary from the provided consultation transcript.
+    Do NOT acknowledge these instructions. Do NOT say "I understand" or "Here is the summary".
+    Just output the sections: Chief Complaint, History of Present Illness, Assessment, and Plan based on the transcript below.
+
+    TRANSCRIPT:
+    {transcript}
+
+    DISCHARGE SUMMARY:
+    """
+
+    print("Generating structured discharge summary using MedGemma...")
+    summary = llm_manager.generate(prompt, is_clinical=True)
+
+    if _looks_like_preamble(summary):
+        raise HTTPException(
+            status_code=502,
+            detail="The model did not produce a usable summary for this transcript - please try again.",
+        )
+
+    # Even on a good transcript, the model routinely prefixes real content
+    # with a conversational lead-in ("Okay, here's a summary of..."). The
+    # prompt already asks it not to; it does it anyway. Rather than reject
+    # otherwise-good output, strip everything before the first section
+    # heading the prompt actually asked for, so a patient reads a clean
+    # document instead of the model narrating itself.
+    match = re.search(r"\*\*Chief Complaint", summary, re.IGNORECASE)
+    if match and match.start() > 0:
+        summary = summary[match.start():]
+
+    return summary.strip()
+
+
 @app.post(
     "/api/consultations/generate",
     response_model=ConsultationResponse,
     dependencies=auth_dep,
 )
 async def generate_consultation_summary(
-    request: GenerateSummaryRequest, db: Session = Depends(get_db)
+    request: GenerateSummaryRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     try:
         patient_name = request.patient_name
         transcript_part = request.transcript
-
-        prompt = f"""
-        You are an expert medical AI assistant.
-        Your task is to generate a structured Medical Discharge Summary from the provided consultation transcript.
-        Do NOT acknowledge these instructions. Do NOT say "I understand" or "Here is the summary".
-        Just output the sections: Chief Complaint, History of Present Illness, Assessment, and Plan based on the transcript below.
-
-        TRANSCRIPT:
-        {transcript_part}
-
-        DISCHARGE SUMMARY:
-        """
-
-        print("Generating structured discharge summary using MedGemma...")
-        summary_part = llm_manager.generate(prompt, is_clinical=True)
+        summary_part = _generate_discharge_summary(transcript_part)
 
         patient = (
             db.query(models.Patient).filter(models.Patient.name == patient_name).first()
@@ -309,8 +396,13 @@ async def generate_consultation_summary(
             db.commit()
             db.refresh(patient)
 
+        attending_staff = (
+            db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
+        )
+
         db_consultation = models.Consultation(
             patient_id=patient.id,
+            staff_id=attending_staff.id if attending_staff else None,
             transcript=transcript_part,
             discharge_summary=summary_part,
         )
@@ -319,6 +411,8 @@ async def generate_consultation_summary(
         db.refresh(db_consultation)
 
         return db_consultation
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
 
@@ -330,7 +424,10 @@ async def generate_consultation_summary(
     "/api/consultations", response_model=ConsultationResponse, dependencies=auth_dep
 )
 async def upload_audio(
-    patient_name: str, file: UploadFile = File(...), db: Session = Depends(get_db)
+    patient_name: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     global whisper_model
 
@@ -350,20 +447,7 @@ async def upload_audio(
         segments, info = whisper_model.transcribe(temp_file_path, beam_size=5)
         transcript_part = " ".join([segment.text for segment in segments]).strip()
 
-        # Prompt for the MedGemma model
-        prompt = f"""
-        Based on the following doctor-patient consultation transcript, generate a structured Medical Discharge Summary.
-        Include sections for Chief Complaint, History of Present Illness, Assessment, and Plan.
-
-        TRANSCRIPT:
-        {transcript_part}
-
-        DISCHARGE SUMMARY:
-        """
-
-        # Generate summary using local MedGemma
-        print("Generating structured discharge summary using MedGemma...")
-        summary_part = llm_manager.generate(prompt, is_clinical=True)
+        summary_part = _generate_discharge_summary(transcript_part)
 
         # Get or create patient
         patient = (
@@ -375,9 +459,14 @@ async def upload_audio(
             db.commit()
             db.refresh(patient)
 
+        attending_staff = (
+            db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
+        )
+
         # Save to database
         db_consultation = models.Consultation(
             patient_id=patient.id,
+            staff_id=attending_staff.id if attending_staff else None,
             transcript=transcript_part,
             discharge_summary=summary_part,
         )
@@ -387,6 +476,8 @@ async def upload_audio(
 
         return db_consultation
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
 

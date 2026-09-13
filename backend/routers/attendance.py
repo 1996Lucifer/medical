@@ -14,13 +14,15 @@ class AttendanceResponse(BaseModel):
     staff_id: Optional[int]
     staff_name: str
     role: str
-    confidence: float
+    confidence: Optional[float]
     date: datetime.date
     entry_time: datetime.datetime
     last_seen: Optional[datetime.datetime]
     exit_time: Optional[datetime.datetime]
     camera_id: Optional[int]
     camera_name: Optional[str]
+    # "face" (default, camera recognition), "rfid" (badge tap), or "manual".
+    source: str = "face"
     model_config = ConfigDict(from_attributes=True)
 
 

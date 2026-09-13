@@ -5,7 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'app_router.dart';
+import 'call/call_service.dart';
+import 'call/incoming_call_dialog.dart';
 import 'network/environment.dart';
+import 'network/network_manager.dart';
 import 'providers/agent_provider.dart';
 import 'providers/analytics_provider.dart';
 import 'providers/auth_provider.dart';
@@ -42,6 +45,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => CameraProvider()),
         ChangeNotifierProvider(create: (_) => AnalyticsProvider()),
         ChangeNotifierProvider(create: (_) => SecurityProvider()),
+        ChangeNotifierProvider(create: (_) => CallService()),
       ],
       child: MyApp(router: router),
     ),
@@ -69,7 +73,21 @@ class MyApp extends StatelessWidget {
           // the real route in the URL bar before restoration finishes).
           builder: (context, child) {
             final auth = context.watch<AuthProvider>();
-            if (!auth.isRestoringSession) return child ?? const SizedBox();
+            final callService = context.read<CallService>();
+            final token = NetworkManager.instance.token;
+            if (auth.isAuthenticated && auth.userId != null && token != null) {
+              callService.connect(auth.userId!, token, myName: auth.username ?? '');
+            } else if (!auth.isAuthenticated) {
+              callService.disconnect();
+            }
+            if (!auth.isRestoringSession) {
+              return Stack(
+                children: [
+                  child ?? const SizedBox(),
+                  if (auth.isAuthenticated) const IncomingCallOverlay(),
+                ],
+              );
+            }
             return Consumer<SiteConfigProvider>(
               builder: (context, siteConfig, _) {
                 return Scaffold(

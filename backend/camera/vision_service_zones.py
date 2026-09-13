@@ -26,6 +26,7 @@ from camera.constants.vision_constants import (
     REJECTION_THRESHOLD,
     UPPER_FACE_REJECTION_THRESHOLD,
     UPPER_FACE_HEIGHT_RATIO,
+    MIN_FACE_SIZE,
     YOLO_CONFIDENCE_THRESHOLD,
     YOLO_PERSON_CLASS,
     YOLO_CPU_IMGSZ,
@@ -333,8 +334,47 @@ class VisionServiceZones:
         if not faces:
             return "Unknown", 0.0, None
 
-        # Pick the largest face in the crop
-        best_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+        # The crop has a margin around the tracked bbox, so it can bleed into a
+        # neighboring person standing close by. Only consider faces whose center
+        # actually falls inside the tracked person's own (un-padded) bbox region -
+        # picking the largest face anywhere in the crop would let a nearby
+        # bystander's face get matched against this track_id.
+        core_x1, core_y1 = x1 - rx1, y1 - ry1
+        core_x2, core_y2 = x2 - rx1, y2 - ry1
+
+        def _face_center_in_core(f):
+            fcx = (f.bbox[0] + f.bbox[2]) / 2.0
+            fcy = (f.bbox[1] + f.bbox[3]) / 2.0
+            return core_x1 <= fcx <= core_x2 and core_y1 <= fcy <= core_y2
+
+        owned_faces = [f for f in faces if _face_center_in_core(f)]
+        candidates = owned_faces if owned_faces else faces
+
+        # Pick the largest face among those that actually belong to this track
+        best_face = max(candidates, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+
+        face_w = best_face.bbox[2] - best_face.bbox[0]
+        face_h = best_face.bbox[3] - best_face.bbox[1]
+        if face_w < MIN_FACE_SIZE or face_h < MIN_FACE_SIZE:
+            # Face is too small/far away to produce a reliable embedding - don't
+            # risk a false match, just report Unknown instead.
+            self.identity_cache[track_id] = {
+                "name": "Unknown",
+                "staff_id": None,
+                "score": 0.0,
+                "identity_source": "too_small",
+                "last_frame": self._frame_count,
+                "last_bbox": bbox,
+                "face_bbox": [
+                    rx1 + int(best_face.bbox[0]),
+                    ry1 + int(best_face.bbox[1]),
+                    rx1 + int(best_face.bbox[2]),
+                    ry1 + int(best_face.bbox[3]),
+                ],
+            }
+            self._last_identity_run[track_id] = self._frame_count
+            return "Unknown", 0.0, None
+
         emb = best_face.embedding
         emb_norm = np.linalg.norm(emb)
         if emb_norm > 0:

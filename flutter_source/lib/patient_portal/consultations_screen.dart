@@ -25,7 +25,8 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
 
   Future<void> _fetchConsultations() async {
     try {
-      final response = await NetworkManager.instance.get('${ApiRoutes.baseUrl}/api/patient-portal/consultations/${widget.patientId}');
+      final response = await NetworkManager.instance.get(
+          '${ApiRoutes.baseUrl}/api/patient-portal/consultations/${widget.patientId}');
       if (response.statusCode == 200) {
         setState(() {
           _consultations = jsonDecode(response.body);
@@ -37,63 +38,148 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
     }
   }
 
+  void _showConsultationDetail(
+      Map<String, dynamic> consultation, DateTime date) {
+    final scheme = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: scheme.surfaceContainerLow,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (ctx, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Doctor Visit',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                      color: scheme.onSurface)),
+              Text(DateFormat.yMMMd().add_jm().format(date),
+                  style:
+                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+              if (consultation['staff_name'] != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  consultation['staff_role'] != null
+                      ? 'Attended by ${consultation['staff_name']} (${consultation['staff_role']})'
+                      : 'Attended by ${consultation['staff_name']}',
+                  style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+                ),
+              ],
+              const SizedBox(height: 20),
+              if (consultation['discharge_summary'] != null) ...[
+                Text('SUMMARY',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: scheme.secondary,
+                        fontSize: 12,
+                        letterSpacing: 1.0)),
+                const SizedBox(height: 8),
+                MarkdownBody(data: consultation['discharge_summary']),
+                const SizedBox(height: 20),
+              ],
+              const Text('PRESCRIPTION',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                      fontSize: 12,
+                      letterSpacing: 1.0)),
+              const SizedBox(height: 8),
+              consultation['prescription'] != null
+                  ? MarkdownBody(data: consultation['prescription'])
+                  : Text('No specific prescription recorded.',
+                      style: TextStyle(
+                          fontStyle: FontStyle.italic,
+                          color: scheme.onSurfaceVariant)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _consultations.isEmpty
-              ? const Center(child: Text("No past consultations found."))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _consultations.length,
-                  itemBuilder: (context, index) {
-                    final consultation = _consultations[index];
-                    final date = DateTime.parse(consultation['date']);
-                    final accent = Theme.of(context).colorScheme.secondary;
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: ExpansionTile(
-                        leading: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(Icons.history_edu, color: accent),
-                        ),
-                        title: const Text("Doctor Visit", style: TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(DateFormat.yMMMd().add_jm().format(date)),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+    final scheme = Theme.of(context).colorScheme;
+    final accent = scheme.secondary;
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : _consultations.isEmpty
+            ? const Center(child: Text("No past consultations found."))
+            : GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 320,
+                  mainAxisExtent: 150,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                itemCount: _consultations.length,
+                itemBuilder: (context, index) {
+                  final consultation = _consultations[index];
+                  final date = DateTime.parse(consultation['date']);
+                  return Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _showConsultationDetail(consultation, date),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               children: [
-                                if (consultation['discharge_summary'] != null) ...[
-                                  Text("Summary:", style: TextStyle(fontWeight: FontWeight.bold, color: accent)),
-                                  const SizedBox(height: 8),
-                                  MarkdownBody(data: consultation['discharge_summary']),
-                                  const Divider(height: 24),
-                                ],
-                                if (consultation['prescription'] != null) ...[
-                                  const Text("Prescription:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                                  const SizedBox(height: 8),
-                                  MarkdownBody(data: consultation['prescription']),
-                                ],
-                                if (consultation['prescription'] == null)
-                                  const Text("No specific prescription recorded.", style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey))
+                                CircleAvatar(
+                                  backgroundColor:
+                                      accent.withValues(alpha: 0.15),
+                                  child: Icon(Icons.history_edu, color: accent),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Doctor Visit',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis),
+                                      Text(DateFormat.yMMMd().format(date),
+                                          style: TextStyle(
+                                              color: scheme.onSurfaceVariant,
+                                              fontSize: 12)),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ),
-                          )
-                        ],
+                            const Spacer(),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Text('View details',
+                                  style: TextStyle(
+                                      color: accent,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  },
-                ),
-    );
+                    ),
+                  );
+                },
+              );
   }
 }

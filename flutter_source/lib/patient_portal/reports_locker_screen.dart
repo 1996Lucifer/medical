@@ -25,7 +25,8 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
 
   Future<void> _fetchReports() async {
     try {
-      final response = await NetworkManager.instance.get('${ApiRoutes.baseUrl}/api/patient-portal/reports/${widget.patientId}');
+      final response = await NetworkManager.instance.get(
+          '${ApiRoutes.baseUrl}/api/patient-portal/reports/${widget.patientId}');
       if (response.statusCode == 200) {
         setState(() {
           _reports = jsonDecode(response.body);
@@ -37,10 +38,82 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
     }
   }
 
+  void _showReportDetail(Map<String, dynamic> report, DateTime date) {
+    final scheme = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: scheme.surfaceContainerLow,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (ctx, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Medical Report',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                      color: scheme.onSurface)),
+              Text(DateFormat.yMMMd().add_jm().format(date),
+                  style:
+                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+              const SizedBox(height: 20),
+              if (report['key_findings'] != null) ...[
+                _detailSection('Key Findings', report['key_findings'],
+                    scheme.secondary, scheme),
+              ],
+              if (report['abnormalities'] != null) ...[
+                _detailSection('Abnormalities', report['abnormalities'],
+                    Colors.redAccent, scheme),
+              ],
+              if (report['recommendations'] != null) ...[
+                _detailSection('Recommendations', report['recommendations'],
+                    Colors.green, scheme),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailSection(
+      String label, String content, Color accent, ColorScheme scheme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(),
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: accent,
+                  fontSize: 12,
+                  letterSpacing: 1.0)),
+          const SizedBox(height: 6),
+          Text(content, style: TextStyle(color: scheme.onSurface, height: 1.4)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      // Transparent, not scaffoldBackgroundColor - this screen is nested
+      // inside PatientDashboardScreen's GlassBackground (it's tab content,
+      // not its own top-level page), so an opaque background here would
+      // paint over and hide the blurred glass backdrop.
+      backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           // Same screen is reachable from the real, authenticated patient
@@ -62,55 +135,70 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _reports.isEmpty
               ? const Center(child: Text("No reports uploaded yet."))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+              : GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 320,
+                    mainAxisExtent: 150,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
                   itemCount: _reports.length,
                   itemBuilder: (context, index) {
                     final report = _reports[index];
                     final date = DateTime.parse(report['date']);
-                    final accent = Theme.of(context).colorScheme.secondary;
+                    final accent = scheme.secondary;
                     return Card(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: ExpansionTile(
-                        leading: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _showReportDetail(report, date),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor:
+                                        accent.withValues(alpha: 0.15),
+                                    child: Icon(Icons.document_scanner,
+                                        color: accent),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text('Medical Report',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis),
+                                        Text(DateFormat.yMMMd().format(date),
+                                            style: TextStyle(
+                                                color: scheme.onSurfaceVariant,
+                                                fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: Text('View details',
+                                    style: TextStyle(
+                                        color: accent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                            ],
                           ),
-                          child: Icon(Icons.document_scanner, color: accent),
                         ),
-                        title: const Text("Medical Report", style: TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(DateFormat.yMMMd().add_jm().format(date)),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (report['key_findings'] != null) ...[
-                                  Text("Key Findings:", style: TextStyle(fontWeight: FontWeight.bold, color: accent)),
-                                  const SizedBox(height: 4),
-                                  Text(report['key_findings']),
-                                  const Divider(height: 24),
-                                ],
-                                if (report['abnormalities'] != null) ...[
-                                  const Text("Abnormalities:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                                  const SizedBox(height: 4),
-                                  Text(report['abnormalities']),
-                                  const Divider(height: 24),
-                                ],
-                                if (report['recommendations'] != null) ...[
-                                  const Text("Recommendations:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                                  const SizedBox(height: 4),
-                                  Text(report['recommendations']),
-                                ],
-                              ],
-                            ),
-                          )
-                        ],
                       ),
                     );
                   },

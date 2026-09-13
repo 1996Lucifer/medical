@@ -20,6 +20,27 @@ def _strip_think_tags(text: str) -> str:
     return cleaned.strip()
 
 
+# Literal control-token strings used to delimit turns in each model's chat
+# template. If a user types these verbatim in their message, they'd be
+# spliced directly into formatted_prompt below with no escaping - if the
+# model's tokenizer treats them as real special tokens rather than literal
+# text, that lets a message fake a turn boundary and inject a bogus
+# system/assistant turn. Stripped defensively regardless of which model is
+# active, since it costs nothing for a legitimate user to lose these
+# sequences (no real chat message needs to contain them).
+_CONTROL_TOKENS = [
+    "<|im_start|>", "<|im_end|>",
+    "<start_of_turn>", "<end_of_turn>",
+    "<|end_of_text|>", "<eos>",
+]
+
+
+def _sanitize_user_text(text: str) -> str:
+    for token in _CONTROL_TOKENS:
+        text = text.replace(token, "")
+    return text
+
+
 class LLMManager:
     """
     Hardware-Aware LLM Manager.
@@ -145,6 +166,26 @@ class LLMManager:
             print(prompt)
             print("=" * 60)
 
+            # Defensively strip literal chat-template control-token strings
+            # from the prompt before it's spliced into formatted_prompt below
+            # - otherwise a user typing them verbatim could fake a turn
+            # boundary and inject a bogus system/assistant turn.
+            prompt = _sanitize_user_text(prompt)
+
+            # Both models get the same precise instruction for anything the
+            # chat UI can't literally render (e.g. "in graphical form"): the
+            # frontend renders markdown (including GFM tables), but not
+            # actual charts, so the correct behavior is a clean table plus a
+            # one-line note - not a chain of clarifying questions.
+            chart_instruction = (
+                "If the user asks for a chart, graph, or 'graphical form', this chat "
+                "cannot render actual visual charts - instead, present the data as a "
+                "clean markdown table and add one line noting it's shown as a table "
+                "since this chat only supports text/markdown, not rendered charts. "
+                "Do not ask clarifying questions when the requested data is already "
+                "available in the DATABASE CONTEXT - answer directly with what you have."
+            )
+
             # Apply correct Prompt Templates based on the model
             if is_clinical:
                 system_prompt = (
@@ -152,9 +193,10 @@ class LLMManager:
                     "You are provided with a DATABASE CONTEXT containing query results. "
                     "Your ONLY job is to summarize these query results in a natural, easy-to-read, layman conversational style. "
                     "Do NOT output raw data or tables unless explicitly asked. Explain the medical findings clearly to the user. "
-                    "Do not refuse the request, just explain the data provided."
+                    "Do not refuse the request, just explain the data provided. "
+                    f"{chart_instruction}"
                 )
-                
+
                 # Gemma 2 format
                 formatted_prompt = f"<start_of_turn>user\n{system_prompt}\n\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
                 stop_tokens = ["<end_of_turn>", "<start_of_turn>", "User:"]
@@ -165,9 +207,10 @@ class LLMManager:
                     "If there are no logs provided, state that you have no records. Do NOT invent data. "
                     "If the provided DATABASE CONTEXT does not contain the answer, you must state 'I do not know' rather than guessing. "
                     "Do NOT answer general knowledge questions, recipes, or outside topics. "
-                    "CRITICAL INSTRUCTION: You must summarize the logs in a natural, easy-to-read, layman conversational style. Do not just spit out raw JSON or database rows."
+                    "CRITICAL INSTRUCTION: You must summarize the logs in a natural, easy-to-read, layman conversational style. Do not just spit out raw JSON or database rows. "
+                    f"{chart_instruction}"
                 )
-                
+
                 # Qwen3 format (ChatML)
                 formatted_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
                 stop_tokens = ["<|im_end|>", "<|im_start|>"]
@@ -215,6 +258,8 @@ class LLMManager:
             print(">>> ORIGINAL PROMPT:")
             print(prompt)
             print("=" * 60)
+
+            prompt = _sanitize_user_text(prompt)
 
             # Use chat completions format for multimodal input
             messages = [

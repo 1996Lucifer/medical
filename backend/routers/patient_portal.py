@@ -13,6 +13,8 @@ from PIL import Image
 from database import get_db
 import models
 from services.llm_manager import llm_manager
+from routers.auth import get_current_user
+from routers.patients import _assert_patient_access
 
 router = APIRouter(prefix="/api/patient-portal", tags=["patient-portal"])
 
@@ -39,7 +41,9 @@ class ConsultationResponse(BaseModel):
     transcript: Optional[str]
     discharge_summary: Optional[str]
     prescription: Optional[str]
-    
+    staff_name: Optional[str] = None
+    staff_role: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -48,7 +52,8 @@ class ConsultationResponse(BaseModel):
 async def upload_report(
     patient_id: int = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
     """
     Uploads a medical report (Image or PDF).
@@ -58,6 +63,7 @@ async def upload_report(
     patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+    _assert_patient_access(patient_id, current_user)
 
     file_extension = os.path.splitext(file.filename)[1].lower()
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -138,20 +144,35 @@ async def upload_report(
     return new_report
 
 @router.get("/reports/{patient_id}", response_model=List[ReportResponse])
-def get_reports(patient_id: int, db: Session = Depends(get_db)):
+def get_reports(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _assert_patient_access(patient_id, current_user)
     reports = db.query(models.MedicalReport).filter(models.MedicalReport.patient_id == patient_id).order_by(models.MedicalReport.date.desc()).all()
     return reports
 
 @router.get("/consultations/{patient_id}", response_model=List[ConsultationResponse])
-def get_consultations(patient_id: int, db: Session = Depends(get_db)):
+def get_consultations(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    _assert_patient_access(patient_id, current_user)
     consultations = db.query(models.Consultation).filter(models.Consultation.patient_id == patient_id).order_by(models.Consultation.date.desc()).all()
     return consultations
 
 @router.get("/dashboard/{patient_id}")
-def get_dashboard_data(patient_id: int, db: Session = Depends(get_db)):
+def get_dashboard_data(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     """
     Returns aggregated data for the charts (e.g., historical vitals from reports)
     """
+    _assert_patient_access(patient_id, current_user)
     reports = db.query(models.MedicalReport).filter(
         models.MedicalReport.patient_id == patient_id,
         models.MedicalReport.vitals_extracted != None

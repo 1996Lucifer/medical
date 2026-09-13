@@ -2,6 +2,7 @@ import asyncio
 from sqlalchemy.orm import Session
 from models import AgentMemory
 from services.llm_manager import llm_manager
+from services.security.encryption import encrypt_text
 from database import SessionLocal
 
 class MemoryExtractor:
@@ -34,13 +35,9 @@ class MemoryExtractor:
                 assistant_message=assistant_message
             )
             
-            # Use Qwen3 (default router model) for fast extraction
-            result = llm_manager.generate(prompt, False)
-            result = result.strip()
-            
-            # Remove <think> blocks from Qwen3
-            import re
-            result = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL).strip()
+            # Use Qwen3 (default router model) for fast extraction. Thinking
+            # blocks are already stripped by llm_manager.generate() itself.
+            result = llm_manager.generate(prompt, False).strip()
 
             if result and "NO_FACTS" not in result.upper():
                 print(f"[MemoryExtractor] Learned new fact for session {session_id}: {result}")
@@ -54,7 +51,7 @@ class MemoryExtractor:
                 try:
                     new_memory = AgentMemory(
                         session_id=session_id,
-                        fact=result,
+                        fact=encrypt_text(result),
                         embedding=embedding
                     )
                     db.add(new_memory)

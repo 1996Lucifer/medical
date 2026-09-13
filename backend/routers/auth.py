@@ -112,7 +112,6 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     return encoded_jwt
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    print(f"DEBUG AUTH: token received = {token[:10]}...")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -123,13 +122,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-    except jwt.PyJWTError as e:
-        print(f"DEBUG AUTH: PyJWTError = {e}")
+    except jwt.PyJWTError:
         raise credentials_exception
-        
+
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
-        print(f"DEBUG AUTH: user not found: {username}")
         raise credentials_exception
     return user
 
@@ -206,20 +203,32 @@ def require_permission(permission_name: str):
 
 
 @router.get("/me")
-def get_current_user_info(current_user: models.User = Depends(get_current_user)):
+def get_current_user_info(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     permissions = set()
     for p in current_user.direct_permissions:
         permissions.add(p.name)
     for g in current_user.groups:
         for p in g.permissions:
             permissions.add(p.name)
-            
+
+    # Lets the frontend know "which patient/staff record am I" - needed for
+    # the patient portal (my own patient_id) and doctor-side calling/patient
+    # list (my own staff_id) without a separate lookup round-trip.
+    patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+    staff = db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
+
     return {
         "id": current_user.id,
         "username": current_user.username,
         "role": current_user.role,
         "permissions": list(permissions),
         "must_change_password": current_user.status == "change_password",
+        "patient_id": patient.id if patient else None,
+        "staff_id": staff.id if staff else None,
+        "staff_category": staff.category if staff else None,
     }
 
 

@@ -18,12 +18,16 @@ class AttendanceRecord {
   final int id;
   final String staffName;
   final String role;
-  final double confidence;
+  // Null for non-face-match sources (e.g. "rfid") — a badge tap has no
+  // face-match score to show.
+  final double? confidence;
   final DateTime entryTime;
   final DateTime? lastSeen;
   final DateTime? exitTime;
   final int? cameraId;
   final String? cameraName;
+  // "face" (default, camera recognition), "rfid" (badge tap), or "manual".
+  final String source;
 
   AttendanceRecord({
     required this.id,
@@ -35,6 +39,7 @@ class AttendanceRecord {
     this.exitTime,
     this.cameraId,
     this.cameraName,
+    this.source = 'face',
   });
 
   bool get isCheckedOut => exitTime != null;
@@ -43,7 +48,9 @@ class AttendanceRecord {
         id: j['id'],
         staffName: j['staff_name'],
         role: j['role'] ?? 'Medical Staff',
-        confidence: (j['confidence'] as num).toDouble(),
+        confidence: j['confidence'] != null
+            ? (j['confidence'] as num).toDouble()
+            : null,
         entryTime: DateTime.parse(j['entry_time']),
         lastSeen:
             j['last_seen'] != null ? DateTime.parse(j['last_seen']) : null,
@@ -51,7 +58,36 @@ class AttendanceRecord {
             j['exit_time'] != null ? DateTime.parse(j['exit_time']) : null,
         cameraId: j['camera_id'],
         cameraName: j['camera_name'],
+        source: j['source'] as String? ?? 'face',
       );
+}
+
+/// Small icon + tooltip distinguishing which channel produced an
+/// AttendanceRecord, shared by every screen that lists attendance rows.
+Widget attendanceSourceBadge(String source, {double size = 14}) {
+  late final IconData icon;
+  late final Color color;
+  late final String label;
+  switch (source) {
+    case 'rfid':
+      icon = Icons.nfc;
+      color = Colors.blueAccent;
+      label = 'RFID badge tap';
+      break;
+    case 'manual':
+      icon = Icons.edit_note;
+      color = Colors.orangeAccent;
+      label = 'Manually recorded';
+      break;
+    default:
+      icon = Icons.face;
+      color = Colors.tealAccent;
+      label = 'Face recognition';
+  }
+  return Tooltip(
+    message: label,
+    child: Icon(icon, size: size, color: color),
+  );
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -179,12 +215,13 @@ class _CameraScreenState extends State<CameraScreen>
 
     final buffer = StringBuffer();
     buffer.writeln(
-        'Staff Name,Role,Confidence,Entry Time,Last Seen,Exit Time,Camera');
+        'Staff Name,Role,Source,Confidence,Entry Time,Last Seen,Exit Time,Camera');
     for (final record in _attendance) {
       buffer.writeln([
         _csvEscape(record.staffName),
         _csvEscape(record.role),
-        record.confidence.toStringAsFixed(2),
+        record.source,
+        record.confidence?.toStringAsFixed(2) ?? '',
         record.entryTime.toIso8601String(),
         record.lastSeen?.toIso8601String() ?? '',
         record.exitTime?.toIso8601String() ?? '',
@@ -609,20 +646,28 @@ class _CameraScreenState extends State<CameraScreen>
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Live Camera Grid',
-                    style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: _primary)),
-                const SizedBox(height: 4),
-                Text(
-                    'Real-time neural monitoring active across 4 primary zones.',
-                    style: TextStyle(fontSize: 14, color: _onSurfaceVariant)),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Live Camera Grid',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: _primary)),
+                  const SizedBox(height: 4),
+                  Text(
+                      'Real-time neural monitoring active across 4 primary zones.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          TextStyle(fontSize: 14, color: _onSurfaceVariant)),
+                ],
+              ),
             ),
+            const SizedBox(width: 12),
             if (!isMobile)
               Container(
                 padding:
@@ -707,9 +752,14 @@ class _CameraScreenState extends State<CameraScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Recent Detections',
-                        style:
-                            TextStyle(color: _onSurfaceVariant, fontSize: 14)),
+                    Flexible(
+                      child: Text('Recent Detections',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: _onSurfaceVariant, fontSize: 14)),
+                    ),
+                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
@@ -717,6 +767,8 @@ class _CameraScreenState extends State<CameraScreen>
                           color: _primaryFixedDim.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4)),
                       child: Text('AUTO-SYNC ON',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               color: _primaryFixedDim,
                               fontSize: 10,
@@ -802,17 +854,25 @@ class _CameraScreenState extends State<CameraScreen>
       );
     }
 
+    // One row per staff member, not one row per check-in/check-out session -
+    // someone stepping out and back in during the day legitimately produces
+    // several AttendanceRecord rows for the same person, which used to show
+    // as that many separate cards. Groups by name, preserving _attendance's
+    // existing (newest-first) order for both the group order and each
+    // group's session order.
+    final groups = <String, List<AttendanceRecord>>{};
+    for (final r in _attendance) {
+      groups.putIfAbsent(r.staffName, () => []).add(r);
+    }
+    final groupNames = groups.keys.toList();
+
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: _attendance.length,
+      itemCount: groupNames.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (_, i) {
-        final r = _attendance[i];
-        final t = r.entryTime.toLocal();
-        final entryStr =
-            '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-        final pct = (r.confidence * 100).toStringAsFixed(1);
-        final pctValue = r.confidence;
+        final sessions = groups[groupNames[i]]!;
+        final first = sessions.first;
 
         return Container(
           padding: const EdgeInsets.all(16),
@@ -826,112 +886,129 @@ class _CameraScreenState extends State<CameraScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       color: _surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(9),
                       border: Border.all(
                           color: Colors.white.withValues(alpha: 0.1)),
                     ),
                     child:
-                        Icon(Icons.person, color: _onSurfaceVariant, size: 28),
+                        Icon(Icons.person, color: _onSurfaceVariant, size: 18),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(r.staffName,
-                            style: TextStyle(
-                                color: _primary,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 2),
-                        Text(r.role,
-                            style: TextStyle(
-                                color: _onSurfaceVariant, fontSize: 12)),
-                        const SizedBox(height: 2),
-                        Text('• $entryStr',
-                            style: TextStyle(
-                                color: _onSurfaceVariant, fontSize: 11)),
-                      ],
-                    ),
+                    child: Text(first.staffName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: _primary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold)),
                   ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('CONFIDENCE',
+                  if (sessions.length > 1)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: _primaryFixedDim.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4)),
+                      child: Text('${sessions.length}x',
                           style: TextStyle(
                               color: _primaryFixedDim,
                               fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5)),
-                      const SizedBox(height: 4),
-                      Text('$pct%',
-                          style: TextStyle(
-                              color: _primary,
-                              fontSize: 16,
                               fontWeight: FontWeight.bold)),
-                    ],
-                  ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                height: 6,
-                decoration: BoxDecoration(
-                    color: _surfaceContainerHigh.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(3)),
-                child: FractionallySizedBox(
-                  alignment: Alignment.centerLeft,
-                  widthFactor: pctValue,
-                  child: Container(
-                    decoration: BoxDecoration(
-                        color: _primaryFixedDim,
-                        borderRadius: BorderRadius.circular(3),
-                        boxShadow: [
-                          BoxShadow(
-                              color: _primaryFixedDim.withValues(alpha: 0.5),
-                              blurRadius: 4)
-                        ]),
-                  ),
-                ),
+              const SizedBox(height: 2),
+              Padding(
+                // Indenting under the avatar/name would be nice, but this
+                // panel is only ~190px wide - that indent alone was most of
+                // why every session row overflowed on the right.
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(first.role,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: _onSurfaceVariant, fontSize: 12)),
               ),
-              if (!r.isCheckedOut)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.logout,
-                            size: 16, color: Colors.orange),
-                        tooltip: 'Checkout',
-                        onPressed: () async {
-                          await NetworkManager.instance
-                              .post(ApiRoutes.attendanceCheckout(r.id));
-                          _fetchAttendance();
-                        },
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon:
-                            Icon(Icons.delete_outline, size: 16, color: _error),
-                        onPressed: () => _deleteAttendance(r.id),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                    ],
-                  ),
-                )
+              const SizedBox(height: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final r in sessions) ...[
+                    _attendanceSessionPhrase(r),
+                    if (r != sessions.last) const SizedBox(height: 6),
+                  ],
+                ],
+              ),
             ],
           ),
         );
       },
+    );
+  }
+
+  /// One "08:15 - 08:55" (or "08:15 - Present" while still checked in) line
+  /// per session, with that session's confidence/source and, only for the
+  /// still-open session, its own checkout/delete actions - each session is
+  /// independently a real check-in/check-out record, so these apply to that
+  /// one row, not the whole person.
+  Widget _attendanceSessionPhrase(AttendanceRecord r) {
+    String hm(DateTime d) {
+      final t = d.toLocal();
+      return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    }
+
+    final phrase = r.exitTime != null
+        ? '${hm(r.entryTime)} – ${hm(r.exitTime!)}'
+        : '${hm(r.entryTime)} – Present';
+    final pct =
+        r.confidence != null ? (r.confidence! * 100).toStringAsFixed(1) : null;
+
+    return Row(
+      children: [
+        attendanceSourceBadge(r.source, size: 11),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(phrase,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: _onSurfaceVariant, fontSize: 12)),
+        ),
+        if (pct != null) ...[
+          const SizedBox(width: 4),
+          Text('$pct%',
+              style: TextStyle(
+                  color: _onSurfaceVariant,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600)),
+        ],
+        if (!r.isCheckedOut) ...[
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.logout, size: 14, color: Colors.orange),
+            tooltip: 'Checkout',
+            onPressed: () async {
+              await NetworkManager.instance
+                  .post(ApiRoutes.attendanceCheckout(r.id));
+              _fetchAttendance();
+            },
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            icon: Icon(Icons.delete_outline, size: 14, color: _error),
+            onPressed: () => _deleteAttendance(r.id),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ],
     );
   }
 }

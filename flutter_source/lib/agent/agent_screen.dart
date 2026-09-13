@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../providers/agent_provider.dart';
 import '../providers/site_config_provider.dart';
+import '../widgets/agent_chart_widget.dart';
 
 class AgentMessage {
   final String text;
@@ -16,6 +17,7 @@ class AgentMessage {
   final String? intent;
   final String? engine;
   final Uint8List? attachedImageBytes;
+  final Map<String, dynamic>? chart;
 
   AgentMessage({
     required this.text,
@@ -23,6 +25,7 @@ class AgentMessage {
     this.intent,
     this.engine,
     this.attachedImageBytes,
+    this.chart,
   });
 }
 
@@ -679,13 +682,13 @@ class _MessageBubble extends StatelessWidget {
     // Theme-derived colors (local, since this StatelessWidget's build() is
     // the only place these are used — shadows nothing at class scope).
     final scheme = Theme.of(context).colorScheme;
-    final _primary = scheme.onSurface;
-    final _onSurface = scheme.onSurface;
-    final _onSurfaceVariant = scheme.onSurfaceVariant;
-    final _primaryFixedDim = scheme.secondary;
-    final _primaryContainer = scheme.primaryContainer;
-    final _onPrimaryContainer = scheme.onSecondary;
-    final _surfaceContainerHighest = scheme.surfaceContainerHighest;
+    final primary = scheme.onSurface;
+    final onSurface = scheme.onSurface;
+    final onSurfaceVariant = scheme.onSurfaceVariant;
+    final primaryFixedDim = scheme.secondary;
+    final primaryContainer = scheme.primaryContainer;
+    final onPrimaryContainer = scheme.onSecondary;
+    final surfaceContainerHighest = scheme.surfaceContainerHighest;
     final siteConfig = Provider.of<SiteConfigProvider>(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 24.0),
@@ -699,7 +702,7 @@ class _MessageBubble extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: _surfaceContainerHighest,
+                color: surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
               ),
@@ -710,10 +713,10 @@ class _MessageBubble extends StatelessWidget {
                         siteConfig.fullLogoUrl!,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Icon(Icons.smart_toy,
-                            color: _primaryFixedDim, size: 20),
+                            color: primaryFixedDim, size: 20),
                       ),
                     )
-                  : Icon(Icons.smart_toy, color: _primaryFixedDim, size: 20),
+                  : Icon(Icons.smart_toy, color: primaryFixedDim, size: 20),
             ),
             const SizedBox(width: 16),
           ],
@@ -727,8 +730,8 @@ class _MessageBubble extends StatelessWidget {
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: msg.isUser
-                        ? _primaryContainer
-                        : _surfaceContainerHighest.withValues(alpha: 0.8),
+                        ? primaryContainer
+                        : surfaceContainerHighest.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(24).copyWith(
                       topLeft: msg.isUser
                           ? const Radius.circular(24)
@@ -771,25 +774,25 @@ class _MessageBubble extends StatelessWidget {
                           styleSheet: MarkdownStyleSheet(
                             p: TextStyle(
                               color:
-                                  msg.isUser ? _onPrimaryContainer : _onSurface,
+                                  msg.isUser ? onPrimaryContainer : onSurface,
                               fontSize: 16,
                               height: 1.5,
                             ),
                             tableBody: TextStyle(
                                 fontSize: 14,
                                 color: msg.isUser
-                                    ? _onPrimaryContainer
-                                    : _onSurface),
+                                    ? onPrimaryContainer
+                                    : onSurface),
                             tableHead: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
                               color:
-                                  msg.isUser ? _onPrimaryContainer : _primary,
+                                  msg.isUser ? onPrimaryContainer : primary,
                             ),
                             tableBorder: TableBorder.all(
                               color: msg.isUser
-                                  ? _onPrimaryContainer.withValues(alpha: 0.2)
-                                  : _onSurfaceVariant.withValues(alpha: 0.2),
+                                  ? onPrimaryContainer.withValues(alpha: 0.2)
+                                  : onSurfaceVariant.withValues(alpha: 0.2),
                               width: 1,
                             ),
                             tableCellsPadding: const EdgeInsets.all(12),
@@ -799,11 +802,13 @@ class _MessageBubble extends StatelessWidget {
                             ),
                             code: TextStyle(
                                 color: msg.isUser
-                                    ? _onPrimaryContainer
-                                    : _primaryFixedDim,
+                                    ? onPrimaryContainer
+                                    : primaryFixedDim,
                                 backgroundColor: Colors.transparent),
                           ),
                         ),
+                      if (msg.chart != null)
+                        AgentChartWidget(chart: msg.chart!),
                     ],
                   ),
                 ),
@@ -813,13 +818,13 @@ class _MessageBubble extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.info_outline,
-                          size: 12, color: _onSurfaceVariant),
+                          size: 12, color: onSurfaceVariant),
                       const SizedBox(width: 4),
                       Text(
                         "Routed via: ${msg.intent} (${msg.engine})",
                         style: TextStyle(
                             fontSize: 10,
-                            color: _onSurfaceVariant,
+                            color: onSurfaceVariant,
                             fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -834,10 +839,10 @@ class _MessageBubble extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: _primaryFixedDim,
+                color: primaryFixedDim,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(Icons.person, color: _onPrimaryContainer, size: 20),
+              child: Icon(Icons.person, color: onPrimaryContainer, size: 20),
             ),
           ],
         ],

@@ -10,7 +10,7 @@ import 'camera_status_dot.dart';
 import 'manage_staff_screen.dart' show DashedRectPainter;
 
 class CameraManagementScreen extends StatefulWidget {
-  CameraManagementScreen({super.key});
+  const CameraManagementScreen({super.key});
 
   @override
   State<CameraManagementScreen> createState() => _CameraManagementScreenState();
@@ -199,8 +199,9 @@ class _CameraManagementScreenState extends State<CameraManagementScreen> {
                 onPressed: isSaving
                     ? null
                     : () async {
-                        if (nameCtrl.text.isEmpty || ipCtrl.text.isEmpty)
+                        if (nameCtrl.text.isEmpty || ipCtrl.text.isEmpty) {
                           return;
+                        }
                         setD(() => isSaving = true);
                         final resp = await NetworkManager.instance.post(
                           ApiRoutes.cameras,

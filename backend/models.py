@@ -99,6 +99,9 @@ class User(Base):
     direct_permissions = relationship(
         "RBACPermission", secondary=user_permissions, back_populates="users"
     )
+    # The Patient record this login belongs to, if this is a patient-portal
+    # account (role == "patient") rather than a staff/admin account.
+    patient_profile = relationship("Patient", back_populates="user", uselist=False)
 
 
 class Patient(Base):
@@ -115,6 +118,10 @@ class Patient(Base):
     )  # Medical Record Number
     dob = Column(Date, nullable=True)
     gender = Column(String, nullable=True)
+    # The patient's own login account (portal access + calling), created via
+    # POST /api/patients/{id}/create-login. Nullable because most existing
+    # patient rows predate portal access and were never given one.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     consultations = relationship(
@@ -123,6 +130,7 @@ class Patient(Base):
     medical_reports = relationship(
         "MedicalReport", back_populates="patient", cascade="all, delete-orphan"
     )
+    user = relationship("User", back_populates="patient_profile")
 
 
 class Consultation(Base):
@@ -130,16 +138,36 @@ class Consultation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    # Which doctor conducted this consultation - drives "which doctors has
+    # this patient seen" (patient portal call list) and "which patients has
+    # this doctor seen" (doctor's patient list), both used to authorize who
+    # a patient/doctor is allowed to call. Nullable because consultations
+    # created before this existed have no recorded doctor.
+    staff_id = Column(Integer, ForeignKey("staff.id"), nullable=True)
     date = Column(DateTime(timezone=True), server_default=func.now())
     transcript = Column(Text, nullable=True)
     discharge_summary = Column(Text, nullable=True)
     prescription = Column(Text, nullable=True)
 
     patient = relationship("Patient", back_populates="consultations")
+    staff = relationship("Staff")
 
     @property
     def patient_name(self):
         return self.patient.name if self.patient else None
+
+    # Whoever actually conducted this consultation - a doctor OR a nurse,
+    # both attend/refer patients through the same Consultation flow. Before
+    # this, staff_id was recorded in the DB but never surfaced through the
+    # API/UI at all, so no attending name ever appeared on a record
+    # regardless of role.
+    @property
+    def staff_name(self):
+        return self.staff.name if self.staff else None
+
+    @property
+    def staff_role(self):
+        return self.staff.role if self.staff else None
 
 
 class MedicalReport(Base):
@@ -306,7 +334,9 @@ class Attendance(Base):
     )
     staff = relationship("Staff", foreign_keys=[staff_id])
     staff_name = Column(String, index=True, nullable=False)
-    confidence = Column(Float, nullable=False)  # best score at entry
+    # Best face-match score at entry. Nullable because RFID-sourced sessions
+    # (see `source` below) have no face-match confidence to record.
+    confidence = Column(Float, nullable=True)
     date = Column(Date, nullable=False, default=datetime.date.today)
     entry_time = Column(DateTime(timezone=True), server_default=func.now())
     last_seen = Column(
@@ -315,10 +345,83 @@ class Attendance(Base):
     exit_time = Column(DateTime(timezone=True), nullable=True)  # manual checkout
     camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=True)
     camera_name = Column(String, nullable=True)  # e.g. "Main Entrance"
+    # Which channel produced this session: "face" (camera recognition,
+    # default — preserves behavior for all rows/code paths that predate this
+    # column), "rfid" (badge tap at an enroll/verify device), or "manual"
+    # (admin-created/edited).
+    source = Column(String, nullable=False, default="face", server_default="face")
 
     @property
     def role(self) -> str:
         return self.staff.role if self.staff and self.staff.role else "Medical Staff"
+
+
+class RfidDevice(Base):
+    """
+    A physical ESP32+RC522 device (enrollment writer or verification reader
+    terminal — see /Users/dj/Projects/kram/rfid-firmware). Authenticates
+    purely via `Authorization: Bearer <raw key>`; only the SHA-256 hash of
+    that raw key is ever stored (see routers/rfid.py's device-bearer
+    dependency, which hashes the incoming header and compares).
+    """
+
+    __tablename__ = "rfid_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    label = Column(String, nullable=False)  # e.g. "Main Entrance Reader"
+    device_key_hash = Column(String, unique=True, index=True, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    # Self-reported by the device on every WiFi (re)connect via POST
+    # /api/rfid/checkin - never entered by hand. This is what lets an admin
+    # remotely reset the station (POST /api/rfid/station/reset-config)
+    # without anyone needing Serial Monitor access or manual .env edits,
+    # even after a DHCP lease hands it a new IP.
+    ip_address = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RfidCard(Base):
+    """
+    One active badge per staff member. The card itself only ever stores an
+    AES-256-GCM-encrypted opaque 128-bit token (see the firmware's security
+    design) — the token's real identity mapping only exists here, and even
+    here only its SHA-256 hash is stored, never the raw token.
+    """
+
+    __tablename__ = "rfid_cards"
+
+    id = Column(Integer, primary_key=True, index=True)
+    staff_id = Column(
+        Integer, ForeignKey("staff.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    token_hash = Column(String, unique=True, index=True, nullable=False)
+    issued_at = Column(DateTime(timezone=True), server_default=func.now())
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    staff = relationship("Staff")
+
+
+class RfidEnrollSession(Base):
+    """
+    A short-lived (90s) window during which the next `POST /api/rfid/enroll`
+    call from `device_id` is bound to `staff_id`. Created by an admin from
+    the Flutter enroll-card flow immediately before tapping a blank card on
+    the writer device; the writer has no idea which staff member it's
+    enrolling for, so this session is what supplies that mapping.
+    """
+
+    __tablename__ = "rfid_enroll_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("rfid_devices.id"), nullable=False)
+    staff_id = Column(Integer, ForeignKey("staff.id"), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    device = relationship("RfidDevice")
+    staff = relationship("Staff")
 
 
 class EquipmentType(Base):
@@ -495,8 +598,8 @@ class AgentMemory(Base):
     session_id = Column(String, index=True, nullable=False)
     fact = Column(Text, nullable=False)
     embedding = Column(
-        Vector(512), nullable=True
-    )  # Assuming 512 for our embedding model
+        Vector(384), nullable=True
+    )  # all-MiniLM-L6-v2 (services/retrieval/vector_retriever.py) - 384 dims
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from database import get_db
 import models
+from routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
@@ -59,7 +60,7 @@ class ROIResponse(BaseModel):
 
 
 @router.post("", response_model=CameraResponse)
-def create_camera(body: CameraCreate, db: Session = Depends(get_db)):
+def create_camera(body: CameraCreate, db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     """Register a new camera with structured connection details."""
     ip = body.ip_address
     port = body.port or 554
@@ -91,7 +92,7 @@ def create_camera(body: CameraCreate, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=List[CameraResponse])
-def list_cameras(db: Session = Depends(get_db)):
+def list_cameras(db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     return db.query(models.Camera).all()
 
 
@@ -112,7 +113,7 @@ async def _check_rtsp(cam_id: int, url: str) -> tuple[int, bool]:
         return cam_id, False
 
 @router.get("/status", response_model=Dict[int, bool])
-async def get_cameras_status(db: Session = Depends(get_db)):
+async def get_cameras_status(db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     """Ping all camera RTSP streams to check if they are online."""
     cameras = db.query(models.Camera).all()
     tasks = [_check_rtsp(c.id, c.rtsp_url) for c in cameras]
@@ -121,7 +122,7 @@ async def get_cameras_status(db: Session = Depends(get_db)):
 
 
 @router.get("/{camera_id}", response_model=CameraResponse)
-def get_camera(camera_id: int, db: Session = Depends(get_db)):
+def get_camera(camera_id: int, db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     """
     Fetch a single camera by id — needed so the settings-detail page can be
     reached directly by URL (/settings/cameras/:id) and load its own data
@@ -137,7 +138,7 @@ def get_camera(camera_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{camera_id}", response_model=CameraResponse)
-def update_camera(camera_id: int, body: CameraCreate, db: Session = Depends(get_db)):
+def update_camera(camera_id: int, body: CameraCreate, db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
@@ -170,7 +171,7 @@ def update_camera(camera_id: int, body: CameraCreate, db: Session = Depends(get_
 
 
 @router.delete("/{camera_id}")
-def delete_camera(camera_id: int, db: Session = Depends(get_db)):
+def delete_camera(camera_id: int, db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
@@ -192,12 +193,12 @@ def delete_camera(camera_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{camera_id}/rois", response_model=List[ROIResponse])
-def get_camera_rois(camera_id: int, db: Session = Depends(get_db)):
+def get_camera_rois(camera_id: int, db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     rois = db.query(models.CameraROI).filter(models.CameraROI.camera_id == camera_id).all()
     return rois
 
 @router.post("/{camera_id}/rois", response_model=ROIResponse)
-def create_camera_roi(camera_id: int, body: ROICreate, db: Session = Depends(get_db)):
+def create_camera_roi(camera_id: int, body: ROICreate, db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     cam = db.query(models.Camera).filter(models.Camera.id == camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
@@ -213,7 +214,7 @@ def create_camera_roi(camera_id: int, body: ROICreate, db: Session = Depends(get
     return roi
 
 @router.delete("/rois/{roi_id}")
-def delete_camera_roi(roi_id: int, db: Session = Depends(get_db)):
+def delete_camera_roi(roi_id: int, db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     roi = db.query(models.CameraROI).filter(models.CameraROI.id == roi_id).first()
     if not roi:
         raise HTTPException(status_code=404, detail="ROI not found")
@@ -223,6 +224,6 @@ def delete_camera_roi(roi_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 @router.get("/rois/all/unique", response_model=List[str])
-def get_all_unique_rois(db: Session = Depends(get_db)):
+def get_all_unique_rois(db: Session = Depends(get_db), _user: models.User = Depends(get_current_user)):
     zones = db.query(models.CameraROI.zone_name).distinct().all()
     return [z[0] for z in zones]

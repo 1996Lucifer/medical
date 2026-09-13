@@ -97,4 +97,27 @@ class ApiRoutes {
   // Site Config
   static String get siteConfig => '$baseUrl/api/site-config';
   static String get siteConfigLogo => '$baseUrl/api/site-config/logo';
+
+  // Patients / doctor-patient calling
+  static String patients() => '$baseUrl/api/patients';
+  static String patient(int id) => '$baseUrl/api/patients/$id';
+  static String patientCreateLogin(int id) =>
+      '$baseUrl/api/patients/$id/create-login';
+  static String patientDoctors(int id) => '$baseUrl/api/patients/$id/doctors';
+  static String get doctorsDirectory => '$baseUrl/api/staff/doctors';
+  static String staffPatients(int staffId) => '$baseUrl/api/staff/$staffId/patients';
+
+  // Call signaling
+  static String callsWs(String token) {
+    final wsBase = baseUrl.replaceFirst('http', 'ws');
+    return '$wsBase/ws/calls?token=${Uri.encodeComponent(token)}';
+  }
+
+  // RFID devices / card enrollment (routers/rfid.py)
+  static String get rfidDevices => '$baseUrl/api/rfid/devices';
+  static String get rfidEnrollSessions => '$baseUrl/api/rfid/enroll-sessions';
+  static String rfidEnrollSessionStatus(int sessionId) =>
+      '$baseUrl/api/rfid/enroll-sessions/$sessionId';
+  static String get rfidStationResetConfig =>
+      '$baseUrl/api/rfid/station/reset-config';
 }

@@ -20,6 +20,15 @@ class AuthProvider extends ChangeNotifier {
   List<String> _permissions = [];
   String? _username;
   bool _mustChangePassword = false;
+  // The logged-in User.id itself - this is the identity used by the call
+  // signaling WebSocket (see call/call_service.dart), distinct from
+  // patient_id/staff_id below (which record, if any, this login is linked
+  // to - lets the patient portal and doctor-side screens know "who am I"
+  // without a separate lookup; see routers/auth.py's /me response).
+  int? _userId;
+  int? _patientId;
+  int? _staffId;
+  String? _staffCategory;
 
   bool get isAuthenticated => _isAuthenticated;
   bool get isLoading => _isLoading;
@@ -29,6 +38,11 @@ class AuthProvider extends ChangeNotifier {
   List<String> get permissions => _permissions;
   String? get username => _username;
   bool get mustChangePassword => _mustChangePassword;
+  int? get userId => _userId;
+  int? get patientId => _patientId;
+  int? get staffId => _staffId;
+  String? get staffCategory => _staffCategory;
+  bool get isDoctor => _staffCategory == 'Doctor';
 
   bool hasPermission(String perm) {
     if (_role == 'superadmin') return true;
@@ -70,6 +84,10 @@ class AuthProvider extends ChangeNotifier {
         _username = data['username'];
         _permissions = (data['permissions'] as List).cast<String>();
         _mustChangePassword = data['must_change_password'] ?? false;
+        _userId = data['id'];
+        _patientId = data['patient_id'];
+        _staffId = data['staff_id'];
+        _staffCategory = data['staff_category'];
         _isAuthenticated = true;
       } else {
         // Token expired or invalid — clear it
@@ -100,6 +118,10 @@ class AuthProvider extends ChangeNotifier {
         _username = data['username'];
         _permissions = (data['permissions'] as List).cast<String>();
         _mustChangePassword = data['must_change_password'] ?? false;
+        _userId = data['id'];
+        _patientId = data['patient_id'];
+        _staffId = data['staff_id'];
+        _staffCategory = data['staff_category'];
         notifyListeners();
       }
     } catch (e) {
@@ -203,6 +225,10 @@ class AuthProvider extends ChangeNotifier {
     _username = null;
     _permissions = [];
     _mustChangePassword = false;
+    _userId = null;
+    _patientId = null;
+    _staffId = null;
+    _staffCategory = null;
     NetworkManager.instance.clearToken();
     // Remove persisted token
     try {

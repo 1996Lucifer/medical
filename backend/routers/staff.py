@@ -1,7 +1,4 @@
 import os
-import re
-import secrets
-import string
 import shutil
 import datetime
 import uuid
@@ -10,68 +7,26 @@ import numpy as np
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel, ConfigDict
 
 from database import get_db
 import models
 from camera.vision_service import vision_service
-from routers.auth import get_password_hash
+from services.auth_provisioning import create_login_account
+from routers.auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/staff", tags=["staff"])
 ws_router = APIRouter(prefix="/api/staff", tags=["staff_ws"])
 
-# Characters excluded from generated temp passwords/usernames: visually
-# ambiguous (l/I/1/O/0) so an admin reading it aloud to a new hire doesn't
-# transcribe it wrong.
-_TEMP_PASSWORD_ALPHABET = "".join(
-    c for c in (string.ascii_letters + string.digits) if c not in "lIO01"
-)
-
-
-def _generate_staff_username(db: Session, name: str) -> str:
-    base = re.sub(r"[^a-z0-9]+", ".", name.strip().lower()).strip(".")
-    if not base:
-        base = "staff"
-    candidate = base
-    suffix = 1
-    while db.query(models.User).filter(models.User.username == candidate).first():
-        suffix += 1
-        candidate = f"{base}{suffix}"
-    return candidate
-
-
-def _generate_temp_password(length: int = 10) -> str:
-    return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(length))
-
 
 def _create_login_for_staff(db: Session, name: str, role: Optional[str]):
     """
-    Create a login account alongside a new Staff (biometric) record, with a
-    system-generated temporary password. The account starts in
-    "change_password" status so the first login forces a change — the
-    admin communicates this one-time password to the new hire, it is
-    never stored or shown again.
-    Returns (models.User, plaintext_temp_password), or (None, None) if
-    account creation failed — staff registration itself must not be
-    blocked by this.
+    Create a login account alongside a new Staff (biometric) record - see
+    services/auth_provisioning.create_login_account for the shared
+    implementation (also used for patient portal accounts).
     """
-    try:
-        username = _generate_staff_username(db, name)
-        temp_password = _generate_temp_password()
-        new_user = models.User(
-            username=username,
-            hashed_password=get_password_hash(temp_password),
-            role=role or "Medical Staff",
-            status="change_password",
-        )
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-        return new_user, temp_password
-    except Exception as e:
-        db.rollback()
-        print(f"[Staff] Failed to create login account for {name}: {e}")
-        return None, None
+    return create_login_account(db, name, role or "Medical Staff", fallback_username="staff")
 
 
 class StaffResponse(BaseModel):
@@ -85,6 +40,11 @@ class StaffResponse(BaseModel):
     # "change_password", "inactive", ...) — None if this staff member has
     # no linked account (registered before this existed).
     status: Optional[str] = None
+    # user_id/can_call let the People Directory grid show a working call
+    # button for this staff member (see services/calls/authorization.py -
+    # any staff/admin account may call any other staff/admin account).
+    user_id: Optional[int] = None
+    can_call: bool = False
     # Only populated on the creation response — a one-time temporary
     # credential the admin must relay to the new hire. Never re-sent by
     # any other endpoint (the plaintext isn't stored anywhere).
@@ -151,6 +111,7 @@ async def register_staff(
     category: Optional[str] = "Medical Staff",
     file: Optional[UploadFile] = None,
     db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_permission("manage_staff")),
 ):
     """Register a new staff member with an optional first face photo."""
     db_staff = models.Staff(name=name, role=role, category=category)
@@ -219,6 +180,7 @@ async def add_staff_photo(
     file: UploadFile = File(...),
     label: Optional[str] = None,
     db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_permission("manage_staff")),
 ):
     """Add an additional face photo for an existing staff member."""
     staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
@@ -292,7 +254,12 @@ def get_staff_photos(staff_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{staff_id}/photo/{photo_id}")
-def delete_staff_photo(staff_id: int, photo_id: int, db: Session = Depends(get_db)):
+def delete_staff_photo(
+    staff_id: int,
+    photo_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_permission("manage_staff")),
+):
     """Remove a specific extra photo from a staff member."""
     photo = db.query(models.StaffPhoto).filter(
         models.StaffPhoto.id == photo_id,
@@ -313,7 +280,12 @@ def delete_staff_photo(staff_id: int, photo_id: int, db: Session = Depends(get_d
 
 
 @router.put("/{staff_id}", response_model=StaffResponse)
-def update_staff(staff_id: int, body: StaffUpdate, db: Session = Depends(get_db)):
+def update_staff(
+    staff_id: int,
+    body: StaffUpdate,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_permission("manage_staff")),
+):
     """Update staff name."""
     staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
     if not staff:
@@ -340,7 +312,11 @@ def update_staff(staff_id: int, body: StaffUpdate, db: Session = Depends(get_db)
 
 
 @router.delete("/{staff_id}")
-def delete_staff(staff_id: int, db: Session = Depends(get_db)):
+def delete_staff(
+    staff_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_permission("manage_staff")),
+):
     """
     "Revoke" a staff member. This used to hard-delete the Staff row (and
     its photos/embeddings) entirely; it now only disables their linked
@@ -385,6 +361,8 @@ def get_staff(db: Session = Depends(get_db)):
             photo_count=count,
             photo_url=photo_url,
             status=s.user.status if s.user else None,
+            user_id=s.user_id,
+            can_call=s.user_id is not None,
         ))
     return result
 
@@ -685,3 +663,102 @@ async def live_setup_ws(websocket: WebSocket, staff_id: int, db: Session = Depen
             await websocket.close(code=1011)
         except:
             pass
+
+
+class CreateStaffLoginResponse(BaseModel):
+    username: str
+    temp_password: str
+
+
+@router.post("/{staff_id}/create-login", response_model=CreateStaffLoginResponse)
+def create_login_for_existing_staff(
+    staff_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_permission("manage_staff")),
+):
+    """
+    Retroactively provisions a login for a Staff row that predates login
+    creation (or whose original account creation failed) - needed for a
+    doctor to receive portal calls, since that requires Staff.user_id.
+    """
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    if staff.user_id is not None:
+        raise HTTPException(status_code=400, detail="This staff member already has a login account.")
+
+    new_user, temp_password = create_login_account(db, staff.name, staff.role or "Medical Staff", fallback_username="staff")
+    if new_user is None:
+        raise HTTPException(status_code=500, detail="Failed to create login account.")
+
+    staff.user_id = new_user.id
+    db.commit()
+
+    return CreateStaffLoginResponse(username=new_user.username, temp_password=temp_password)
+
+
+class DoctorDirectoryEntry(BaseModel):
+    staff_id: int
+    user_id: Optional[int] = None
+    name: str
+    role: Optional[str] = None
+    can_call: bool
+
+
+@router.get("/doctors", response_model=List[DoctorDirectoryEntry])
+def list_doctors(db: Session = Depends(get_db)):
+    """
+    Directory of all doctor-category staff, for admin to call/chat with.
+    """
+    doctors = db.query(models.Staff).filter(models.Staff.category == "Doctor").all()
+    return [
+        DoctorDirectoryEntry(
+            staff_id=s.id, user_id=s.user_id, name=s.name, role=s.role,
+            can_call=s.user_id is not None,
+        )
+        for s in doctors
+    ]
+
+
+class MyPatientEntry(BaseModel):
+    id: int
+    name: str
+    mrn: Optional[str] = None
+    user_id: Optional[int] = None
+    can_call: bool
+    last_consultation: Optional[datetime.datetime] = None
+
+
+@router.get("/{staff_id}/patients", response_model=List[MyPatientEntry])
+def get_staff_patients(
+    staff_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Patients this doctor has consulted (derived from Consultation.staff_id)
+    - only the doctor themself or an admin/superadmin may view this.
+    """
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    is_self = staff.user_id is not None and staff.user_id == current_user.id
+    if not is_self and current_user.role not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="You do not have access to this doctor's patient list.")
+
+    rows = (
+        db.query(models.Patient, func.max(models.Consultation.date).label("last_consultation"))
+        .join(models.Consultation, models.Consultation.patient_id == models.Patient.id)
+        .filter(models.Consultation.staff_id == staff_id)
+        .group_by(models.Patient.id)
+        .order_by(func.max(models.Consultation.date).desc())
+        .all()
+    )
+    return [
+        MyPatientEntry(
+            id=patient.id, name=patient.name, mrn=patient.mrn,
+            user_id=patient.user_id, can_call=patient.user_id is not None,
+            last_consultation=last_consultation,
+        )
+        for patient, last_consultation in rows
+    ]

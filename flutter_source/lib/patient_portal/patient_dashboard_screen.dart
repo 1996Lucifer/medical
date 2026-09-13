@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'reports_locker_screen.dart';
 import 'consultations_screen.dart';
+import 'patient_doctors_screen.dart';
+import '../main.dart' show GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import '../providers/auth_provider.dart';
 
 class PatientDashboardScreen extends StatefulWidget {
   final int patientId;
@@ -28,7 +32,8 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
 
   Future<void> _fetchDashboardData() async {
     try {
-      final response = await NetworkManager.instance.get('${ApiRoutes.baseUrl}/api/patient-portal/dashboard/${widget.patientId}');
+      final response = await NetworkManager.instance.get(
+          '${ApiRoutes.baseUrl}/api/patient-portal/dashboard/${widget.patientId}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
@@ -42,10 +47,16 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
   }
 
   Widget _buildDashboard() {
-    final accent = Theme.of(context).colorScheme.secondary;
+    final scheme = Theme.of(context).colorScheme;
+    final accent = scheme.secondary;
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_chartData.isEmpty) {
-      return const Center(child: Text("No health data available. Please upload reports."));
+      return Center(
+        child: Text(
+          "No health data available. Please upload reports.",
+          style: TextStyle(color: scheme.onSurfaceVariant),
+        ),
+      );
     }
 
     // Prepare chart data (Heart Rate)
@@ -54,7 +65,9 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
       var point = _chartData[i];
       var vitals = point['vitals'];
       if (vitals != null && vitals['heart_rate'] != null) {
-        double hr = vitals['heart_rate'] is int ? (vitals['heart_rate'] as int).toDouble() : double.tryParse(vitals['heart_rate'].toString()) ?? 0;
+        double hr = vitals['heart_rate'] is int
+            ? (vitals['heart_rate'] as int).toDouble()
+            : double.tryParse(vitals['heart_rate'].toString()) ?? 0;
         if (hr > 0) heartRateSpots.add(FlSpot(i.toDouble(), hr));
       }
     }
@@ -64,21 +77,30 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             "Your Health Vitals",
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                color: scheme.onSurface,
+                letterSpacing: -0.5),
           ),
           const SizedBox(height: 8),
-          const Text("Heart rate trends over time based on your uploaded reports."),
+          Text(
+            "Heart rate trends over time based on your uploaded reports.",
+            style: TextStyle(fontSize: 16, color: scheme.onSurfaceVariant),
+          ),
           const SizedBox(height: 24),
-
           if (heartRateSpots.isNotEmpty)
             Container(
               height: 300,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [accent.withValues(alpha: 0.15), accent.withValues(alpha: 0.03)],
+                  colors: [
+                    accent.withValues(alpha: 0.15),
+                    accent.withValues(alpha: 0.03)
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -89,9 +111,12 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
                 LineChartData(
                   gridData: const FlGridData(show: false),
                   titlesData: const FlTitlesData(
-                    rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles:
+                        AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles:
+                        AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles:
+                        AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
                   borderData: FlBorderData(show: false),
                   lineBarsData: [
@@ -112,113 +137,222 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
               ),
             )
           else
-            const Center(child: Text("No heart rate data found in reports.")),
+            Center(
+              child: Text("No heart rate data found in reports.",
+                  style: TextStyle(color: scheme.onSurfaceVariant)),
+            ),
         ],
       ),
     );
   }
 
+  static const List<_PatientNavEntry> _navEntries = [
+    _PatientNavEntry('Dashboard', Icons.dashboard_outlined),
+    _PatientNavEntry('Reports', Icons.medical_information_outlined),
+    _PatientNavEntry('Consultations', Icons.history_edu),
+    _PatientNavEntry('My Doctors', Icons.call_outlined),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final onAccent = ThemeData.estimateBrightnessForColor(scheme.secondary) ==
-            Brightness.dark
-        ? Colors.white
-        : Colors.black87;
     final List<Widget> pages = [
       _buildDashboard(),
       ReportsLockerScreen(patientId: widget.patientId),
       ConsultationsScreen(patientId: widget.patientId),
+      PatientDoctorsScreen(patientId: widget.patientId),
     ];
 
-    // Reached via context.go() from either the real, authenticated patient
-    // list (/patients) or the pre-auth demo link on the login screen
-    // (/patient-demo) — go() replaces the whole route stack, so there's
-    // nothing for the default back button to pop to; send it back to
-    // whichever parent this instance was actually opened from.
-    final isDemo =
-        GoRouterState.of(context).uri.path.startsWith('/patient-demo');
-    return Scaffold(
+    // Reached via context.go() from the People Directory (/directory,
+    // staff tapping a patient card to view their chart), the pre-auth demo
+    // link on the login screen (/patient-demo), or a patient's own login
+    // (/my-portal) — go() replaces the whole route stack, so there's
+    // nothing for the default back button to pop to. /my-portal is a
+    // patient's own home screen (nowhere to "go back" to except signing
+    // out), so it and the demo both get a sign-out action instead of a
+    // back arrow.
+    final path = GoRouterState.of(context).uri.path;
+    final isDemo = path.startsWith('/patient-demo');
+    final isOwnPortal = path.startsWith('/my-portal');
+
+    // Same responsive split as the staff app's MainShell: a permanently
+    // visible sidebar on desktop (no click needed to open it), a
+    // slide-in Drawer behind a hamburger button on mobile. This screen
+    // previously always used the toggleable Drawer, even on desktop.
+    final isDesktop = MediaQuery.of(context).size.width > 900;
+
+    final content = Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go(isDemo ? '/login' : '/patients'),
-        ),
-        title: const Text('Patient Portal'),
+        // Leave `leading` on its default on mobile so the Scaffold
+        // auto-shows the drawer's hamburger button (an explicit `leading`
+        // here would override that and make the drawer unreachable) - the
+        // sign-out/back action goes in `actions` instead. On desktop
+        // there's no `drawer:` set below, so this is just an unused slot.
+        actions: [
+          IconButton(
+            icon: Icon(isOwnPortal ? Icons.logout : Icons.arrow_back),
+            tooltip: isOwnPortal ? 'Sign out' : 'Back',
+            onPressed: () {
+              if (isOwnPortal) {
+                context.read<AuthProvider>().logout();
+              } else {
+                context.go(isDemo ? '/login' : '/directory');
+              }
+            },
+          ),
+        ],
+        title: Text(_navEntries[_currentIndex].label,
+            style: TextStyle(
+                fontWeight: FontWeight.bold, color: scheme.onSurface)),
         elevation: 0,
         backgroundColor: Colors.transparent,
       ),
-      body: pages[_currentIndex],
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [scheme.secondary, scheme.primaryContainer],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+      body: GlassBackground(child: pages[_currentIndex]),
+      drawer: isDesktop
+          ? null
+          : Drawer(
+              backgroundColor: scheme.surfaceContainerLow,
+              child: SafeArea(
+                child: _buildDrawerContent(context, closesOnTap: true),
+              ),
+            ),
+    );
+
+    if (!isDesktop) return content;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Row(
+        children: [
+          Container(
+            width: 260,
+            color: scheme.surfaceContainerLow,
+            child: SafeArea(
+              child: _buildDrawerContent(context, closesOnTap: false),
+            ),
+          ),
+          Expanded(child: content),
+        ],
+      ),
+    );
+  }
+
+  // Same visual language as the staff app's SharedAppDrawer (rounded logo
+  // mark, teal left-border active indicator on a surface-tinted panel)
+  // rather than the generic gradient-header Material Drawer this used
+  // before - the patient portal is a different Scaffold tree from the
+  // staff shell (go_router branch), so it can't literally reuse that
+  // widget, but it should still look and behave like the same product.
+  // `closesOnTap` is true when this is rendered inside a slide-in Drawer
+  // (mobile - selecting an item should close it) and false when it's the
+  // permanent desktop sidebar (nothing to close).
+  Widget _buildDrawerContent(BuildContext context,
+      {required bool closesOnTap}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Row(
+            children: [
+              Icon(Icons.favorite_outline, color: scheme.secondary, size: 40),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  'Patient Portal',
+                  style: TextStyle(
+                    color: scheme.secondary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Icon(Icons.local_hospital, color: onAccent, size: 48),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Patient Portal',
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (int i = 0; i < _navEntries.length; i++)
+          _drawerItem(
+            context,
+            entry: _navEntries[i],
+            isActive: _currentIndex == i,
+            onTap: () {
+              if (closesOnTap) Navigator.pop(context);
+              setState(() {
+                _currentIndex = i;
+                if (i == 0) _fetchDashboardData();
+              });
+            },
+          ),
+        const Spacer(),
+        Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: InkWell(
+            onTap: () {
+              if (closesOnTap) Navigator.pop(context);
+              context.read<AuthProvider>().logout();
+            },
+            child: Row(
+              children: [
+                Icon(Icons.logout, color: Colors.red[300], size: 20),
+                const SizedBox(width: 12),
+                Text('Sign Out',
                     style: TextStyle(
-                      color: onAccent,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
+                        color: Colors.red[300], fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _drawerItem(
+    BuildContext context, {
+    required _PatientNavEntry entry,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isActive
+              ? scheme.secondary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: isActive
+              ? Border(left: BorderSide(color: scheme.secondary, width: 3))
+              : null,
+        ),
+        child: Row(
+          children: [
+            Icon(entry.icon,
+                color: isActive ? scheme.secondary : scheme.onSurfaceVariant,
+                size: 24),
+            const SizedBox(width: 16),
+            Text(
+              entry.label,
+              style: TextStyle(
+                color: isActive ? scheme.secondary : scheme.onSurfaceVariant,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                fontSize: 15,
               ),
-            ),
-            ListTile(
-              leading: Icon(Icons.dashboard_outlined, color: _currentIndex == 0 ? scheme.secondary : null),
-              title: Text("Dashboard", style: TextStyle(fontWeight: _currentIndex == 0 ? FontWeight.bold : FontWeight.normal)),
-              selected: _currentIndex == 0,
-              selectedTileColor: scheme.secondary.withValues(alpha: 0.1),
-              onTap: () {
-                setState(() {
-                  _currentIndex = 0;
-                  _fetchDashboardData();
-                });
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.medical_information_outlined, color: _currentIndex == 1 ? scheme.secondary : null),
-              title: Text("Reports", style: TextStyle(fontWeight: _currentIndex == 1 ? FontWeight.bold : FontWeight.normal)),
-              selected: _currentIndex == 1,
-              selectedTileColor: scheme.secondary.withValues(alpha: 0.1),
-              onTap: () {
-                setState(() {
-                  _currentIndex = 1;
-                });
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.history_edu, color: _currentIndex == 2 ? scheme.secondary : null),
-              title: Text("Consultations", style: TextStyle(fontWeight: _currentIndex == 2 ? FontWeight.bold : FontWeight.normal)),
-              selected: _currentIndex == 2,
-              selectedTileColor: scheme.secondary.withValues(alpha: 0.1),
-              onTap: () {
-                setState(() {
-                  _currentIndex = 2;
-                });
-                Navigator.pop(context);
-              },
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class _PatientNavEntry {
+  final String label;
+  final IconData icon;
+  const _PatientNavEntry(this.label, this.icon);
 }

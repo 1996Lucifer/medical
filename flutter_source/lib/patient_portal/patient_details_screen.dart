@@ -29,7 +29,8 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
 
   Future<void> _fetchPatientDetails() async {
     try {
-      final response = await NetworkManager.instance.get('${ApiRoutes.baseUrl}/api/patients/${widget.patientId}');
+      final response = await NetworkManager.instance
+          .get('${ApiRoutes.baseUrl}/api/patients/${widget.patientId}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         _nameCtrl.text = data['name'] ?? '';
@@ -63,16 +64,19 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
       );
       if (response.statusCode == 200) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated successfully')));
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Profile updated successfully')));
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update profile')));
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to update profile')));
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error connecting to server')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Error connecting to server')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -85,7 +89,9 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_errorMessage.isNotEmpty) {
-      return Center(child: Text(_errorMessage, style: const TextStyle(color: Colors.red)));
+      return Center(
+          child:
+              Text(_errorMessage, style: const TextStyle(color: Colors.red)));
     }
 
     return SingleChildScrollView(
@@ -95,22 +101,28 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Personal Information", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const Text("Personal Information",
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 24),
             TextFormField(
               controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: "Full Name", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: "Full Name", border: OutlineInputBorder()),
               validator: (v) => v!.isEmpty ? "Name is required" : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _mrnCtrl,
-              decoration: const InputDecoration(labelText: "Medical Record Number (MRN)", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: "Medical Record Number (MRN)",
+                  border: OutlineInputBorder()),
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _dobCtrl,
-              decoration: const InputDecoration(labelText: "Date of Birth (YYYY-MM-DD)", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: "Date of Birth (YYYY-MM-DD)",
+                  border: OutlineInputBorder()),
               validator: (v) {
                 if (v!.isNotEmpty) {
                   try {
@@ -125,7 +137,8 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
             const SizedBox(height: 16),
             TextFormField(
               controller: _genderCtrl,
-              decoration: const InputDecoration(labelText: "Gender", border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: "Gender", border: OutlineInputBorder()),
             ),
             const SizedBox(height: 32),
             SizedBox(
@@ -133,7 +146,9 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
               height: 50,
               child: ElevatedButton(
                 onPressed: _saveDetails,
-                child: const Text("Save Changes", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                child: const Text("Save Changes",
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ),
           ],

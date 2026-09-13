@@ -227,8 +227,12 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
             children: [
               Icon(Icons.trending_up, color: _textVariant, size: 14),
               const SizedBox(width: 8),
-              Text('Live analytics streaming active',
-                  style: TextStyle(color: _textVariant, fontSize: 11)),
+              Expanded(
+                child: Text('Live analytics streaming active',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: _textVariant, fontSize: 11)),
+              ),
             ],
           ),
         ],
@@ -275,8 +279,12 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
             children: [
               Icon(Icons.check_circle_outline, color: _textVariant, size: 14),
               const SizedBox(width: 8),
-              Text('Optimized background task distribution',
-                  style: TextStyle(color: _textVariant, fontSize: 11)),
+              Expanded(
+                child: Text('Optimized background task distribution',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: _textVariant, fontSize: 11)),
+              ),
             ],
           ),
         ],
@@ -323,8 +331,12 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
             children: [
               Icon(Icons.data_usage, color: _textVariant, size: 14),
               const SizedBox(width: 8),
-              Text('Live memory tracking active',
-                  style: TextStyle(color: _textVariant, fontSize: 11)),
+              Expanded(
+                child: Text('Live memory tracking active',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: _textVariant, fontSize: 11)),
+              ),
             ],
           ),
         ],

@@ -3,8 +3,25 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import get_db
 import models
+from routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/rbac", tags=["rbac"])
+
+
+def _require_rbac_admin(current_user: models.User = Depends(get_current_user)) -> models.User:
+    """
+    Every endpoint in this router can grant or revoke any permission for any
+    user or group — including granting someone superadmin-equivalent access.
+    None of these endpoints previously required authentication at all (no
+    Depends(get_current_user)), so anyone who could reach the API could
+    rewrite the entire permission graph. Restricting to admin/superadmin
+    matches the access level already used for other privileged actions
+    (e.g. patients.py, staff.py create-login).
+    """
+    if current_user.role not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="You do not have access to RBAC administration.")
+    return current_user
+
 
 class AssignRequest(BaseModel):
     source_type: str # "user" or "group"
@@ -17,7 +34,7 @@ class NodeCreateRequest(BaseModel):
     description: str = ""
 
 @router.get("/graph")
-def get_rbac_graph(db: Session = Depends(get_db)):
+def get_rbac_graph(db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
     # Fetch all entities
     users = db.query(models.User).all()
     groups = db.query(models.RBACGroup).all()
@@ -44,7 +61,7 @@ def get_rbac_graph(db: Session = Depends(get_db)):
     return {"nodes": nodes, "edges": edges}
 
 @router.post("/assign")
-def assign_rbac(req: AssignRequest, db: Session = Depends(get_db)):
+def assign_rbac(req: AssignRequest, db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
     if req.source_type == "user" and req.target_type == "group":
         user = db.query(models.User).get(req.source_id)
         group = db.query(models.RBACGroup).get(req.target_id)
@@ -70,7 +87,7 @@ def assign_rbac(req: AssignRequest, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @router.post("/unassign")
-def unassign_rbac(req: AssignRequest, db: Session = Depends(get_db)):
+def unassign_rbac(req: AssignRequest, db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
     if req.source_type == "user" and req.target_type == "group":
         user = db.query(models.User).get(req.source_id)
         group = db.query(models.RBACGroup).get(req.target_id)
@@ -96,7 +113,7 @@ def unassign_rbac(req: AssignRequest, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @router.post("/groups")
-def create_group(req: NodeCreateRequest, db: Session = Depends(get_db)):
+def create_group(req: NodeCreateRequest, db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
     if db.query(models.RBACGroup).filter(models.RBACGroup.name == req.name).first():
         raise HTTPException(400, "Group already exists")
     new_group = models.RBACGroup(name=req.name, description=req.description)
@@ -106,7 +123,7 @@ def create_group(req: NodeCreateRequest, db: Session = Depends(get_db)):
     return {"status": "success", "id": new_group.id}
 
 @router.post("/permissions")
-def create_permission(req: NodeCreateRequest, db: Session = Depends(get_db)):
+def create_permission(req: NodeCreateRequest, db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
     if db.query(models.RBACPermission).filter(models.RBACPermission.name == req.name).first():
         raise HTTPException(400, "Permission already exists")
     new_perm = models.RBACPermission(name=req.name, description=req.description)
@@ -116,7 +133,7 @@ def create_permission(req: NodeCreateRequest, db: Session = Depends(get_db)):
     return {"status": "success", "id": new_perm.id}
 
 @router.delete("/groups/{group_id}")
-def delete_group(group_id: int, db: Session = Depends(get_db)):
+def delete_group(group_id: int, db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
     group = db.query(models.RBACGroup).get(group_id)
     if not group:
         raise HTTPException(404, "Group not found")
@@ -125,7 +142,7 @@ def delete_group(group_id: int, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @router.delete("/permissions/{permission_id}")
-def delete_permission(permission_id: int, db: Session = Depends(get_db)):
+def delete_permission(permission_id: int, db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
     perm = db.query(models.RBACPermission).get(permission_id)
     if not perm:
         raise HTTPException(404, "Permission not found")

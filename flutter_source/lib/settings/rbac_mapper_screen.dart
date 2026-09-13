@@ -782,8 +782,9 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                       .cast<_Node?>()
                                       .firstWhere((n) => n?.id == e.target,
                                           orElse: () => null);
-                                  if (sourceNode == null || targetNode == null)
+                                  if (sourceNode == null || targetNode == null) {
                                     return const SizedBox.shrink();
+                                  }
 
                                   final midX = sourceNode.position.dx +
                                       220 +
@@ -1224,13 +1225,13 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                             fillColor: _surfaceContainer,
                             border: OutlineInputBorder(
                                 borderRadius:
-                                    BorderRadius.all(Radius.circular(8)),
+                                    const BorderRadius.all(Radius.circular(8)),
                                 borderSide: BorderSide(color: _outlineVariant)),
                             enabledBorder: OutlineInputBorder(
                                 borderRadius:
-                                    BorderRadius.all(Radius.circular(8)),
+                                    const BorderRadius.all(Radius.circular(8)),
                                 borderSide: BorderSide(color: _outlineVariant)),
-                            contentPadding: EdgeInsets.symmetric(vertical: 0),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 0),
                           ),
                         ),
                       ),

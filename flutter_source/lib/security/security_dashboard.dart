@@ -159,26 +159,47 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
       }
     }).length;
 
-    return GridView.count(
-      crossAxisCount: MediaQuery.of(context).size.width > 900 ? 3 : 1,
-      crossAxisSpacing: 24,
-      mainAxisSpacing: 24,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: MediaQuery.of(context).size.width > 900 ? 2.8 : 2.0,
-      children: [
-        _buildMetricCard(
-            'Active Threats',
-            '${_alerts.where((a) => a['resolved'] != true).length}',
-            '+$recentThreats since last hour',
-            _error,
-            Icons.emergency_share,
-            true),
-        _buildMetricCard('Nodes Monitored', '1,284', '100% Operational',
-            _primaryFixedDim, Icons.sensors, false),
-        _buildMetricCard('System Integrity', '99.9%', 'Encrypted', _secondary,
-            Icons.security, false),
-      ],
+    // Always exactly 3 cards, so a Row of Expanded + a fixed height is more
+    // robust here than GridView's childAspectRatio - that ratio has to
+    // guess the right height from a width that changes with the viewport,
+    // and got it wrong (2.8 on desktop squeezed each card to ~60-80px tall
+    // against ~130-140px of actual content, overflowing the bottom of
+    // every card by double-digit pixels).
+    const cardHeight = 164.0;
+    final isNarrow = MediaQuery.of(context).size.width <= 900;
+    final cards = [
+      _buildMetricCard(
+          'Active Threats',
+          '${_alerts.where((a) => a['resolved'] != true).length}',
+          '+$recentThreats since last hour',
+          _error,
+          Icons.emergency_share,
+          true),
+      _buildMetricCard('Nodes Monitored', '1,284', '100% Operational',
+          _primaryFixedDim, Icons.sensors, false),
+      _buildMetricCard('System Integrity', '99.9%', 'Encrypted', _secondary,
+          Icons.security, false),
+    ];
+    if (isNarrow) {
+      return Column(
+        children: cards
+            .map((c) => Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: SizedBox(height: cardHeight, child: c),
+                ))
+            .toList(),
+      );
+    }
+    return SizedBox(
+      height: cardHeight,
+      child: Row(
+        children: [
+          for (int i = 0; i < cards.length; i++) ...[
+            if (i > 0) const SizedBox(width: 24),
+            Expanded(child: cards[i]),
+          ],
+        ],
+      ),
     );
   }
 
@@ -190,38 +211,53 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(title,
-                  style: TextStyle(
-                      color: _onSurfaceVariant,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Text(value,
-                  style: TextStyle(
-                      color: color, fontSize: 36, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(isError ? Icons.trending_up : Icons.check_circle,
-                      color: color, size: 14),
-                  const SizedBox(width: 4),
-                  Text(subtitle, style: TextStyle(color: color, fontSize: 12)),
-                ],
-              )
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: _onSurfaceVariant,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Text(value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(isError ? Icons.trending_up : Icons.check_circle,
+                        color: color, size: 14),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: color, fontSize: 12)),
+                    ),
+                  ],
+                )
+              ],
+            ),
           ),
+          const SizedBox(width: 12),
           Container(
-            width: 64,
-            height: 64,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: color, size: 32),
+            child: Icon(icon, color: color, size: 28),
           )
         ],
       ),
@@ -239,16 +275,22 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
+                Flexible(
+                  child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.warning_amber_rounded,
                         color: _primaryFixedDim),
                     const SizedBox(width: 12),
-                    Text("Active Security Alerts",
-                        style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: _primary)),
+                    Flexible(
+                      child: Text("Active Security Alerts",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: _primary)),
+                    ),
                     const SizedBox(width: 12),
                     IconButton(
                       icon: Icon(
@@ -284,11 +326,14 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                         padding: const EdgeInsets.only(left: 8.0),
                         child: Text(
                           "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               color: _primaryFixedDim, fontSize: 14),
                         ),
                       ),
                   ],
+                  ),
                 ),
                 Container(
                   padding:
@@ -470,11 +515,15 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                 children: [
                   Icon(Icons.smart_toy, color: _primaryContainer),
                   const SizedBox(width: 12),
-                  Text("AI Rules Engine",
-                      style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: _primary)),
+                  Flexible(
+                    child: Text("AI Rules Engine",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: _primary)),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
