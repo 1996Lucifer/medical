@@ -9,13 +9,16 @@ import 'auth/change_password_screen.dart';
 import 'auth/login_screen.dart';
 import 'auth/patient_login_screen.dart';
 import 'auth/setup_wizard_screen.dart';
+import 'call/inbox_screen.dart';
 import 'camera/camera_screen.dart';
 import 'camera/camera_status_service.dart';
 import 'consultation/consultation_screen.dart';
 import 'directory/people_directory_screen.dart';
 import 'patient_portal/patient_dashboard_screen.dart';
 import 'patient_portal/upload_report_screen.dart';
+import 'profile/profile_screen.dart';
 import 'providers/auth_provider.dart';
+import 'providers/site_config_provider.dart';
 import 'security/security_dashboard.dart';
 import 'settings/analytics_screen.dart' as settings;
 import 'settings/camera_management_screen.dart';
@@ -25,6 +28,10 @@ import 'settings/manage_staff_screen.dart';
 import 'settings/rbac_mapper_screen.dart';
 import 'settings/settings_screen.dart';
 import 'widgets/shared_app_drawer.dart';
+import 'indoor_tracking/tracking_status_banner.dart';
+import 'indoor_tracking/indoor_tracking_screen.dart';
+import 'indoor_tracking/floor_editor_screen.dart';
+import 'indoor_tracking/hospital_geofence_screen.dart';
 
 /// Paths reachable without being authenticated — the setup/login handoff,
 /// and the pre-auth "Patient Portal (Demo)" flow linked from the login
@@ -77,6 +84,21 @@ const List<NavEntry> kNavEntries = [
     builder: _directory,
   ),
   NavEntry(
+    // No permission gate (see AuthProvider.hasPermission's empty-string
+    // case) - calling/messaging any other staff/admin account was never
+    // RBAC-restricted to begin with (services/calls/authorization.can_call
+    // is unconditional for staff<->staff/admin), only the People
+    // Directory's browse view is. Without this, a doctor who got messaged
+    // by an admin/superadmin (neither of whom has a Staff row, so neither
+    // ever appears as a Directory card) had genuinely no way to discover
+    // that message existed (/investigate 2026-09-19).
+    path: '/inbox',
+    permission: '',
+    icon: Icons.inbox_outlined,
+    label: 'Inbox',
+    builder: _inbox,
+  ),
+  NavEntry(
     path: '/consultation',
     permission: 'view_consultation',
     icon: Icons.medical_services_outlined,
@@ -112,6 +134,13 @@ const List<NavEntry> kNavEntries = [
     builder: _agent,
   ),
   NavEntry(
+    path: '/indoor-tracking',
+    permission: 'view_indoor_tracking',
+    icon: Icons.map_outlined,
+    label: 'Indoor Tracking',
+    builder: _indoorTracking,
+  ),
+  NavEntry(
     path: '/settings',
     permission: 'view_settings',
     icon: Icons.settings_system_daydream_outlined,
@@ -124,7 +153,8 @@ const List<NavEntry> kNavEntries = [
 // above stay const-constructible.
 Widget _superAdmin(GoRouterState state) => const SuperAdminDashboardScreen();
 Widget _directory(GoRouterState state) => const PeopleDirectoryScreen();
-Widget _consultation(GoRouterState state) => ConsultationScreen();
+Widget _inbox(GoRouterState state) => const InboxScreen();
+Widget _consultation(GoRouterState state) => const ConsultationScreen();
 Widget _camera(GoRouterState state) {
   // Security Vault's "View Cam" links here as /camera?expand=<id> instead
   // of pushing a second CameraScreen instance on top of this tab.
@@ -136,7 +166,8 @@ int? _parseIntOrNull(String? raw) => raw == null ? null : int.tryParse(raw);
 Widget _analytics(GoRouterState state) => const AnalyticsDashboardScreen();
 Widget _security(GoRouterState state) => const SecurityDashboardScreen();
 Widget _agent(GoRouterState state) => const AgentScreen();
-Widget _settings(GoRouterState state) => SettingsScreen();
+Widget _settings(GoRouterState state) => const SettingsScreen();
+Widget _indoorTracking(GoRouterState state) => const IndoorTrackingScreen();
 
 /// Sub-pages reachable from within Settings. Each still shows the same
 /// side nav (via SharedAppDrawer, unchanged) but isn't one of the primary
@@ -145,6 +176,8 @@ const String settingsStaffPath = '/settings/staff';
 const String settingsCamerasPath = '/settings/cameras';
 const String settingsRbacPath = '/settings/rbac';
 const String settingsAnalyticsPath = '/settings/analytics';
+const String settingsFloorEditorPath = '/settings/indoor-tracking/floors';
+const String settingsGeofencePath = '/settings/indoor-tracking/geofence';
 
 /// Maps a location to the permission required to view it. Falls back to
 /// null (no gate) for anything not recognized, e.g. /login itself.
@@ -322,7 +355,7 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
       GoRoute(
         path: settingsCamerasPath,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => CameraManagementScreen(),
+        builder: (context, state) => const CameraManagementScreen(),
         routes: [
           GoRoute(
             // Full path: /settings/cameras/:id
@@ -344,6 +377,21 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
         path: settingsAnalyticsPath,
         parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const settings.AnalyticsScreen(),
+      ),
+      GoRoute(
+        path: settingsFloorEditorPath,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const FloorEditorScreen(),
+      ),
+      GoRoute(
+        path: settingsGeofencePath,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const HospitalGeofenceScreen(),
+      ),
+      GoRoute(
+        path: '/profile',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const ProfileScreen(),
       ),
       // A specific patient's full chart (reports + consultations) - reached
       // by tapping a patient card in the Directory. No longer nested under
@@ -385,11 +433,24 @@ GoRouter buildAppRouter(AuthProvider authProvider) {
   );
 }
 
-/// Persistent chrome (side nav + content area) for the 8 primary
+/// Max number of destinations shown directly in the mobile bottom
+/// NavigationBar before the rest collapse into a "More" sheet - Material 3
+/// guidance is 3-5 destinations, and roles range from 2 tabs up to
+/// SuperAdmin's 9, so a fixed cap plus overflow is the only shape that
+/// looks right at every role's tab count.
+const int _kMaxMobilePrimaryTabs = 4;
+
+/// Persistent chrome (side nav + content area) for the primary
 /// destinations, replacing the old index-based MainLayout. Each branch
 /// keeps its own state alive via IndexedStack under the hood (switching
 /// tabs doesn't drop camera WebSocket connections etc.), same as before —
 /// the only thing that changed is that the active tab is now a real URL.
+///
+/// Desktop (>=900px) keeps the existing permanent sidebar. Mobile drops the
+/// drawer/hamburger pattern entirely in favor of a bottom NavigationBar
+/// (the convention users actually expect on a phone) built from the same
+/// permission-filtered kNavEntries list the sidebar uses, so every role
+/// automatically gets the right tabs with zero per-role special-casing.
 class MainShell extends StatefulWidget {
   final StatefulNavigationShell navigationShell;
   const MainShell({super.key, required this.navigationShell});
@@ -421,31 +482,136 @@ class _MainShellState extends State<MainShell> {
         body: Row(
           children: [
             const SharedAppDrawer(),
-            Expanded(child: widget.navigationShell),
+            Expanded(
+              child: Column(
+                children: [
+                  const TrackingStatusBanner(),
+                  Expanded(child: widget.navigationShell),
+                ],
+              ),
+            ),
           ],
         ),
       );
     }
 
+    final auth = context.watch<AuthProvider>();
+    final visibleEntries =
+        kNavEntries.where((e) => auth.hasPermission(e.permission)).toList();
+    final primaryEntries = visibleEntries.take(_kMaxMobilePrimaryTabs).toList();
+    final overflowEntries = visibleEntries.skip(_kMaxMobilePrimaryTabs).toList();
+    final currentPath = GoRouterState.of(context).uri.path;
+
+    int selectedIndex = primaryEntries.indexWhere(
+        (e) => currentPath == e.path || currentPath.startsWith('${e.path}/'));
+    final inOverflow = selectedIndex == -1 &&
+        overflowEntries.any((e) => currentPath == e.path || currentPath.startsWith('${e.path}/'));
+    if (selectedIndex == -1) selectedIndex = inOverflow ? primaryEntries.length : 0;
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      drawer: Drawer(
-        backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
-        child: const SharedAppDrawer(),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            const _MobileTopBar(),
+            const TrackingStatusBanner(),
+            Expanded(child: widget.navigationShell),
+          ],
+        ),
       ),
-      body: Stack(
-        children: [
-          widget.navigationShell,
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 8,
-            child: Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.menu,
-                    color: Colors.white,
-                    shadows: [Shadow(color: Colors.black54, blurRadius: 4)]),
-                onPressed: () => Scaffold.of(ctx).openDrawer(),
+      bottomNavigationBar: (primaryEntries.length + overflowEntries.length) < 2
+          ? null
+          : NavigationBar(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (index) {
+                if (index < primaryEntries.length) {
+                  context.go(primaryEntries[index].path);
+                } else {
+                  _showMoreSheet(context, overflowEntries);
+                }
+              },
+              destinations: [
+                for (final e in primaryEntries)
+                  NavigationDestination(icon: Icon(e.icon), label: e.label),
+                if (overflowEntries.isNotEmpty)
+                  const NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
+              ],
+            ),
+    );
+  }
+
+  void _showMoreSheet(BuildContext context, List<NavEntry> overflowEntries) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final e in overflowEntries)
+              ListTile(
+                leading: Icon(e.icon),
+                title: Text(e.label),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.go(e.path);
+                },
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact mobile-only top bar: hospital branding on the left, a profile
+/// avatar on the right (the standard convention for "go to my account" on
+/// phones, decoupled from the bottom nav's tab count entirely). Replaces
+/// the old floating hamburger button - this is also what was causing the
+/// oversized top gap (a second, separate top-safe-area SizedBox stacked
+/// underneath it); SafeArea on the Scaffold body now handles that once.
+class _MobileTopBar extends StatelessWidget {
+  const _MobileTopBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final siteConfig = context.watch<SiteConfigProvider>();
+    final auth = context.watch<AuthProvider>();
+    final displayName = auth.displayName ?? '';
+    final initials = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
+
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      color: scheme.surfaceContainerLow,
+      child: Row(
+        children: [
+          if (siteConfig.fullLogoUrl != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.network(siteConfig.fullLogoUrl!, width: 28, height: 28, fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Icon(Icons.shield, color: scheme.secondary, size: 24)),
+            )
+          else
+            Icon(Icons.shield, color: scheme.secondary, size: 24),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              siteConfig.hospitalName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+          ),
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => context.push('/profile'),
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: scheme.secondary.withValues(alpha: 0.15),
+              child: Text(initials, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: scheme.secondary)),
             ),
           ),
         ],

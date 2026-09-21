@@ -262,6 +262,15 @@ def reset_station_config(
             ),
         )
     device_ip = device.ip_address
+
+    # Everything we needed from the DB is already in hand (device_key,
+    # device_ip) - release the connection back to the pool before making
+    # the outbound HTTP call to the physical device (~5s), instead of
+    # holding it open/idle for the whole request. The `db` dependency's
+    # own `finally: db.close()` (see database.get_db) is a no-op on an
+    # already-closed session, so this is safe to call early.
+    db.close()
+
     try:
         resp = requests.post(
             f"http://{device_ip}/reset-config",

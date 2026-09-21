@@ -16,6 +16,7 @@ class ConsultationsScreen extends StatefulWidget {
 class _ConsultationsScreenState extends State<ConsultationsScreen> {
   List<dynamic> _consultations = [];
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -24,6 +25,10 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
   }
 
   Future<void> _fetchConsultations() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final response = await NetworkManager.instance.get(
           '${ApiRoutes.baseUrl}/api/patient-portal/consultations/${widget.patientId}');
@@ -32,9 +37,18 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
           _consultations = jsonDecode(response.body);
           _isLoading = false;
         });
+      } else {
+        setState(() {
+          _error = 'Could not load consultations. Please try again.';
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      debugPrint('Failed to load consultations: $e');
+      setState(() {
+        _error = 'Could not load consultations. Please try again.';
+        _isLoading = false;
+      });
     }
   }
 
@@ -88,7 +102,7 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
                 const SizedBox(height: 20),
               ],
               const Text('PRESCRIPTION',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.green,
                       fontSize: 12,
@@ -113,7 +127,24 @@ class _ConsultationsScreenState extends State<ConsultationsScreen> {
     final accent = scheme.secondary;
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
-        : _consultations.isEmpty
+        : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_error!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _fetchConsultations,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : _consultations.isEmpty
             ? const Center(child: Text("No past consultations found."))
             : GridView.builder(
                 padding: const EdgeInsets.all(16),

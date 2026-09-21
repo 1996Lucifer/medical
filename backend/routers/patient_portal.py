@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -21,6 +22,14 @@ router = APIRouter(prefix="/api/patient-portal", tags=["patient-portal"])
 # Ensure upload dir exists
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "reports")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# This endpoint accepts a photo/scan of a medical report or a PDF of one
+# (see the PDF-vs-image branch below) and hands it to the LLM - anything
+# else, or anything oversized, should be rejected before that happens.
+MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024  # 20MB
+ALLOWED_UPLOAD_CONTENT_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "application/pdf",
+}
 
 
 class ReportResponse(BaseModel):
@@ -65,12 +74,31 @@ async def upload_report(
         raise HTTPException(status_code=404, detail="Patient not found")
     _assert_patient_access(patient_id, current_user)
 
+    if file.content_type not in ALLOWED_UPLOAD_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {file.content_type}. Allowed types: image/jpeg, image/png, image/webp, application/pdf.",
+        )
+
+    # DB work needed before the blocking LLM call is done - release the
+    # pooled connection now so it isn't held idle for the duration of the
+    # PDF parsing + synchronous LLM call below. The session transparently
+    # reconnects on its next use (db.add/commit further down).
+    db.close()
+
     file_extension = os.path.splitext(file.filename)[1].lower()
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     safe_filename = f"report_{patient_id}_{timestamp}{file_extension}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
 
     content = await file.read()
+
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum allowed size is {MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB.",
+        )
+
     with open(file_path, "wb") as f:
         f.write(content)
 
@@ -105,7 +133,13 @@ async def upload_report(
         "(Only include vitals if they are present in the document, otherwise empty object)}."
     )
 
-    raw_response = llm_manager.generate_with_image(base64_img, prompt, is_clinical=True)
+    # llm_manager.generate_with_image() is a genuinely blocking synchronous
+    # call (LLM inference). Run it in a worker thread so it doesn't block
+    # the event loop and starve other concurrent requests of DB connections
+    # (see /investigate 2026-09-20).
+    raw_response = await run_in_threadpool(
+        llm_manager.generate_with_image, base64_img, prompt, is_clinical=True
+    )
     
     # Simple JSON extraction (strip markdown code blocks if any)
     json_str = raw_response

@@ -5,7 +5,8 @@ import uuid
 import cv2
 import numpy as np
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Query
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel, ConfigDict
@@ -14,19 +15,26 @@ from database import get_db
 import models
 from camera.vision_service import vision_service
 from services.auth_provisioning import create_login_account
+from services.staff.hierarchy import can_assign, effective_head, would_create_cycle
 from routers.auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/staff", tags=["staff"])
 ws_router = APIRouter(prefix="/api/staff", tags=["staff_ws"])
 
+# Pagination defaults for list endpoints (see get_staff below) - a sensible
+# default page size plus a hard cap so a client can't force an unbounded
+# query by passing an absurd limit.
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
 
-def _create_login_for_staff(db: Session, name: str, role: Optional[str]):
+
+def _create_login_for_staff(db: Session, name: str, role: Optional[str], commit: bool = True):
     """
     Create a login account alongside a new Staff (biometric) record - see
     services/auth_provisioning.create_login_account for the shared
     implementation (also used for patient portal accounts).
     """
-    return create_login_account(db, name, role or "Medical Staff", fallback_username="staff")
+    return create_login_account(db, name, role or "Medical Staff", fallback_username="staff", commit=commit)
 
 
 class StaffResponse(BaseModel):
@@ -50,6 +58,19 @@ class StaffResponse(BaseModel):
     # any other endpoint (the plaintext isn't stored anywhere).
     username: Optional[str] = None
     temp_password: Optional[str] = None
+    # "HH:MM" strings, or null if this staff member has no fixed shift
+    # configured (e.g. Admin/SuperAdmin roles) - see models.Staff.
+    shift_start: Optional[str] = None
+    shift_end: Optional[str] = None
+    expected_shift_hours: Optional[float] = None
+    # Reporting hierarchy - see services/staff/hierarchy.py. reports_to_id/
+    # name reflect the RESOLVED effective head (explicit assignment, else
+    # department/category head), not just the raw column, so the UI never
+    # has to re-derive the fallback chain itself.
+    is_head: bool = False
+    department: Optional[str] = None
+    reports_to_id: Optional[int] = None
+    reports_to_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class StaffActivityResponse(BaseModel):
@@ -75,31 +96,105 @@ class StaffPhotoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+def _time_to_hhmm(t: Optional[datetime.time]) -> Optional[str]:
+    return t.strftime("%H:%M") if t else None
+
+
+def _hhmm_to_time(s: Optional[str]) -> Optional[datetime.time]:
+    return datetime.datetime.strptime(s, "%H:%M").time() if s else None
+
+
 class StaffUpdate(BaseModel):
     name: str
     role: Optional[str] = "Medical Staff"
     category: Optional[str] = "Medical Staff"
+    # "HH:MM", or null for no fixed shift - always sent as the full current
+    # state by the Edit Profile dialog, so null unambiguously means "clear".
+    shift_start: Optional[str] = None
+    shift_end: Optional[str] = None
+    # is_head is an elevation of authority (see models.Staff), so it's only
+    # ever changed through this manage_staff-gated endpoint, never through
+    # the head-only PUT /{staff_id}/assignment below. department/
+    # reports_to_id ARE also editable here so an admin retains the same
+    # unconditional override that manage_staff already has everywhere
+    # else - the assignment endpoint exists to let a HEAD do this too,
+    # without needing full manage_staff.
+    is_head: bool = False
+    department: Optional[str] = None
+    reports_to_id: Optional[int] = None
+
+
+class StaffAssignmentUpdate(BaseModel):
+    """
+    Body for PUT /{staff_id}/assignment - deliberately narrower than
+    StaffUpdate above (name/role/category/shift/is_head are absent): this
+    endpoint exists specifically so a head can (re)assign their own
+    reports without needing the broader manage_staff permission that
+    those other fields require.
+    """
+    department: Optional[str] = None
+    reports_to_id: Optional[int] = None
+
+
+def _average_normalized(vectors: list) -> Optional[np.ndarray]:
+    """L2-normalize each vector, average them, then re-normalize the mean.
+    Standard multi-shot-enrollment aggregation: averages out per-photo noise
+    (pose/lighting) without letting any single photo's raw scale dominate."""
+    if not vectors:
+        return None
+    normed = []
+    for v in vectors:
+        arr = np.asarray(v, dtype=np.float32)
+        n = np.linalg.norm(arr)
+        normed.append(arr / n if n > 0 else arr)
+    avg = np.mean(normed, axis=0)
+    avg_norm = np.linalg.norm(avg)
+    return avg / avg_norm if avg_norm > 0 else avg
 
 
 def load_staff_list(db: Session) -> list:
     """
-    Load ALL embeddings for all staff members — both the primary photo
-    and every additional photo — as a flat list of {name, embedding}.
+    Build the face-recognition gallery: ONE canonical embedding per staff
+    member, averaged across every enrolled photo (primary + all additional
+    StaffPhoto rows).
+
+    IMPORTANT: this must emit exactly one gallery row per staff member, not
+    one row per enrollment photo. A live-recognition match is decided by
+    the single highest-scoring gallery row (np.argmax over the whole
+    matrix) - with N raw photo-rows per person, matching becomes "does ANY
+    of N rows score high" instead of "does this ONE person score high",
+    and the max of more attempts drifts upward from pure chance even if no
+    single photo's match quality changed. Found via /investigate
+    2026-09-14: two different real people were both scoring 65-66% against
+    one identity that had 5 separate enrollment-photo rows in the gallery -
+    collapsing to one averaged row per identity removes that inflation.
     """
     staff_records = db.query(models.Staff).all()
     staff_list = []
     for s in staff_records:
-        if s.embedding:
-            staff_list.append({"id": s.id, "name": s.name, "embedding": s.embedding, "upper_embedding": s.upper_embedding})
+        embeddings = [s.embedding] if s.embedding is not None else []
+        upper_embeddings = [s.upper_embedding] if s.upper_embedding is not None else []
         for photo in s.photos:
-            staff_list.append({"id": s.id, "name": s.name, "embedding": photo.embedding, "upper_embedding": photo.upper_embedding})
+            if photo.embedding is not None:
+                embeddings.append(photo.embedding)
+            if photo.upper_embedding is not None:
+                upper_embeddings.append(photo.upper_embedding)
+
+        avg_embedding = _average_normalized(embeddings)
+        if avg_embedding is None:
+            continue  # no enrolled photo at all - nothing to add to the gallery
+
+        entry = {"id": s.id, "name": s.name, "embedding": avg_embedding.tolist()}
+        avg_upper = _average_normalized(upper_embeddings)
+        if avg_upper is not None:
+            entry["upper_embedding"] = avg_upper.tolist()
+        staff_list.append(entry)
     return staff_list
 
 def update_global_embeddings(db: Session):
     staff_list = load_staff_list(db)
-    vision_service.update_staff_embeddings(staff_list)
     # The multi-camera zone service runs in a separate process, so it needs
-    # the same refreshed identity set without waiting for a camera restart.
+    # the refreshed identity set without waiting for a camera restart.
     from camera.vision_worker import vision_process_manager
     vision_process_manager.update_staff(staff_list)
 
@@ -144,9 +239,19 @@ async def register_staff(
                 os.remove(file_path)
             import traceback
             traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(e))
+            print(f"[Staff] Error registering staff photo: {e}")
+            raise HTTPException(status_code=500, detail="Failed to process staff photo.")
 
     db.add(db_staff)
+
+    # Create the login account in the same transaction as the Staff row:
+    # a single commit below means a failure creating the login rolls back
+    # the Staff row too, instead of leaving an orphaned Staff row with no
+    # way to log in (see services/auth_provisioning.create_login_account).
+    new_user, temp_password = _create_login_for_staff(db, name, role, commit=False)
+    if new_user is not None:
+        db_staff.user_id = new_user.id
+
     db.commit()
     db.refresh(db_staff)
 
@@ -154,12 +259,6 @@ async def register_staff(
 
     if file is not None:
         update_global_embeddings(db)
-
-    new_user, temp_password = _create_login_for_staff(db, name, role)
-    if new_user is not None:
-        db_staff.user_id = new_user.id
-        db.commit()
-        db.refresh(db_staff)
 
     return StaffResponse(
         id=db_staff.id,
@@ -232,7 +331,8 @@ async def add_staff_photo(
             os.remove(file_path)
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Staff] Error adding staff photo: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process staff photo.")
 
 
 @router.get("/{staff_id}/photos", response_model=List[StaffPhotoResponse])
@@ -279,6 +379,134 @@ def delete_staff_photo(
     return {"status": "deleted"}
 
 
+def _staff_to_response(staff: models.Staff, db: Optional[Session] = None) -> "StaffResponse":
+    # Mirrors get_staff()'s photo_url resolution below exactly - a staff
+    # member enrolled only through additional photos (no primary
+    # embedding/photo_path set at all, e.g. Anamika) has a real photo on
+    # the "front"-labeled StaffPhoto row, not on staff.photo_path. Missing
+    # this fallback here (this helper backs /me, so the profile screen)
+    # showed the initials placeholder even though the exact same person's
+    # directory card correctly showed their photo via get_staff().
+    photo_url = f"/{staff.photo_path}" if staff.photo_path else None
+    if not photo_url:
+        front_photo = next((p for p in staff.photos if p.label == "front"), None)
+        if front_photo and front_photo.photo_path:
+            photo_url = f"/{front_photo.photo_path}"
+
+    # Resolved effective head (explicit reports_to_id, else department/
+    # category head) - only computable with a db session, since it may
+    # need to look up the department/category head separately from
+    # whatever's already loaded on `staff`. Callers that already have a
+    # session in scope should always pass it; this only falls back to the
+    # raw (unresolved) reports_to_id when one genuinely isn't available.
+    head = effective_head(db, staff) if db is not None else staff.reports_to
+
+    return StaffResponse(
+        id=staff.id,
+        name=staff.name,
+        role=staff.role,
+        category=staff.category,
+        photo_count=len(staff.photos) + (1 if staff.embedding is not None else 0),
+        photo_url=photo_url,
+        status=staff.user.status if staff.user else None,
+        user_id=staff.user_id,
+        can_call=staff.user_id is not None,
+        shift_start=_time_to_hhmm(staff.shift_start),
+        shift_end=_time_to_hhmm(staff.shift_end),
+        expected_shift_hours=staff.expected_shift_hours,
+        is_head=staff.is_head,
+        department=staff.department,
+        reports_to_id=head.id if head else None,
+        reports_to_name=head.name if head else None,
+    )
+
+
+class SelfProfileUpdate(BaseModel):
+    # Self-service is deliberately narrower than the admin StaffUpdate above
+    # (which also carries role/category/shift, all admin-controlled) - a
+    # staff member editing their own profile can only ever change their own
+    # display name.
+    name: str
+
+
+# Registered ahead of the "/{staff_id}" routes below: Starlette matches
+# path templates in registration order, and "/{staff_id}" (no int
+# converter in the path itself) matches the literal segment "me" at the
+# routing stage - if registered first, PUT/GET /api/staff/me would hit
+# update_staff/that route instead and 422 on int("me") rather than ever
+# reaching these.
+@router.get("/me", response_model=StaffResponse)
+def get_my_staff_profile(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    The logged-in user's own Staff record, for a self-service profile
+    screen (view side) - reachable regardless of the "manage_staff"
+    permission the admin-only /{staff_id} endpoints require, since here
+    the caller is only ever looking at/editing their own row.
+    """
+    staff = db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
+    if staff is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No staff profile is linked to this account.",
+        )
+    return _staff_to_response(staff, db)
+
+
+@router.put("/me", response_model=StaffResponse)
+def update_my_staff_profile(
+    body: SelfProfileUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    staff = db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
+    if staff is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No staff profile is linked to this account.",
+        )
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
+    staff.name = name
+    db.commit()
+    db.refresh(staff)
+    _log_activity(db, "Profile Updated", f"{staff.name} updated their own profile.", "orange")
+    return _staff_to_response(staff, db)
+
+
+@router.get("/my-team", response_model=List[StaffResponse])
+def get_my_team(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Everyone whose resolved effective head (services/staff/hierarchy.py)
+    is the caller - the "team visibility" a head gets, distinct from the
+    full People Directory. An account that isn't itself a head (or has no
+    linked Staff row at all) just sees an empty team, not an error - most
+    staff simply don't have one.
+
+    Registered ahead of "/{staff_id}" for the same reason "/me" is (see
+    the comment above get_my_staff_profile): an unconverted path param
+    would otherwise swallow this literal segment first.
+    """
+    actor_staff = (
+        db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
+    )
+    if actor_staff is None or not actor_staff.is_head:
+        return []
+
+    team = [
+        s
+        for s in db.query(models.Staff).filter(models.Staff.id != actor_staff.id).all()
+        if (head := effective_head(db, s)) is not None and head.id == actor_staff.id
+    ]
+    return [_staff_to_response(s, db) for s in team]
+
+
 @router.put("/{staff_id}", response_model=StaffResponse)
 def update_staff(
     staff_id: int,
@@ -290,25 +518,69 @@ def update_staff(
     staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff not found.")
+    if body.reports_to_id is not None:
+        if body.reports_to_id == staff.id:
+            raise HTTPException(status_code=400, detail="A staff member cannot report to themselves.")
+        if not db.query(models.Staff).filter(models.Staff.id == body.reports_to_id).first():
+            raise HTTPException(status_code=404, detail="The selected senior was not found.")
+        if would_create_cycle(db, staff.id, body.reports_to_id):
+            raise HTTPException(status_code=400, detail="That assignment would create a reporting cycle.")
     staff.name = body.name
     staff.role = body.role
     staff.category = body.category
+    staff.shift_start = _hhmm_to_time(body.shift_start)
+    staff.shift_end = _hhmm_to_time(body.shift_end)
+    staff.is_head = body.is_head
+    staff.department = body.department
+    staff.reports_to_id = body.reports_to_id
     db.commit()
     db.refresh(staff)
 
     _log_activity(db, "Profile Updated", f"{staff.name} role changed to {staff.role}.", "orange")
 
-    photo_url = f"/{staff.photo_path}" if staff.photo_path else None
+    return _staff_to_response(staff, db)
 
-    return StaffResponse(
-        id=staff.id,
-        name=staff.name,
-        role=staff.role,
-        category=staff.category,
-        photo_count=len(staff.photos) + (1 if staff.embedding is not None else 0),
-        photo_url=photo_url,
-        status=staff.user.status if staff.user else None,
-    )
+
+@router.put("/{staff_id}/assignment", response_model=StaffResponse)
+def update_staff_assignment(
+    staff_id: int,
+    body: StaffAssignmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Lets a HEAD (re)assign one of their own reports - deliberately not
+    gated by manage_staff, since that permission is broader (name/role/
+    category/shift/is_head) than a head should need just to organize their
+    own team. Authorization is services/staff/hierarchy.can_assign, not a
+    static permission: it's "are you this person's current head (or
+    manage_staff/admin)", resolved fresh against the current state of the
+    hierarchy on every call.
+    """
+    staff = db.query(models.Staff).filter(models.Staff.id == staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found.")
+    if not can_assign(db, current_user, staff):
+        raise HTTPException(
+            status_code=403,
+            detail="Only this person's current head (or an administrator) can reassign them.",
+        )
+    if body.reports_to_id is not None:
+        if body.reports_to_id == staff.id:
+            raise HTTPException(status_code=400, detail="A staff member cannot report to themselves.")
+        if not db.query(models.Staff).filter(models.Staff.id == body.reports_to_id).first():
+            raise HTTPException(status_code=404, detail="The selected senior was not found.")
+        if would_create_cycle(db, staff.id, body.reports_to_id):
+            raise HTTPException(status_code=400, detail="That assignment would create a reporting cycle.")
+
+    staff.department = body.department
+    staff.reports_to_id = body.reports_to_id
+    db.commit()
+    db.refresh(staff)
+
+    _log_activity(db, "Team Assignment Updated", f"{staff.name}'s reporting assignment was updated.", "blue")
+
+    return _staff_to_response(staff, db)
 
 
 @router.delete("/{staff_id}")
@@ -339,37 +611,120 @@ def delete_staff(
     return {"status": "revoked"}
 
 
-@router.get("", response_model=List[StaffResponse])
-def get_staff(db: Session = Depends(get_db)):
-    staff_records = db.query(models.Staff).all()
-    result = []
-    for s in staff_records:
-        count = 1 if s.embedding is not None else 0
-        count += len(s.photos)
+class PaginatedStaffResponse(BaseModel):
+    items: List[StaffResponse]
+    total: int
+    page: int
+    limit: int
 
-        photo_url = f"/{s.photo_path}" if s.photo_path else None
-        if not photo_url:
-            front_photo = next((p for p in s.photos if p.label == 'front'), None)
-            if front_photo and front_photo.photo_path:
-                photo_url = f"/{front_photo.photo_path}"
 
-        result.append(StaffResponse(
-            id=s.id,
-            name=s.name,
-            role=s.role,
-            category=s.category,
-            photo_count=count,
-            photo_url=photo_url,
-            status=s.user.status if s.user else None,
-            user_id=s.user_id,
-            can_call=s.user_id is not None,
-        ))
-    return result
+@router.get("", response_model=PaginatedStaffResponse)
+def get_staff(
+    page: int = Query(1, ge=1),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    db: Session = Depends(get_db),
+):
+    """
+    Paginated staff listing - an unbounded "all rows" query here doesn't
+    scale as the roster grows, so this always returns a page (page=1/
+    limit=50 by default) plus the total row count so a client can page
+    through the rest.
+    """
+    total = db.query(models.Staff).count()
+    staff_records = (
+        db.query(models.Staff)
+        .order_by(models.Staff.id)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    items = [_staff_to_response(s, db) for s in staff_records]
+    return PaginatedStaffResponse(items=items, total=total, page=page, limit=limit)
 
 @router.get("/activity", response_model=List[StaffActivityResponse])
 def get_activity(db: Session = Depends(get_db)):
     activities = db.query(models.StaffActivity).order_by(models.StaffActivity.created_at.desc()).limit(10).all()
     return activities
+
+
+def _extract_staff_video_faces(temp_path: str, upload_dir: str) -> list:
+    """
+    Blocking work extracted from setup_staff_video(): reads the uploaded
+    video frame-by-frame with OpenCV, runs face detection/pose scoring on
+    every 5th frame, and keeps the best-scoring frame per target angle.
+    This is a genuinely blocking, CPU-bound per-frame loop (plus per-angle
+    embedding extraction), so it must run in a worker thread via
+    run_in_threadpool rather than inline in the async route - otherwise it
+    blocks the event loop and starves other concurrent requests of DB
+    connections (see /investigate 2026-09-20). Returns a list of dicts
+    ready to become StaffPhoto rows; no DB access happens in here.
+    """
+    cap = cv2.VideoCapture(temp_path)
+    if not cap.isOpened():
+        raise Exception("Failed to open video file")
+
+    best_faces = {
+        "front": {"score": -1, "frame": None, "embedding": None},
+        "side_left": {"score": -1, "frame": None, "embedding": None},
+        "side_right": {"score": -1, "frame": None, "embedding": None},
+        "angled_down": {"score": -1, "frame": None, "embedding": None},
+        "angled_up": {"score": -1, "frame": None, "embedding": None},
+    }
+
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Process every 5th frame to save CPU while catching fast movements
+        if frame_idx % 5 == 0:
+            faces = vision_service.app.get(frame)
+            if faces:
+                # Pick largest face
+                face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
+                pitch, yaw, roll = face.pose
+                score = float(face.det_score)
+
+                bucket = None
+                if abs(yaw) < 15 and abs(pitch) < 15:
+                    bucket = "front"
+                elif yaw < -25 and abs(pitch) < 20:
+                    bucket = "side_left"
+                elif yaw > 25 and abs(pitch) < 20:
+                    bucket = "side_right"
+                elif pitch > 20 and abs(yaw) < 20:
+                    bucket = "angled_up"
+                elif pitch < -20 and abs(yaw) < 20:
+                    bucket = "angled_down"
+
+                if bucket and score > best_faces[bucket]["score"]:
+                    best_faces[bucket]["score"] = score
+                    best_faces[bucket]["frame"] = frame.copy()
+                    best_faces[bucket]["embedding"] = face.embedding
+
+        frame_idx += 1
+
+    cap.release()
+    os.remove(temp_path)
+
+    extracted = []
+    for bucket, data in best_faces.items():
+        if data["frame"] is not None:
+            filename = f"{uuid.uuid4().hex}_{bucket}.jpg"
+            file_path = os.path.join(upload_dir, filename)
+            cv2.imwrite(file_path, data["frame"])
+            upper_embedding = vision_service.extract_upper_embedding(
+                image_path=file_path
+            )
+            extracted.append({
+                "label": bucket,
+                "embedding": data["embedding"].tolist(),
+                "upper_embedding": (upper_embedding.tolist()
+                                     if upper_embedding is not None else None),
+                "photo_path": file_path,
+            })
+    return extracted
 
 
 @router.post("/{staff_id}/video_setup")
@@ -385,88 +740,42 @@ async def setup_staff_video(
 
     upload_dir = "uploads/staff"
     os.makedirs(upload_dir, exist_ok=True)
-    
+
     temp_filename = f"temp_vid_{uuid.uuid4().hex}_{file.filename}"
     temp_path = os.path.join(upload_dir, temp_filename)
-    
+
+    # No further DB access is needed until after the video is processed -
+    # release the pooled connection now instead of holding it idle for the
+    # duration of the (potentially multi-second) frame loop below. The
+    # session reconnects transparently on its next use (db.add/commit
+    # further down).
+    db.close()
+
     try:
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
-        cap = cv2.VideoCapture(temp_path)
-        if not cap.isOpened():
-            raise Exception("Failed to open video file")
 
-        best_faces = {
-            "front": {"score": -1, "frame": None, "embedding": None},
-            "side_left": {"score": -1, "frame": None, "embedding": None},
-            "side_right": {"score": -1, "frame": None, "embedding": None},
-            "angled_down": {"score": -1, "frame": None, "embedding": None},
-            "angled_up": {"score": -1, "frame": None, "embedding": None},
-        }
+        # The per-frame OpenCV/face-model loop is CPU-bound and blocking -
+        # run it in a worker thread so it doesn't block the event loop.
+        extracted_photos = await run_in_threadpool(
+            _extract_staff_video_faces, temp_path, upload_dir
+        )
 
-        frame_idx = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-                
-            # Process every 5th frame to save CPU while catching fast movements
-            if frame_idx % 5 == 0:
-                faces = vision_service.app.get(frame)
-                if faces:
-                    # Pick largest face
-                    face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1]))
-                    pitch, yaw, roll = face.pose
-                    score = float(face.det_score)
-                    
-                    bucket = None
-                    if abs(yaw) < 15 and abs(pitch) < 15:
-                        bucket = "front"
-                    elif yaw < -25 and abs(pitch) < 20:
-                        bucket = "side_left"
-                    elif yaw > 25 and abs(pitch) < 20:
-                        bucket = "side_right"
-                    elif pitch > 20 and abs(yaw) < 20:
-                        bucket = "angled_up"
-                    elif pitch < -20 and abs(yaw) < 20:
-                        bucket = "angled_down"
-                        
-                    if bucket and score > best_faces[bucket]["score"]:
-                        best_faces[bucket]["score"] = score
-                        best_faces[bucket]["frame"] = frame.copy()
-                        best_faces[bucket]["embedding"] = face.embedding
-
-            frame_idx += 1
-
-        cap.release()
-        os.remove(temp_path)
-        
         extracted_count = 0
-        for bucket, data in best_faces.items():
-            if data["frame"] is not None:
-                filename = f"{uuid.uuid4().hex}_{bucket}.jpg"
-                file_path = os.path.join(upload_dir, filename)
-                cv2.imwrite(file_path, data["frame"])
-                upper_embedding = vision_service.extract_upper_embedding(
-                    image_path=file_path
-                )
-                
-                # Create StaffPhoto entry
-                photo = models.StaffPhoto(
-                    staff_id=staff_id,
-                    embedding=data["embedding"].tolist(),
-                    upper_embedding=(upper_embedding.tolist()
-                                     if upper_embedding is not None else None),
-                    label=bucket,
-                    photo_path=file_path
-                )
-                db.add(photo)
-                extracted_count += 1
-                
+        for photo_data in extracted_photos:
+            photo = models.StaffPhoto(
+                staff_id=staff_id,
+                embedding=photo_data["embedding"],
+                upper_embedding=photo_data["upper_embedding"],
+                label=photo_data["label"],
+                photo_path=photo_data["photo_path"],
+            )
+            db.add(photo)
+            extracted_count += 1
+
         db.commit()
         update_global_embeddings(db)
-        
+
         return {"status": "success", "extracted_count": extracted_count}
 
     except Exception as e:
@@ -474,7 +783,8 @@ async def setup_staff_video(
             os.remove(temp_path)
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Staff] Error processing video setup: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process video setup.")
 
 @ws_router.websocket("/{staff_id}/live_setup/ws")
 async def live_setup_ws(websocket: WebSocket, staff_id: int, db: Session = Depends(get_db)):

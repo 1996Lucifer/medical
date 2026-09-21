@@ -441,17 +441,6 @@ class _LiveFaceSetupScreenState extends State<LiveFaceSetupScreen>
     );
   }
 
-  Widget _buildMonoText(String text) {
-    return Text(
-      text,
-      style: TextStyle(
-          color: _tealAccent.withValues(alpha: 0.8),
-          fontSize: 10,
-          fontFamily: 'monospace',
-          fontWeight: FontWeight.bold),
-    );
-  }
-
   Widget _buildRegistrationPanel() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 24, 24, 24),

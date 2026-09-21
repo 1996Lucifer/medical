@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
@@ -17,10 +18,15 @@ class UploadReportScreen extends StatefulWidget {
 }
 
 class _UploadReportScreenState extends State<UploadReportScreen> {
+  static const List<String> _allowedExtensions = ['jpg', 'png', 'pdf', 'jpeg'];
+  static const int _maxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
+
   bool _isUploading = false;
   String _statusMessage = "";
 
   Future<void> _pickAndUploadFile(bool fromCamera) async {
+    if (_isUploading) return;
+
     String? filePath;
     Uint8List? fileBytes;
     String? fileName;
@@ -39,7 +45,7 @@ class _UploadReportScreenState extends State<UploadReportScreen> {
     } else {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['jpg', 'png', 'pdf', 'jpeg'],
+        allowedExtensions: _allowedExtensions,
         withData: kIsWeb,
       );
       if (result != null) {
@@ -53,6 +59,27 @@ class _UploadReportScreenState extends State<UploadReportScreen> {
     }
 
     if (filePath == null && fileBytes == null) return;
+
+    final effectiveName = fileName ?? filePath ?? '';
+    final extension = effectiveName.contains('.')
+        ? effectiveName.split('.').last.toLowerCase()
+        : '';
+    if (!_allowedExtensions.contains(extension)) {
+      setState(() {
+        _statusMessage =
+            "Unsupported file type. Please choose a JPG, PNG or PDF.";
+      });
+      return;
+    }
+
+    final sizeBytes =
+        fileBytes?.length ?? (filePath != null ? await File(filePath).length() : 0);
+    if (sizeBytes > _maxFileSizeBytes) {
+      setState(() {
+        _statusMessage = "File is too large. Please choose a file under 10 MB.";
+      });
+      return;
+    }
 
     setState(() {
       _isUploading = true;
@@ -85,9 +112,7 @@ class _UploadReportScreenState extends State<UploadReportScreen> {
     } catch (e) {
       setState(() => _statusMessage = "An error occurred.");
     } finally {
-      if (mounted &&
-          _statusMessage != "Failed to upload. Please try again." &&
-          _statusMessage != "An error occurred.") {
+      if (mounted) {
         setState(() => _isUploading = false);
       }
     }

@@ -48,7 +48,7 @@ def seed_roles():
             "Nurse": ["view_consultation", "view_agent"],
             "Security": ["view_camera", "view_security"],
             "Analyst": ["view_analytics"],
-            "Admin": ["view_settings"],
+            "Admin": ["view_settings", "view_camera"],
             "SuperAdmin": ["view_admin", "view_consultation", "view_camera", "view_analytics", "view_security", "view_agent", "view_settings"]
         }
         

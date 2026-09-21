@@ -1,3 +1,9 @@
+/// Local dev backend IP, injected via --dart-define=DEV_IP=192.168.x.x so
+/// each developer isn't stuck with someone else's LAN address baked into
+/// the shipped default.
+const String kDevIpAddress =
+    String.fromEnvironment('DEV_IP', defaultValue: '192.168.1.52');
+
 abstract class Environment {
   String get name;
   String get baseUrl;
@@ -57,15 +63,7 @@ class EnvironmentConfig {
       case 'dev':
       case 'development':
       default:
-        String ipAddress = '192.168.1.52';
-        try {
-          // final ip = await NetworkUtils().getLocalIpAddress();
-          // if (ip != null && ip.isNotEmpty) {
-          //   ipAddress = ip;
-          // }
-        } catch (_) {}
-
-        setEnvironment(DevEnvironment(ipAddress: ipAddress));
+        setEnvironment(DevEnvironment(ipAddress: kDevIpAddress));
         break;
     }
   }

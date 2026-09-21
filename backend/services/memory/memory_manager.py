@@ -1,7 +1,8 @@
+import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
-from models import ConversationHistory
+from models import ConversationHistory, AgentMemory
 from services.security.encryption import encrypt_text, decrypt_text
 
 
@@ -45,6 +46,28 @@ class MemoryManager:
         db.query(ConversationHistory).filter(
             ConversationHistory.session_id == session_id
         ).delete()
+        # AgentMemory rows (services/memory/memory_extractor.py) are keyed
+        # by session_id but have no FK/cascade back to ConversationHistory -
+        # without this they'd be orphaned forever once the owning session
+        # is deleted.
+        db.query(AgentMemory).filter(
+            AgentMemory.session_id == session_id
+        ).delete()
         db.commit()
+
+    def purge_expired_memories(self, db: Session, ttl_days: int = 90) -> int:
+        """
+        Deletes AgentMemory rows older than `ttl_days`. Not currently wired
+        into a scheduler - this is a callable a future periodic job (e.g. a
+        cron task or APScheduler job started alongside the FastAPI app)
+        can invoke to enforce a retention policy on long-term memory facts.
+        Returns the number of rows deleted.
+        """
+        cutoff = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=ttl_days)
+        deleted = db.query(AgentMemory).filter(
+            AgentMemory.created_at < cutoff
+        ).delete()
+        db.commit()
+        return deleted
 
 memory_manager = MemoryManager()

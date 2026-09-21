@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -26,8 +27,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   RTCPeerConnection? _peerConnection;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   bool _isConnected = false;
-  bool _isConnecting = true;
   String? _errorMessage;
+  Timer? _reconnectTimer;
 
   @override
   void initState() {
@@ -45,6 +46,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.cameraId != widget.cameraId ||
         oldWidget.mode != widget.mode) {
+      _reconnectTimer?.cancel();
       _disconnect();
       _connectWebRTC();
     }
@@ -52,7 +54,6 @@ class _CameraStreamViewState extends State<CameraStreamView> {
 
   Future<void> _connectWebRTC() async {
     setState(() {
-      _isConnecting = true;
       _errorMessage = null;
     });
 
@@ -66,20 +67,14 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       _peerConnection?.onTrack = (event) {
         if (event.track.kind == 'video') {
           _localRenderer.srcObject = event.streams[0];
-          setState(() {
-            _isConnected = true;
-            _isConnecting = false;
-          });
+          setState(() => _isConnected = true);
         }
       };
 
       _peerConnection?.onIceConnectionState = (state) {
         if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
             state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-          if (mounted) {
-            _disconnect();
-            _connectWebRTC(); // Reconnect
-          }
+          _scheduleReconnect();
         }
       };
 
@@ -111,11 +106,27 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       if (mounted) {
         setState(() {
           _errorMessage = e.toString();
-          _isConnecting = false;
           _isConnected = false;
         });
+        _scheduleReconnect();
       }
     }
+  }
+
+  /// A dead/unreachable backend or a bad network previously caused a
+  /// tight reconnect loop here (onIceConnectionState firing
+  /// Disconnected/Failed -> immediate _connectWebRTC() -> fails again ->
+  /// immediate retry...), churning CPU/battery/data with no delay. One
+  /// pending timer at a time, same fixed-delay convention this app
+  /// already uses for its other reconnecting sockets (e.g.
+  /// camera_status_service.dart's GlobalCameraStatus).
+  void _scheduleReconnect() {
+    if (!mounted) return;
+    _disconnect();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) _connectWebRTC();
+    });
   }
 
   Future<void> _disconnect() async {
@@ -126,6 +137,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
     _disconnect();
     _localRenderer.dispose();
     super.dispose();

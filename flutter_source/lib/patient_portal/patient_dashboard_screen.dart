@@ -23,6 +23,7 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
   int _currentIndex = 0;
   List<dynamic> _chartData = [];
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -31,18 +32,39 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
   }
 
   Future<void> _fetchDashboardData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final response = await NetworkManager.instance.get(
           '${ApiRoutes.baseUrl}/api/patient-portal/dashboard/${widget.patientId}');
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final chartData = data['chart_data'];
+        if (chartData is! List) {
+          setState(() {
+            _error = 'Could not load your health data. Please try again.';
+            _isLoading = false;
+          });
+          return;
+        }
         setState(() {
-          _chartData = data['chart_data'];
+          _chartData = chartData;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = 'Could not load your health data. Please try again.';
           _isLoading = false;
         });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      debugPrint('Failed to load patient dashboard data: $e');
+      setState(() {
+        _error = 'Could not load your health data. Please try again.';
+        _isLoading = false;
+      });
     }
   }
 
@@ -50,6 +72,24 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
     final scheme = Theme.of(context).colorScheme;
     final accent = scheme.secondary;
     if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: _fetchDashboardData,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (_chartData.isEmpty) {
       return Center(
         child: Text(

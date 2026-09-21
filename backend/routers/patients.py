@@ -1,8 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 import datetime
+
+# Pagination defaults for list endpoints (see get_patients below) - a
+# sensible default page size plus a hard cap so a client can't force an
+# unbounded query by passing an absurd limit.
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
 
 from database import get_db
 import models
@@ -36,25 +42,45 @@ class PatientResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-@router.get("", response_model=List[PatientResponse])
+class PaginatedPatientsResponse(BaseModel):
+    items: List[PatientResponse]
+    total: int
+    page: int
+    limit: int
+
+
+@router.get("", response_model=PaginatedPatientsResponse)
 def get_patients(
+    page: int = Query(1, ge=1),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Fetch all registered patients - staff/admin only. A patient's own token
-    must never see this (it's every patient's PHI, not just their own).
+    Fetch registered patients, paginated - staff/admin only. A patient's own
+    token must never see this (it's every patient's PHI, not just their
+    own). PHI-scale patient counts make an unbounded "all rows" query here
+    unsafe, so this always returns a page (page=1/limit=50 by default) plus
+    the total row count so a client can page through the rest.
     """
     if current_user.role == "patient":
         raise HTTPException(status_code=403, detail="You do not have access to this resource.")
-    patients = db.query(models.Patient).all()
-    return [
+    total = db.query(models.Patient).count()
+    patients = (
+        db.query(models.Patient)
+        .order_by(models.Patient.id)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+    items = [
         PatientResponse(
             id=p.id, name=p.name, mrn=p.mrn, dob=p.dob, gender=p.gender,
             created_at=p.created_at, has_portal_login=p.user_id is not None,
         )
         for p in patients
     ]
+    return PaginatedPatientsResponse(items=items, total=total, page=page, limit=limit)
 
 @router.get("/{patient_id}", response_model=PatientResponse)
 def get_patient(

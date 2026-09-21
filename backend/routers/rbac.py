@@ -1,11 +1,59 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy.orm import Session, selectinload
 from database import get_db
 import models
-from routers.auth import get_current_user
+from routers.auth import get_current_user, has_permission
 
 router = APIRouter(prefix="/api/rbac", tags=["rbac"])
+
+# Separate router (same path prefix) mounted in main.py with plain auth only
+# - the main `router` above is mounted with a router-level "manage_rbac"
+# permission requirement covering every route on it, which is correct for
+# actually editing the permission graph but wrong for this one read-only
+# endpoint: any authenticated staff member needs it just to see the staff
+# category dropdown / People Directory filter chips, not only RBAC admins.
+public_router = APIRouter(prefix="/api/rbac", tags=["rbac"])
+
+
+class RBACGroupSummary(BaseModel):
+    id: int
+    name: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+@public_router.get("/groups", response_model=List[RBACGroupSummary])
+def list_rbac_groups(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Just the group NAMES (no permissions/assignments - see /graph below for
+    the full admin-only picture), open to any authenticated user since a
+    role name isn't sensitive on its own. This is the single source of
+    truth for "what are the real configured staff categories" - used by
+    the staff-registration category dropdown and the People Directory's
+    category filter chips, both of which previously had their own
+    hand-maintained lists that had drifted out of sync with actual RBAC
+    groups (found live: "Medical Staff" showed up as a directory filter
+    chip and a selectable category despite never being a real RBACGroup -
+    just leftover default placeholder text from the old hardcoded lists).
+
+    Hierarchy-scoped: a group only appears here if the caller already holds
+    every permission that group carries. Without this, any user with
+    "manage_staff" - not necessarily an RBAC admin - could see (and, via
+    the staff category dropdown, effectively assign) roles like SuperAdmin
+    that grant permissions far beyond their own. Superadmin bypasses this
+    (has_permission's own rule), so still sees every group.
+    """
+    groups = db.query(models.RBACGroup).order_by(models.RBACGroup.name).all()
+    return [
+        g
+        for g in groups
+        if all(has_permission(current_user, p.name) for p in g.permissions)
+    ]
 
 
 def _require_rbac_admin(current_user: models.User = Depends(get_current_user)) -> models.User:
@@ -35,9 +83,17 @@ class NodeCreateRequest(BaseModel):
 
 @router.get("/graph")
 def get_rbac_graph(db: Session = Depends(get_db), _admin: models.User = Depends(_require_rbac_admin)):
-    # Fetch all entities
-    users = db.query(models.User).all()
-    groups = db.query(models.RBACGroup).all()
+    # Fetch all entities. selectinload() batches the many-to-many
+    # collections (groups/direct_permissions/permissions) into one extra
+    # query per relationship instead of the loop below lazy-loading each
+    # user's/group's collection with its own query (N+1).
+    users = db.query(models.User).options(
+        selectinload(models.User.groups),
+        selectinload(models.User.direct_permissions),
+    ).all()
+    groups = db.query(models.RBACGroup).options(
+        selectinload(models.RBACGroup.permissions),
+    ).all()
     permissions = db.query(models.RBACPermission).all()
     
     nodes = []

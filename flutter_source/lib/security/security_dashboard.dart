@@ -23,9 +23,18 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
   List<Map<String, dynamic>> _rules = [];
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
+  Timer? _reconnectTimer;
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isConnected = false;
   DateTime? _selectedDate = DateTime.now();
+
+  // Live-pushed alerts have no cap otherwise - a dashboard left open on a
+  // wall-mounted security monitor for a full shift would grow this list
+  // (and the ListView built from it) without bound. Same reasoning as the
+  // 3s fixed-delay reconnect below: matches this codebase's existing
+  // pattern (camera_status_service.dart's GlobalCameraStatus) rather than
+  // inventing a different one just for this screen.
+  static const int _maxAlerts = 200;
 
   final TextEditingController _ruleController = TextEditingController();
 
@@ -36,9 +45,10 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
   Color get _primaryFixedDim => Theme.of(context).colorScheme.secondary;
   Color get _primaryContainer => Theme.of(context).colorScheme.primaryContainer;
   Color get _secondary => Theme.of(context).colorScheme.tertiary;
-  Color get _secondaryContainer => Theme.of(context).colorScheme.secondaryContainer;
-  Color get _surfaceContainerHigh => Theme.of(context).colorScheme.surfaceContainerHigh;
-  Color get _surfaceContainerLowest => Theme.of(context).colorScheme.surfaceContainerLowest;
+  Color get _surfaceContainerHigh =>
+      Theme.of(context).colorScheme.surfaceContainerHigh;
+  Color get _surfaceContainerLowest =>
+      Theme.of(context).colorScheme.surfaceContainerLowest;
   Color get _error => Theme.of(context).colorScheme.error;
 
   @override
@@ -61,6 +71,13 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
     } catch (_) {}
   }
 
+  void _showActionError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
   Future<void> _addRule(String area, String text) async {
     try {
       await NetworkManager.instance.post(
@@ -72,14 +89,18 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
       );
       _ruleController.clear();
       _fetchRules();
-    } catch (_) {}
+    } catch (_) {
+      _showActionError('Could not save the rule. Please try again.');
+    }
   }
 
   Future<void> _deleteRule(int id) async {
     try {
       await NetworkManager.instance.delete(ApiRoutes.deleteSecurityRule(id));
       _fetchRules();
-    } catch (_) {}
+    } catch (_) {
+      _showActionError('Could not delete the rule. Please try again.');
+    }
   }
 
   Future<void> _fetchHistory() async {
@@ -106,21 +127,44 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
             final alert = jsonDecode(message) as Map<String, dynamic>;
             setState(() {
               _alerts.insert(0, alert);
+              if (_alerts.length > _maxAlerts) {
+                _alerts.removeRange(_maxAlerts, _alerts.length);
+              }
             });
             _playAlarm();
           }
         },
+        // A dropped socket (network blip, backend restart) previously
+        // just flipped _isConnected to false forever - this is a live
+        // security-alert feed, so silently never receiving another alert
+        // again until the user manually leaves and re-opens the screen
+        // is a real gap, not a cosmetic one.
         onError: (e) {
           if (mounted) setState(() => _isConnected = false);
+          _scheduleReconnect();
         },
         onDone: () {
           if (mounted) setState(() => _isConnected = false);
+          _scheduleReconnect();
         },
       );
       if (mounted) setState(() => _isConnected = true);
     } catch (e) {
       if (mounted) setState(() => _isConnected = false);
+      _scheduleReconnect();
     }
+  }
+
+  void _scheduleReconnect() {
+    _sub?.cancel();
+    _channel?.sink.close();
+    _sub = null;
+    _channel = null;
+    if (!mounted) return;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) _connectWebSocket();
+    });
   }
 
   Future<void> _playAlarm() async {
@@ -136,11 +180,14 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
     try {
       await NetworkManager.instance.post(ApiRoutes.resolveSecurityAlert(id));
       _fetchHistory();
-    } catch (_) {}
+    } catch (_) {
+      _showActionError('Could not resolve the alert. Please try again.');
+    }
   }
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
     _sub?.cancel();
     _channel?.sink.close();
     _audioPlayer.dispose();
@@ -277,62 +324,62 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
               children: [
                 Flexible(
                   child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.warning_amber_rounded,
-                        color: _primaryFixedDim),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Text("Active Security Alerts",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: _primary)),
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      icon: Icon(
-                          _selectedDate == null
-                              ? Icons.calendar_today
-                              : Icons.calendar_month,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.warning_amber_rounded,
                           color: _primaryFixedDim),
-                      onPressed: () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: _selectedDate ?? DateTime.now(),
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2030),
-                        );
-                        if (date != null) {
-                          setState(() {
-                            _selectedDate = date;
-                          });
-                        } else if (_selectedDate != null) {
-                          // Clear filter if they cancel and had a date, or maybe don't clear?
-                          // Better provide a way to clear. Let's add a long press or separate clear button.
-                          setState(() {
-                            _selectedDate = null;
-                          });
-                        }
-                      },
-                      tooltip: _selectedDate == null
-                          ? "Filter by Date"
-                          : "Clear Date Filter",
-                    ),
-                    if (_selectedDate != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0),
-                        child: Text(
-                          "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: _primaryFixedDim, fontSize: 14),
-                        ),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text("Active Security Alerts",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: _primary)),
                       ),
-                  ],
+                      const SizedBox(width: 12),
+                      IconButton(
+                        icon: Icon(
+                            _selectedDate == null
+                                ? Icons.calendar_today
+                                : Icons.calendar_month,
+                            color: _primaryFixedDim),
+                        onPressed: () async {
+                          final date = await showDatePicker(
+                            context: context,
+                            initialDate: _selectedDate ?? DateTime.now(),
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2030),
+                          );
+                          if (date != null) {
+                            setState(() {
+                              _selectedDate = date;
+                            });
+                          } else if (_selectedDate != null) {
+                            // Clear filter if they cancel and had a date, or maybe don't clear?
+                            // Better provide a way to clear. Let's add a long press or separate clear button.
+                            setState(() {
+                              _selectedDate = null;
+                            });
+                          }
+                        },
+                        tooltip: _selectedDate == null
+                            ? "Filter by Date"
+                            : "Clear Date Filter",
+                      ),
+                      if (_selectedDate != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: Text(
+                            "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: _primaryFixedDim, fontSize: 14),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 Container(
@@ -397,9 +444,13 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                 final isCritical = alert['severity'] == 'critical';
                 final isResolved = alert['resolved'] == true;
 
+                // Used directly as icon/text color below, not just a
+                // background tint - _secondaryContainer is a low-contrast
+                // "container" role color meant for backgrounds, not
+                // foreground text/icons.
                 final Color alertColor = isResolved
                     ? _onSurfaceVariant
-                    : (isCritical ? _error : _secondaryContainer);
+                    : (isCritical ? _error : _secondary);
                 final IconData alertIcon =
                     isCritical ? Icons.security : Icons.masks;
 
@@ -445,8 +496,8 @@ class _SecurityDashboardScreenState extends State<SecurityDashboardScreen> {
                             const SizedBox(height: 4),
                             Text(
                                 'Camera: ${alert['camera_name']}. Details: ${alert['details']}',
-                                style: TextStyle(
-                                    color: _onSurface, fontSize: 13)),
+                                style:
+                                    TextStyle(color: _onSurface, fontSize: 13)),
                             const SizedBox(height: 12),
                             if (!isResolved)
                               Row(

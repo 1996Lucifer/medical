@@ -15,6 +15,7 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Map<String, List<dynamic>> _attendanceSummary = {};
+  Map<String, List<dynamic>> _shiftCompliance = {};
   List<dynamic> _recentEvents = [];
   bool _isLoading = true;
   DateTime? _lastFetched;
@@ -27,7 +28,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Color get _surfaceContainerHigh => Theme.of(context).colorScheme.surfaceContainerHigh;
   Color get _surfaceContainerHighest => Theme.of(context).colorScheme.surfaceContainerHighest;
   Color get _tealAccent => Theme.of(context).colorScheme.secondary;
-  Color get _tealAccentDim => Theme.of(context).colorScheme.onSecondary;
   Color get _blueAccent => Theme.of(context).colorScheme.tertiary;
   Color get _textColor => Theme.of(context).colorScheme.onSurface;
   Color get _textVariant => Theme.of(context).colorScheme.onSurfaceVariant;
@@ -53,6 +53,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               : data;
           _attendanceSummary =
               raw.map((k, v) => MapEntry(k, v as List<dynamic>));
+          if (data['shift_compliance'] != null) {
+            _shiftCompliance = (data['shift_compliance'] as Map<String, dynamic>)
+                .map((k, v) => MapEntry(k, v as List<dynamic>));
+          }
         }
       });
 
@@ -390,7 +394,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   Expanded(
                       child: _buildStatBox('Anomalies', '2', color: _critical)),
                 ],
-              )
+              ),
+              const SizedBox(height: 24),
+              _buildShiftCompliance(),
             ],
           ),
         ),
@@ -506,6 +512,100 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   fontWeight: FontWeight.bold)),
         ],
       ),
+    );
+  }
+
+  Color _shiftStatusColor(String status) {
+    switch (status) {
+      case 'under':
+        return _critical;
+      case 'over':
+        return _blueAccent;
+      case 'on_time':
+        return _tealAccent;
+      default:
+        return _textVariant; // no_shift_set
+    }
+  }
+
+  String _shiftStatusLabel(String status) {
+    switch (status) {
+      case 'under':
+        return 'Under';
+      case 'over':
+        return 'Overtime';
+      case 'on_time':
+        return 'On time';
+      default:
+        return 'No shift set';
+    }
+  }
+
+  Widget _buildShiftCompliance() {
+    List<dynamic> todayRows = [];
+    if (_shiftCompliance.isNotEmpty) {
+      final sortedKeys = _shiftCompliance.keys.toList()..sort();
+      todayRows = _shiftCompliance[sortedKeys.last] ?? [];
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(Icons.schedule, 'Shift Compliance (Today)'),
+        const SizedBox(height: 12),
+        if (todayRows.isEmpty)
+          Text('No attendance recorded today.',
+              style: TextStyle(color: _textVariant, fontSize: 13))
+        else
+          Container(
+            decoration: BoxDecoration(
+              color: _surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _outlineVariant.withValues(alpha: 0.5)),
+            ),
+            child: Column(
+              children: [
+                for (int i = 0; i < todayRows.length; i++)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: i < todayRows.length - 1
+                        ? BoxDecoration(
+                            border: Border(
+                                bottom: BorderSide(
+                                    color: _outlineVariant.withValues(alpha: 0.3))))
+                        : null,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(todayRows[i]['staff_name'] ?? '—',
+                              style: TextStyle(color: _textColor, fontSize: 13, fontWeight: FontWeight.w600)),
+                        ),
+                        Text(
+                          todayRows[i]['expected_hours'] != null
+                              ? '${todayRows[i]['actual_hours']}h / ${todayRows[i]['expected_hours']}h'
+                              : '${todayRows[i]['actual_hours']}h',
+                          style: TextStyle(color: _textVariant, fontSize: 12),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _shiftStatusColor(todayRows[i]['status']).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(_shiftStatusLabel(todayRows[i]['status']),
+                              style: TextStyle(
+                                  color: _shiftStatusColor(todayRows[i]['status']),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 

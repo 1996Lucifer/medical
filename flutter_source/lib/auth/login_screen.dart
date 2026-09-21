@@ -74,6 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
+    if (Provider.of<AuthProvider>(context, listen: false).isLoading) return;
     if (_usernameController.text.trim().isEmpty ||
         _passwordController.text.isEmpty) {
       return;
@@ -119,6 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           children: [
                             Container(
                               padding: const EdgeInsets.all(16),
+                              margin: const EdgeInsets.all(0),
                               decoration: BoxDecoration(
                                   color:
                                       _primaryFixedDim.withValues(alpha: 0.1),
@@ -141,7 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         siteConfig.fullLogoUrl!,
                                         width: 120,
                                         height: 120,
-                                        fit: BoxFit.cover,
+                                        fit: BoxFit.contain,
                                         errorBuilder: (_, __, ___) => Icon(
                                             Icons.shield,
                                             size: 120,
@@ -151,7 +153,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   : Icon(Icons.shield,
                                       size: 120, color: _primaryFixedDim),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 18),
                             Text(
                               siteConfig.hospitalName,
                               style: TextStyle(

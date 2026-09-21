@@ -1,4 +1,5 @@
 import datetime
+from typing import Optional
 
 from database import Base
 from pgvector.sqlalchemy import Vector
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    Time,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -214,11 +216,61 @@ class Staff(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # This staff member's one fixed recurring daily shift (not a rotating
+    # schedule). Both nullable - staff without a configured shift (e.g.
+    # Admin/SuperAdmin roles) simply have no shortfall/overtime computed,
+    # not an error state. Supports overnight shifts (shift_end < shift_start
+    # means it wraps past midnight), same convention as
+    # indoor_tracking/gating.py's is_within_working_hours.
+    shift_start = Column(Time, nullable=True)
+    shift_end = Column(Time, nullable=True)
+
+    # --- Reporting hierarchy (services/staff/hierarchy.py owns the
+    # resolution logic that reads these three fields together) ---
+    #
+    # is_head: this person is a senior within their own `category` -
+    # elevation of authority, so only admin/superadmin can set it (same
+    # gate as the rest of StaffUpdate). A head with department=None is that
+    # category's catch-all/default head; a head with department set is
+    # that department's head within the category (e.g. two "Nurse"
+    # category heads, one for ICU, one as the default for everyone else).
+    is_head = Column(Boolean, nullable=False, default=False, server_default="false")
+    # department: free-text ward/department label (same "plain string, no
+    # lookup table" convention as `category`/`role` above) - either which
+    # department this person HEADS (when is_head=True) or which department
+    # this person BELONGS to for head-resolution purposes (when they
+    # aren't a head themselves). Set by that head via the
+    # PUT /api/staff/{id}/assignment endpoint, not by general manage_staff.
+    department = Column(String, nullable=True)
+    # reports_to_id: explicit, manually-assigned senior - always wins over
+    # the category/department-based lookup below. This is what lets a
+    # nurse report directly to one specific doctor instead of the nurse
+    # category's head (/investigate 2026-09-19: "nurses can report to
+    # doctors as well or assigned ones"). Settable only by the staff
+    # member's current effective head (or admin/superadmin) - see
+    # services/staff/hierarchy.can_assign - never by general manage_staff.
+    reports_to_id = Column(Integer, ForeignKey("staff.id"), nullable=True)
+
     # Additional photos for multi-angle recognition
     photos = relationship(
         "StaffPhoto", back_populates="staff", cascade="all, delete-orphan"
     )
     user = relationship("User")
+    reports_to = relationship(
+        "Staff", remote_side=[id], foreign_keys=[reports_to_id]
+    )
+
+    @property
+    def expected_shift_hours(self) -> Optional[float]:
+        """Shift duration in hours, or None if no shift is configured."""
+        if self.shift_start is None or self.shift_end is None:
+            return None
+        start_minutes = self.shift_start.hour * 60 + self.shift_start.minute
+        end_minutes = self.shift_end.hour * 60 + self.shift_end.minute
+        duration_minutes = end_minutes - start_minutes
+        if duration_minutes <= 0:
+            duration_minutes += 24 * 60  # overnight shift wraps past midnight
+        return duration_minutes / 60.0
 
 
 class StaffPhoto(Base):
@@ -271,10 +323,20 @@ class Camera(Base):
     is_restricted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Indoor-tracking: this camera's position on a published Floor's map, so
+    # a face-recognition detection can act as a fusion anchor point (see
+    # backend/indoor_tracking/fusion.py). Nullable — most cameras won't be
+    # placed on a floor map immediately.
+    floor_id = Column(Integer, ForeignKey("floors.id"), nullable=True)
+    x = Column(Float, nullable=True)
+    y = Column(Float, nullable=True)
+    coverage_radius_m = Column(Float, nullable=False, default=5.0)
+
     security_alerts = relationship("SecurityAlert", back_populates="camera")
     rois = relationship(
         "CameraROI", back_populates="camera", cascade="all, delete-orphan"
     )
+    floor = relationship("Floor", foreign_keys=[floor_id])
 
     @property
     def rtsp_url(self) -> str:
@@ -354,6 +416,68 @@ class Attendance(Base):
     @property
     def role(self) -> str:
         return self.staff.role if self.staff and self.staff.role else "Medical Staff"
+
+
+class StaffMessage(Base):
+    """
+    One direct text message between two `users` accounts (staff/doctor/
+    admin/patient - same population `services/calls/authorization.can_call`
+    already gates for the calling feature).
+
+    Replaces the original design where a chat message only ever existed as
+    a live envelope on the /ws/calls signaling socket: that meant a message
+    sent while the recipient's app wasn't connected was silently dropped
+    (never delivered, never retried, no trace it was sent) and history was
+    lost on every app restart. Persisting rows here is what makes
+    `GET /api/messages/conversations` and `GET /api/messages/with/{peer_id}`
+    possible, and lets a message reach an offline recipient the next time
+    they open the conversation instead of vanishing.
+    """
+
+    __tablename__ = "staff_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    recipient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+
+    sender = relationship("User", foreign_keys=[sender_id])
+    recipient = relationship("User", foreign_keys=[recipient_id])
+
+
+class CallLog(Base):
+    """
+    One row per call attempt over the /ws/calls signaling relay
+    (routers/calls.py), same population as StaffMessage above.
+
+    The relay itself holds no state - a call to someone not currently
+    connected (app closed, no network) just vanishes for the callee with
+    zero trace it ever happened, and even a call they were rung for but
+    didn't answer in time left nothing behind either. This table is what
+    lets `GET /api/calls/log` show "who called you" after the fact, the
+    same way staff_messages lets a message reach someone who wasn't online
+    to see it live (/investigate 2026-09-19).
+
+    status: "ringing" (invite sent, outcome not yet known - should be
+    transient/rare to see in the log itself), "answered", "declined",
+    "missed" (rang and either timed out or the caller hung up first),
+    "unavailable" (callee had no live connection at all).
+    """
+
+    __tablename__ = "call_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    caller_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    callee_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    mode = Column(String, nullable=False, default="audio")
+    status = Column(String, nullable=False, default="ringing", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+
+    caller = relationship("User", foreign_keys=[caller_id])
+    callee = relationship("User", foreign_keys=[callee_id])
 
 
 class RfidDevice(Base):
@@ -522,54 +646,6 @@ class SecurityRule(Base):
 # ── AI / RAG Tables ────────────────────────────────────────
 
 
-class KnowledgeDocument(Base):
-    """
-    Stores metadata for RAG documents (WHO Guidelines, SOPs).
-    """
-
-    __tablename__ = "knowledge_documents"
-
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    document_type = Column(String, nullable=False)  # e.g. 'SOP', 'GUIDELINE', 'MANUAL'
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    chunks = relationship(
-        "DocumentChunk", back_populates="document", cascade="all, delete-orphan"
-    )
-
-
-class DocumentChunk(Base):
-    """
-    Stores semantic chunks with pgvector embeddings for RAG.
-    """
-
-    __tablename__ = "document_chunks"
-
-    id = Column(Integer, primary_key=True, index=True)
-    document_id = Column(Integer, ForeignKey("knowledge_documents.id"), nullable=False)
-    content = Column(Text, nullable=False)
-    embedding = Column(
-        Vector(512), nullable=True
-    )  # Dimension matching our embedding model
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    document = relationship("KnowledgeDocument", back_populates="chunks")
-
-
-class MedicalFAQ(Base):
-    """
-    Stores verified frequently asked questions.
-    """
-
-    __tablename__ = "medical_faq"
-
-    id = Column(Integer, primary_key=True, index=True)
-    question = Column(String, nullable=False)
-    answer = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
 class ConversationHistory(Base):
     """
     Stores user conversations for history, not used directly as LLM memory.
@@ -603,26 +679,6 @@ class AgentMemory(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
-class LLMAuditLog(Base):
-    """
-    Logging of LLM prompts and responses for debugging and auditing.
-    """
-
-    __tablename__ = "llm_audit_log"
-
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String, index=True, nullable=True)
-    prompt = Column(Text, nullable=True)
-    context_used = Column(Text, nullable=True)
-    retrieved_rows = Column(Integer, nullable=True)
-    model_used = Column(String, nullable=True)
-    response = Column(Text, nullable=True)
-    confidence = Column(Float, nullable=True)
-    latency_ms = Column(Float, nullable=True)
-    token_usage = Column(Integer, nullable=True)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
-
-
 class PersonVerification(Base):
     """
     Stores PPE compliance verification tokens.
@@ -647,8 +703,17 @@ class PersonVerification(Base):
 
 class SiteConfig(Base):
     """
-    Singleton table storing hospital-wide branding configuration.
+    Singleton table storing hospital-wide configuration.
     Only one row (id=1) should ever exist.
+
+    This is also the "Hospital" of the indoor-tracking spatial model
+    (Hospital -> Building -> Floor -> Room) — a separate `hospitals` table
+    would just be this same singleton row again under a different name, so
+    Building.hospital_id points here instead of duplicating it. Positions
+    computed by backend/indoor_tracking/fusion.py are NOT persisted by
+    design - they're broadcast live over WebSocket and held in-memory only
+    (backend/indoor_tracking/hub.py). Only the static map/config data lives
+    in the database.
     """
 
     __tablename__ = "site_config"
@@ -657,6 +722,105 @@ class SiteConfig(Base):
     hospital_name = Column(String, nullable=False, default="Hospital AI")
     agent_name = Column(String, nullable=False, default="AI")
     logo_path = Column(String, nullable=True)  # relative path under uploads/
+    # Real-world lat/lng polygon of the hospital premises boundary — JSON
+    # list of {"lat": .., "lng": ..}. Used to pause/resume indoor tracking
+    # when a checked-in user leaves/re-enters the grounds (see
+    # backend/indoor_tracking/gating.py). Distinct from Room.polygon, which
+    # is in per-floor local meters, not lat/lng.
+    geofence_polygon = Column(Text, nullable=True)
+    working_hours_start = Column(Time, nullable=True)
+    working_hours_end = Column(Time, nullable=True)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    buildings = relationship("Building", back_populates="hospital")
+
+
+class Building(Base):
+    __tablename__ = "buildings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_id = Column(Integer, ForeignKey("site_config.id"), nullable=False)
+    name = Column(String, nullable=False)
+
+    hospital = relationship("SiteConfig", back_populates="buildings")
+    floors = relationship(
+        "Floor", back_populates="building", cascade="all, delete-orphan"
+    )
+
+
+class Floor(Base):
+    """
+    One indoor floor map. Uses a local (x, y) coordinate system in meters,
+    with (0, 0) at the top-left of `floorplan_image_path`'s image — the
+    same convention as the reference floor plan's GLB, whose blueprint
+    texture already maps 1:1 onto (width_m x height_m).
+    """
+
+    __tablename__ = "floors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    building_id = Column(Integer, ForeignKey("buildings.id"), nullable=False)
+    name = Column(String, nullable=False)  # e.g. "Ground Floor"
+    level = Column(Integer, nullable=False, default=0)
+    width_m = Column(Float, nullable=False)
+    height_m = Column(Float, nullable=False)
+    floorplan_image_path = Column(String, nullable=True)
+    # Only published floors are selectable in the live tracking view.
+    published = Column(Boolean, nullable=False, default=False)
+    # Optional GPS calibration anchor, used only to convert a raw device
+    # GPS fix into this floor's local (x, y) meters when configured. Left
+    # null means the GPS signal is simply not usable for this floor.
+    origin_lat = Column(Float, nullable=True)
+    origin_lng = Column(Float, nullable=True)
+    geo_rotation_deg = Column(Float, nullable=True)
+    meters_per_unit = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    building = relationship("Building", back_populates="floors")
+    rooms = relationship(
+        "Room", back_populates="floor", cascade="all, delete-orphan"
+    )
+    wifi_access_points = relationship(
+        "WifiAccessPoint", back_populates="floor", cascade="all, delete-orphan"
+    )
+
+
+class Room(Base):
+    """
+    A named spatial area on a Floor — room, corridor, restricted area, etc.
+    polygon: JSON list of {"x": .., "y": ..} in the floor's local meters
+    (same [{x,y},...] convention as CameraROI.points, just real-world
+    meters instead of normalized camera-frame coordinates).
+    """
+
+    __tablename__ = "rooms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    floor_id = Column(Integer, ForeignKey("floors.id"), nullable=False)
+    name = Column(String, nullable=False)  # e.g. "Exam 1", "Pharmacy"
+    room_type = Column(
+        String, nullable=False, default="room"
+    )  # room | corridor | restricted | entrance
+    polygon = Column(Text, nullable=False)  # JSON array
+    is_restricted = Column(Boolean, nullable=False, default=False)
+
+    floor = relationship("Floor", back_populates="rooms")
+
+
+class WifiAccessPoint(Base):
+    """A hospital Wi-Fi AP at a known position, used as a positioning anchor."""
+
+    __tablename__ = "wifi_access_points"
+
+    id = Column(Integer, primary_key=True, index=True)
+    floor_id = Column(Integer, ForeignKey("floors.id"), nullable=False)
+    bssid = Column(String, index=True, nullable=False)
+    ssid = Column(String, nullable=True)
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+    tx_power_dbm = Column(Float, nullable=True)  # for RSSI->distance estimate
+    coverage_radius_m = Column(Float, nullable=False, default=8.0)
+
+    floor = relationship("Floor", back_populates="wifi_access_points")

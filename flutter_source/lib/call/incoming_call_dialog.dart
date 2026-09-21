@@ -19,10 +19,30 @@ class IncomingCallOverlay extends StatefulWidget {
 
 class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
   bool _callScreenShown = false;
+  String? _lastShownError;
 
   @override
   Widget build(BuildContext context) {
     final call = context.watch<CallService>();
+
+    // CallService.lastError was being set in 4 places (camera/mic denied,
+    // signaling failure, "unavailable", "denied") but never actually shown
+    // anywhere - a failed call just silently dropped the user back with no
+    // explanation, indistinguishable from the button doing nothing at all.
+    // This is the one place mounted for the whole app session, so it's the
+    // natural spot to surface it exactly once per failure.
+    if (call.lastError != null && call.lastError != _lastShownError) {
+      _lastShownError = call.lastError;
+      final message = call.lastError!;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message), duration: const Duration(seconds: 4)),
+        );
+      });
+    } else if (call.lastError == null) {
+      _lastShownError = null;
+    }
 
     // Once a call becomes active/connecting (either because we accepted an
     // incoming call, or the far end accepted ours), make sure CallScreen is
@@ -97,11 +117,13 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
                     icon: Icons.call_end,
                     color: Colors.redAccent,
                     onPressed: call.rejectIncomingCall,
+                    tooltip: 'Decline call',
                   ),
                   _actionButton(
                     icon: Icons.call,
                     color: Colors.green,
                     onPressed: call.acceptIncomingCall,
+                    tooltip: 'Accept call',
                   ),
                 ],
               ),
@@ -116,6 +138,7 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     required IconData icon,
     required Color color,
     required VoidCallback onPressed,
+    required String tooltip,
   }) {
     return Container(
       width: 56,
@@ -124,6 +147,7 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
       child: IconButton(
         icon: Icon(icon, color: Colors.white),
         onPressed: onPressed,
+        tooltip: tooltip,
       ),
     );
   }

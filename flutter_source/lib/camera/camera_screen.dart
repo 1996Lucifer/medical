@@ -10,6 +10,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../main.dart' show GlassCard, GlassBackground;
 import '../network/api_routes.dart';
 import '../network/network_manager.dart';
+import 'camera_status_service.dart';
 import 'camera_stream_view.dart';
 
 // ── Data models ───────────────────────────────────────────────────────────────
@@ -79,6 +80,11 @@ Widget attendanceSourceBadge(String source, {double size = 14}) {
       color = Colors.orangeAccent;
       label = 'Manually recorded';
       break;
+    case 'app':
+      icon = Icons.smartphone;
+      color = Colors.purpleAccent;
+      label = 'App presence detection (Wi-Fi/geofence)';
+      break;
     default:
       icon = Icons.face;
       color = Colors.tealAccent;
@@ -107,8 +113,11 @@ class _CameraScreenState extends State<CameraScreen>
   WebSocketChannel? _eventsChannel;
   StreamSubscription? _eventsSub;
 
-  WebSocketChannel? _statusChannel;
-  StreamSubscription? _statusSub;
+  // Sourced from GlobalCameraStatus (see initState/dispose) - this screen
+  // used to open its own second raw WebSocket to the exact same
+  // /api/cameras/ws/status endpoint that GlobalCameraStatus already
+  // manages app-wide (started by MainShell), duplicating a live
+  // connection with none of that shared service's reconnect logic.
   Map<int, bool> _cameraStatus = {};
 
   // Camera source state
@@ -136,7 +145,8 @@ class _CameraScreenState extends State<CameraScreen>
     _expandedCameraId = widget.initialExpandedCameraId;
     _fetchCameras();
     _connectEventsStream();
-    _connectStatusStream();
+    _cameraStatus = GlobalCameraStatus.statuses.value;
+    GlobalCameraStatus.statuses.addListener(_onGlobalStatusChanged);
 
     _pulseController = AnimationController(
       vsync: this,
@@ -181,21 +191,10 @@ class _CameraScreenState extends State<CameraScreen>
     } catch (_) {}
   }
 
-  void _connectStatusStream() {
-    try {
-      final wsUri = Uri.parse(ApiRoutes.camerasStatusWs);
-      _statusChannel = WebSocketChannel.connect(wsUri);
-
-      _statusSub = _statusChannel!.stream.listen((message) {
-        if (mounted) {
-          final data = jsonDecode(message) as Map<String, dynamic>;
-          setState(() {
-            _cameraStatus =
-                data.map((k, v) => MapEntry(int.parse(k), v as bool));
-          });
-        }
-      }, onError: (_) {}, onDone: () {});
-    } catch (_) {}
+  void _onGlobalStatusChanged() {
+    if (mounted) {
+      setState(() => _cameraStatus = GlobalCameraStatus.statuses.value);
+    }
   }
 
   String _csvEscape(String value) {
@@ -627,8 +626,10 @@ class _CameraScreenState extends State<CameraScreen>
   void dispose() {
     _eventsSub?.cancel();
     _eventsChannel?.sink.close();
-    _statusSub?.cancel();
-    _statusChannel?.sink.close();
+    // Not GlobalCameraStatus.stopPolling() - MainShell owns that
+    // app-session-scoped lifecycle (it starts polling once for the whole
+    // authenticated app and stops it on logout), not this one screen.
+    GlobalCameraStatus.statuses.removeListener(_onGlobalStatusChanged);
     _pulseController.dispose();
     super.dispose();
   }
@@ -662,8 +663,7 @@ class _CameraScreenState extends State<CameraScreen>
                       'Real-time neural monitoring active across 4 primary zones.',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          TextStyle(fontSize: 14, color: _onSurfaceVariant)),
+                      style: TextStyle(fontSize: 14, color: _onSurfaceVariant)),
                 ],
               ),
             ),

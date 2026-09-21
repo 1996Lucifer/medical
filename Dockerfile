@@ -53,7 +53,7 @@ RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt || true
 RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy psycopg2-binary python-multipart python-dotenv google-genai pydantic opencv-python insightface onnxruntime-gpu aiortc av pgvector easyocr pymupdf sentence-transformers ultralytics psutil bcrypt pyjwt passlib pyttsx3 websockets faster-whisper openvino lapx kittentts soundfile
-RUN pip install --no-cache-dir https://github.com/jllllll/llama-cpp-python-cuBLAS-wheels/releases/download/wheels/llama_cpp_python-0.2.2%2Bcu120-cp310-cp310-manylinux_2_31_x86_64.whl
+RUN pip install --no-cache-dir --upgrade llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
 
 # Install Flutter SDK
 RUN git clone https://github.com/flutter/flutter.git -b stable --depth 1 /opt/flutter && \

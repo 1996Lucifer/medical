@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:frontend/app_router.dart';
+import 'package:frontend/call/call_service.dart';
 import 'package:frontend/main.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/site_config_provider.dart';
@@ -25,6 +26,10 @@ void main() {
           ChangeNotifierProvider.value(value: authProvider),
           ChangeNotifierProvider(create: (_) => SiteConfigProvider()),
           ChangeNotifierProvider(create: (_) => ThemeProvider()),
+          // MyApp's builder reads CallService unconditionally (for
+          // IncomingCallOverlay) regardless of auth state - omitting it
+          // throws ProviderNotFoundException before the app ever renders.
+          ChangeNotifierProvider(create: (_) => CallService()),
         ],
         child: MyApp(router: router),
       ),

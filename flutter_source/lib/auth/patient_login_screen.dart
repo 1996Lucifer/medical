@@ -53,6 +53,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
   }
 
   Future<void> _login() async {
+    if (Provider.of<AuthProvider>(context, listen: false).isLoading) return;
     if (_usernameController.text.trim().isEmpty ||
         _passwordController.text.isEmpty) {
       return;

@@ -481,7 +481,7 @@ class CameraWorker:
         label_title = f"{name}"
         if staff_id is not None:
             label_title += f" ID: {staff_id}"
-        
+
         conf_str = f"Conf: {score:.0%}" if score > 0 else ""
         status_str = f" | {status}" if status else ""
         label_subtitle = conf_str + status_str
@@ -505,7 +505,7 @@ class CameraWorker:
 
         cv2.putText(frame, label_title, (panel_x1 + PANEL_PADDING, panel_y1 + title_size[1] + PANEL_PADDING), FONT_STYLE, FONT_SCALE_TITLE, COLOR_WHITE, FONT_THICKNESS_TITLE)
         if conf_str:
-            cv2.putText(frame, conf_str, (panel_x1 + PANEL_PADDING, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, COLOR_CYAN, FONT_THICKNESS_SUBTITLE)
+            cv2.putText(frame, conf_str, (panel_x1 + PANEL_PADDING, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, COLOR_WHITE, FONT_THICKNESS_SUBTITLE)
         if status_str:
             conf_w = cv2.getTextSize(conf_str, FONT_STYLE, FONT_SCALE_SUBTITLE, FONT_THICKNESS_SUBTITLE)[0][0] if conf_str else 0
             cv2.putText(frame, status_str, (panel_x1 + PANEL_PADDING + conf_w, panel_y2 - PANEL_PADDING), FONT_STYLE, FONT_SCALE_SUBTITLE, color, FONT_THICKNESS_SUBTITLE)
@@ -591,6 +591,7 @@ class CameraWorker:
 
             cached_rois = []
             frame_count = 0
+            tamper_detected = False  # cached result, refreshed every ai_sample_interval frames
 
             last_rule_check = {}  # Dict[str, float] to throttle rule checks
 
@@ -804,58 +805,71 @@ class CameraWorker:
                     # Removed top black bar and title as per request
 
                     # --- TAMPER DETECTION ---
-                    if is_ai_active and frame_count > 60:
+                    # The grayscale conversion + meanStdDev/Laplacian below is CPU
+                    # work similar in cost to the AI pass above, and this is a
+                    # periodic integrity check, not a per-frame requirement - so
+                    # only recompute it on the same cadence as AI inference
+                    # (ai_sample_interval), mirroring that existing throttle. The
+                    # cached result still drives the badge/alert every frame so
+                    # the on-screen indicator doesn't flicker between samples.
+                    if (
+                        is_ai_active
+                        and frame_count > 60
+                        and frame_count % ai_sample_interval == 0
+                    ):
                         gray_frame = cv2.cvtColor(manage_frame, cv2.COLOR_BGR2GRAY)
                         mean_val, std_val = cv2.meanStdDev(gray_frame)
                         laplacian_var = cv2.Laplacian(gray_frame, cv2.CV_64F).var()
 
                         # Low contrast (mostly uniform color like a hand), extremely dark, or extremely blurry
-                        if (
+                        tamper_detected = (
                             std_val[0][0] < TAMPER_STD_THRESHOLD
                             or mean_val[0][0] < TAMPER_MEAN_THRESHOLD
                             or laplacian_var < TAMPER_LAPLACIAN_THRESHOLD
-                        ):
-                            cv2.putText(
-                                processed,
-                                "CAMERA TAMPERED / BLOCKED",
-                                (20, h // 2),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                1.2,
-                                (0, 0, 255),
-                                3,
-                            )
-                            # Small persistent badge (top-right of the frame)
-                            # so the tamper state is visible even if a viewer
-                            # glances past the big centered warning text — a
-                            # speaker glyph (cv2 has no emoji font) plus label,
-                            # drawn every frame the condition holds, not just
-                            # once on the cooldown-gated alert.
-                            self._draw_tamper_badge(processed, w)
+                        )
 
-                            camera_display_name = camera_name or "this camera"
-                            tamper_key = f"{camera_name}_tamper"
-                            if not is_zone_alerted(tamper_key):
-                                event_engine.publish_event(
-                                    event_type="CameraTampered",
-                                    camera_id=camera_id,
-                                    camera_name=camera_name,
-                                    confidence=1.0,
-                                    details={
-                                        "alert": "Camera tampered or blocked (low contrast/dark/blurry)"
-                                    },
-                                )
-                                from camera.audio_service import audio_service
-                                warning = msg_const.WARNING_CAMERA_TAMPERED.format(
-                                    camera_name=camera_display_name
-                                )
-                                audio_service.speak(
-                                    camera_url,
-                                    f"{warning} {warning}",
-                                    vendor="tapo",
-                                )
-                                set_zone_alert(
-                                    tamper_key, duration_sec=TAMPER_ALERT_COOLDOWN_SEC
-                                )
+                    if is_ai_active and frame_count > 60 and tamper_detected:
+                        cv2.putText(
+                            processed,
+                            "CAMERA TAMPERED / BLOCKED",
+                            (20, h // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            1.2,
+                            (0, 0, 255),
+                            3,
+                        )
+                        # Small persistent badge (top-right of the frame)
+                        # so the tamper state is visible even if a viewer
+                        # glances past the big centered warning text — a
+                        # speaker glyph (cv2 has no emoji font) plus label,
+                        # drawn every frame the condition holds, not just
+                        # once on the cooldown-gated alert.
+                        self._draw_tamper_badge(processed, w)
+
+                        camera_display_name = camera_name or "this camera"
+                        tamper_key = f"{camera_name}_tamper"
+                        if not is_zone_alerted(tamper_key):
+                            event_engine.publish_event(
+                                event_type="CameraTampered",
+                                camera_id=camera_id,
+                                camera_name=camera_name,
+                                confidence=1.0,
+                                details={
+                                    "alert": "Camera tampered or blocked (low contrast/dark/blurry)"
+                                },
+                            )
+                            from camera.audio_service import audio_service
+                            warning = msg_const.WARNING_CAMERA_TAMPERED.format(
+                                camera_name=camera_display_name
+                            )
+                            audio_service.speak(
+                                camera_url,
+                                f"{warning} {warning}",
+                                vendor="tapo",
+                            )
+                            set_zone_alert(
+                                tamper_key, duration_sec=TAMPER_ALERT_COOLDOWN_SEC
+                            )
                     # ------------------------
 
                     # Parse ROI polygons (now including zone_type)
@@ -922,6 +936,7 @@ class CameraWorker:
                             camera_id=camera_id,
                             camera_name=camera_name,
                             has_mask=ev.get("has_mask", True),
+                            re_verified=ev.get("re_verified", True),
                         )
 
                         # Zone-Based Compliance via ComplianceEngine
@@ -960,14 +975,39 @@ class CameraWorker:
                         if now_t - last_check > 2.0:
                             last_rule_check[rule_throttle_key] = now_t
 
-                            if staff_name == "Unknown":
+                            # Keyed by track_id, not just camera - found live
+                            # (/investigate 2026-09-19): a shared per-camera
+                            # duration clock meant ANY track showing
+                            # "Unknown" (including a brand-new track_id the
+                            # crude centroid tracker hands a WALKING,
+                            # already-known person on almost any movement -
+                            # see test_new_track_confirms_instantly_on_a_
+                            # high_confidence_match's own docstring) kept
+                            # the same clock ticking, and a genuinely
+                            # different unknown episode could inherit
+                            # another track's head start. Per-track scoping
+                            # means each track gets its own clean countdown.
+                            unknown_duration_key = f"unknown_duration_{effective_cam_name}_{ev.get('tid')}"
+
+                            if staff_name == "Unknown" and ev.get("has_pending_match"):
+                                # The recognition pipeline is still confirming
+                                # a real staff candidate for this track (see
+                                # IDENTITY_CONFIRMATION_STREAK) - it's only
+                                # displaying "Unknown" until that completes,
+                                # not reporting a genuine stranger. Don't let
+                                # this count toward - or even continue - the
+                                # unauthorized-entry grace timer, or every
+                                # known staff member's few-hundred-ms-to-a-
+                                # few-second recognition window turns into a
+                                # false "unknown person" alert.
+                                last_rule_check.pop(unknown_duration_key, None)
+                            elif staff_name == "Unknown":
                                 # Unknown person — apply grace period before alerting
                                 from camera.constants.vision_constants import (
                                     UNKNOWN_PERSON_GRACE_PERIOD_SEC,
                                 )
 
-                                # Track how long this unknown person has been seen
-                                unknown_duration_key = f"unknown_duration_{effective_cam_name}"
+                                # Track how long this specific track has been seen
                                 first_seen = last_rule_check.get(unknown_duration_key, now_t)
                                 last_rule_check[unknown_duration_key] = first_seen
 
@@ -975,7 +1015,19 @@ class CameraWorker:
                                     from camera.constants.compliance_constants import (
                                         EVENT_TYPE_UNAUTHORIZED_ENTRY,
                                     )
-                                    
+
+                                    # Restart this track's countdown from now -
+                                    # found live: leaving first_seen untouched
+                                    # meant `now_t - first_seen` stayed past
+                                    # the grace period forever once crossed,
+                                    # so the event below (and the alert
+                                    # attempt, only actually muted by
+                                    # is_zone_alerted's cooldown) re-fired on
+                                    # EVERY subsequent 2-second throttle tick
+                                    # for as long as this track kept showing
+                                    # Unknown, instead of once per episode.
+                                    last_rule_check[unknown_duration_key] = now_t
+
                                     # Save snapshot
                                     os.makedirs("uploads/incidents", exist_ok=True)
                                     snapshot_filename = f"unknown_{camera_id}_{int(time.time())}.jpg"
@@ -1007,7 +1059,6 @@ class CameraWorker:
                                         )
                             else:
                                 # Clear unknown duration if a known person is seen
-                                unknown_duration_key = f"unknown_duration_{effective_cam_name}"
                                 last_rule_check.pop(unknown_duration_key, None)
 
                             if staff_name != "Unknown":

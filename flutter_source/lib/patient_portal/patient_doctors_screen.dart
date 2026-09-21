@@ -47,8 +47,9 @@ class _PatientDoctorsScreenState extends State<PatientDoctorsScreen> {
         });
       }
     } catch (e) {
+      debugPrint('Failed to load patient doctors: $e');
       setState(() {
-        _error = 'Network error: $e';
+        _error = 'Could not load doctors. Please try again.';
         _isLoading = false;
       });
     }

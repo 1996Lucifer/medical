@@ -7,32 +7,44 @@ import models
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
+# A staff member's total worked hours for the day within +/- this many hours
+# of their expected shift length counts as "on_time" rather than under/over
+# - avoids flagging someone as "shortfall" for clocking out 3 minutes early.
+SHIFT_COMPLIANCE_TOLERANCE_HOURS = 0.25
+
+
 @router.get("/attendance-summary")
 def get_attendance_summary(days: int = 7, db: Session = Depends(get_db)):
     """
     Returns a daily summary of attendance for the last `days` days.
     """
     start_date = datetime.date.today() - datetime.timedelta(days=days)
-    
+
     records = db.query(models.Attendance).filter(
         models.Attendance.date >= start_date
     ).all()
-    
+
     summary = {}
     total_hours = 0.0
     active_staff = set()
-    
+    # (date, staff_id or staff_name) -> accumulated actual hours. A staff
+    # member can have multiple Attendance *sessions* in one day (the 5-hour
+    # gap rule in camera/attendance_service.py splits them), so shift
+    # shortfall/overtime has to be computed on the day's total, not any one
+    # session's duration_hours.
+    daily_totals: dict = {}
+
     for record in records:
         date_str = record.date.isoformat()
         if date_str not in summary:
             summary[date_str] = []
-            
+
         exit_time = record.exit_time or record.last_seen
         if exit_time and record.entry_time:
             duration = (exit_time - record.entry_time).total_seconds() / 3600.0
         else:
             duration = 0.0
-            
+
         summary[date_str].append({
             "staff_name": record.staff_name,
             "entry_time": record.entry_time.isoformat() if record.entry_time else None,
@@ -40,15 +52,62 @@ def get_attendance_summary(days: int = 7, db: Session = Depends(get_db)):
             "duration_hours": round(duration, 2),
             "camera_name": record.camera_name,
         })
-        
+
         total_hours += duration
         active_staff.add(record.staff_name)
-        
+
+        key = (date_str, record.staff_id if record.staff_id is not None else record.staff_name)
+        daily_totals[key] = daily_totals.get(key, 0.0) + duration
+
+    # Batch-fetch every Staff row this loop could need up front (by id and
+    # by name, since daily_totals keys on whichever identifier a given
+    # Attendance record has) instead of issuing one query per (date, staff)
+    # entry below - avoids an N+1 query per iteration.
+    staff_ids = {k for _, k in daily_totals.keys() if isinstance(k, int)}
+    staff_names = {k for _, k in daily_totals.keys() if not isinstance(k, int)}
+    staff_by_id = {}
+    staff_by_name = {}
+    if staff_ids:
+        for s in db.query(models.Staff).filter(models.Staff.id.in_(staff_ids)).all():
+            staff_by_id[s.id] = s
+    if staff_names:
+        for s in db.query(models.Staff).filter(models.Staff.name.in_(staff_names)).all():
+            staff_by_name[s.name] = s
+
+    shift_compliance: dict = {}
+    for (date_str, staff_key), actual_hours in daily_totals.items():
+        staff = (
+            staff_by_id.get(staff_key)
+            if isinstance(staff_key, int)
+            else staff_by_name.get(staff_key)
+        )
+        expected_hours = staff.expected_shift_hours if staff else None
+        if expected_hours is None:
+            status = "no_shift_set"
+            delta_hours = None
+        else:
+            delta_hours = round(actual_hours - expected_hours, 2)
+            if abs(delta_hours) <= SHIFT_COMPLIANCE_TOLERANCE_HOURS:
+                status = "on_time"
+            elif delta_hours < 0:
+                status = "under"
+            else:
+                status = "over"
+
+        shift_compliance.setdefault(date_str, []).append({
+            "staff_name": staff.name if staff else str(staff_key),
+            "expected_hours": round(expected_hours, 2) if expected_hours is not None else None,
+            "actual_hours": round(actual_hours, 2),
+            "delta_hours": delta_hours,
+            "status": status,
+        })
+
     avg_shift_length = round(total_hours / len(records), 1) if records else 0.0
     system_alerts = db.query(models.SecurityAlert).filter(models.SecurityAlert.resolved == False).count()
-    
+
     return {
         "summary": summary,
+        "shift_compliance": shift_compliance,
         "stats": {
             "active_staff": len(active_staff),
             "avg_shift_length": avg_shift_length,
@@ -84,7 +143,7 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
         import os
         import time
         procs_to_measure = []
-        
+
         # 1. Backend process tree (FastAPI + AI Workers)
         try:
             parent = psutil.Process(os.getpid())
@@ -110,9 +169,9 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
         for p in procs_to_measure:
             try: p.cpu_percent(None)
             except Exception: pass
-                
+
         time.sleep(0.1) # 100ms sample window
-        
+
         total_cpu = 0.0
         total_ram = 0.0
         for p in procs_to_measure:
@@ -121,13 +180,13 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
                 total_ram += p.memory_percent()
             except Exception:
                 pass
-                
+
         core_count = psutil.cpu_count() or 1
         # Process cpu_percent is per-core (e.g. 400% on 4 cores), normalize to 100%
         return min(total_cpu / core_count, 100.0), min(total_ram, 100.0)
 
     cpu_percent, ram_percent = get_service_metrics()
-    
+
     # GPU Utilization (Compute)
     gpu_percent = 0.0
     try:
@@ -144,30 +203,30 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
             gpu_percent = min(15.0 * cameras_count + cpu_percent * 0.2, 95.0)
     except Exception:
         gpu_percent = min(cpu_percent * 0.8, 100.0)
-        
+
     system_health = {
         "cpu_utilization": round(cpu_percent, 1),
         "gpu_utilization": round(gpu_percent, 1),
         "ram_utilization": round(ram_percent, 1),
-        "active_node": "Aegis Node Alpha",
+        "active_node": "Node Alpha",
         "model_status": {
-            "name": "Model Llama-X4",
+            "name": "Model X",
             "state": "ACTIVE",
             "progress": 94,
             "latency_ms": 12
         }
     }
-    
+
     # 2. Departmental Resources
     # Group attendance by camera_name for today to determine load distribution
     today = datetime.date.today()
     attendances = db.query(models.Attendance).filter(models.Attendance.date == today).all()
-    
+
     dept_counts = {}
     for att in attendances:
         cname = att.camera_name or "Unknown"
         dept_counts[cname] = dept_counts.get(cname, 0) + 1
-        
+
     total_load = sum(dept_counts.values())
     departments = []
     if total_load > 0:
@@ -179,16 +238,16 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
             })
     else:
         departments = []
-        
+
     # 3. Patient Flow (24h)
     # We group attendance entry times in the last 24h into 4-hour buckets
     now = datetime.datetime.now(datetime.timezone.utc)
     # Convert naive now to aware if needed
     now = now.astimezone()
-    
+
     # We'll create 7 data points (0, 4, 8, 12, 16, 20, 24)
     patient_flow_counts = {h: 0 for h in [0, 4, 8, 12, 16, 20, 24]}
-    
+
     for att in attendances:
         if not att.entry_time:
             continue
@@ -197,9 +256,9 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
         # Find the closest 4-hour bucket
         bucket = (hour // 4) * 4
         patient_flow_counts[bucket] += 1
-        
+
     patient_flow = [{"hour": k, "count": v} for k, v in sorted(patient_flow_counts.items())]
-    
+
     # 4. Security Vault
     # Fetch latest 5 alerts
     alerts_query = db.query(models.SecurityAlert).order_by(models.SecurityAlert.timestamp.desc()).limit(5).all()
@@ -230,7 +289,7 @@ def get_admin_dashboard(db: Session = Depends(get_db)):
             "zone": alert.camera.location if alert.camera else None,
             "staff_name": staff_name,
         })
-        
+
     if not security_vault:
         security_vault = [
              {"id": 1, "timestamp": "14:23:45 UTC", "type": "Restricted Access Attempt", "engine": "Bio-Metric Sentry V2", "risk": "CRITICAL", "resolved": False},

@@ -31,13 +31,23 @@ def generate_temp_password(length: int = 10) -> str:
     return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(length))
 
 
-def create_login_account(db: Session, name: str, role: str, fallback_username: str = "user"):
+def create_login_account(
+    db: Session, name: str, role: str, fallback_username: str = "user", commit: bool = True
+):
     """
     Create a login account with a system-generated temporary password, in
     "change_password" status so the first login forces a change - the
     caller communicates this one-time password out of band, it is never
     stored or shown again. Returns (models.User, plaintext_temp_password),
     or (None, None) if account creation failed.
+
+    commit=False lets a caller fold this creation into a larger
+    transaction (e.g. alongside a Staff row) so the two share a single
+    commit - the account is flushed (so new_user.id is available) but not
+    committed, and it's the caller's responsibility to call db.commit().
+    On failure this still rolls back the whole session, which is what
+    makes commit=False safe to compose with other not-yet-committed
+    objects: nothing partial is left behind.
     """
     try:
         username = generate_username(db, name, fallback=fallback_username)
@@ -49,7 +59,10 @@ def create_login_account(db: Session, name: str, role: str, fallback_username: s
             status="change_password",
         )
         db.add(new_user)
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
         db.refresh(new_user)
         return new_user, temp_password
     except Exception as e:

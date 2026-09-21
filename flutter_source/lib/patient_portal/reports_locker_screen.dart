@@ -16,6 +16,7 @@ class ReportsLockerScreen extends StatefulWidget {
 class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
   List<dynamic> _reports = [];
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -24,6 +25,10 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
   }
 
   Future<void> _fetchReports() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final response = await NetworkManager.instance.get(
           '${ApiRoutes.baseUrl}/api/patient-portal/reports/${widget.patientId}');
@@ -32,9 +37,18 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
           _reports = jsonDecode(response.body);
           _isLoading = false;
         });
+      } else {
+        setState(() {
+          _error = 'Could not load reports. Please try again.';
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      debugPrint('Failed to load reports: $e');
+      setState(() {
+        _error = 'Could not load reports. Please try again.';
+        _isLoading = false;
+      });
     }
   }
 
@@ -133,7 +147,24 @@ class _ReportsLockerScreenState extends State<ReportsLockerScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _reports.isEmpty
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: _fetchReports,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : _reports.isEmpty
               ? const Center(child: Text("No reports uploaded yet."))
               : GridView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),

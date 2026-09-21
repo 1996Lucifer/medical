@@ -26,6 +26,16 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Required for flutter_webrtc's getUserMedia (audio/video calls). Without
+	     these keys, iOS terminates the app the instant it touches the
+	     camera/mic APIs (AVCaptureDevice) - it does not fail gracefully or
+	     show a permission prompt, it crashes outright with no usage
+	     description on file. This is the standard root cause of "app crashed
+	     when starting/accepting a call, no video feed" on iOS. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Camera access is needed for video calls.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is needed for audio and video calls.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

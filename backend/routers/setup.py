@@ -35,14 +35,29 @@ _DEFAULT_PERMISSIONS = {
     "view_security": "Access to Security Dashboard",
     "view_agent": "Access to Medical Agent",
     "view_settings": "Access to System Settings",
+    "view_indoor_tracking": "View live indoor location tracking on the hospital map",
+    "manage_indoor_tracking": "Configure hospital floors, rooms, Wi-Fi APs and geofence for indoor tracking",
+    # Gates /directory (app_router.dart) - the People Directory used to find
+    # and call/message other staff. Added along with the Directory screen,
+    # but never actually added here, so /directory silently redirected away
+    # for every single account, including SuperAdmin - the calling feature
+    # had no reachable entry point in the UI at all (/investigate 2026-09-17).
+    "view_patients": "Access to the People Directory (patients, doctors, staff)",
+    # Gates create/delete/sync of security.py's SecurityRule endpoints, which
+    # previously had no auth dependency at all - any unauthenticated caller
+    # could wipe or rewrite every rule via /rules/sync (/investigate 2026-09-20).
+    "manage_security": "Configure and sync security alert rules",
 }
 
 _DEFAULT_ROLES = {
-    "Doctor": ["view_consultation", "view_agent"],
-    "Nurse": ["view_consultation", "view_agent"],
-    "Security": ["view_camera", "view_security"],
-    "Analyst": ["view_analytics"],
-    "Admin": ["view_settings"],
+    # Indoor Tracking is admin-only by design (per user 2026-09-19) -
+    # Doctor/Nurse deliberately do NOT get view_indoor_tracking. Security
+    # keeps it since patrol/response is its actual job.
+    "Doctor": ["view_consultation", "view_agent", "view_patients"],
+    "Nurse": ["view_consultation", "view_agent", "view_patients"],
+    "Security": ["view_camera", "view_security", "view_indoor_tracking", "view_patients", "manage_security"],
+    "Analyst": ["view_analytics", "view_patients"],
+    "Admin": ["view_settings", "view_camera", "view_patients", "manage_security"],
     "SuperAdmin": list(_DEFAULT_PERMISSIONS.keys()),
 }
 

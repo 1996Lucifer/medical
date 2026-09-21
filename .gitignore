@@ -47,6 +47,7 @@ build/
 /flutter_source/build/
 /flutter_source/.dart_tool/
 *.log
+flutter_source/pubspec.lock
 
 # C/C++
 *.o

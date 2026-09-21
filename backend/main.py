@@ -69,6 +69,8 @@ from routers import (
     camera_api,
     equipment,
     events,
+    indoor_tracking,
+    messages,
     patient_portal,
     patients,
     rbac,
@@ -214,6 +216,7 @@ auth_dep = [Depends(get_current_user)]
 app.include_router(staff.router, dependencies=auth_dep)
 app.include_router(staff.ws_router)
 app.include_router(calls.router)
+app.include_router(messages.router, dependencies=auth_dep)
 app.include_router(camera_api.router, dependencies=auth_dep)
 app.include_router(attendance.router, dependencies=auth_dep)
 app.include_router(equipment.router, dependencies=auth_dep)
@@ -226,6 +229,10 @@ app.include_router(patient_portal.router, dependencies=auth_dep)
 # Security and Events routers have websockets, so we protect their HTTP routes individually
 app.include_router(security.router)
 app.include_router(events.router)
+# Has a @router.websocket route, so (like security/events/rfid/calls above)
+# not mounted with dependencies=auth_dep - auth is per-HTTP-route inside it.
+app.include_router(indoor_tracking.router)
+app.include_router(indoor_tracking.admin_router)
 # RBAC management (role/permission assignment) requires superadmin or an explicit
 # "manage_rbac" grant, not just being logged in — this was previously reachable by
 # any authenticated user, including a self-service privilege escalation to superadmin.
@@ -233,6 +240,10 @@ app.include_router(
     rbac.router,
     dependencies=auth_dep + [Depends(require_permission("manage_rbac"))],
 )
+# GET /api/rbac/groups only - read-only group names, needed by any
+# authenticated user (staff-registration category dropdown, People
+# Directory filter chips), not just RBAC admins.
+app.include_router(rbac.public_router, dependencies=auth_dep)
 # RFID router mixes two auth kinds on purpose: /devices and /enroll-sessions/*
 # require an admin JWT (checked per-route via require_permission("manage_devices")),
 # while /enroll and /verify are called by unauthenticated physical devices and

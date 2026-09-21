@@ -183,20 +183,6 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
     if (mounted) setState(() => _isLoadingRules = false);
   }
 
-  Future<void> _addRule(String text) async {
-    try {
-      await NetworkManager.instance.post(
-        ApiRoutes.securityRules,
-        body: jsonEncode({
-          "target_area":
-              _locCtrl.text.isNotEmpty ? _locCtrl.text : _nameCtrl.text,
-          "rule_text": text,
-        }),
-      );
-      _fetchRules();
-    } catch (_) {}
-  }
-
   Future<void> _deleteRule(int id) async {
     try {
       await NetworkManager.instance.delete(ApiRoutes.deleteSecurityRule(id));
@@ -439,9 +425,17 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
                         bottom: 16,
                         right: 16,
                         child: ElevatedButton.icon(
-                          onPressed: () => _saveROI(canvasSize),
-                          icon: const Icon(Icons.save),
-                          label: const Text('Save ROI'),
+                          onPressed:
+                              _isLoadingRois ? null : () => _saveROI(canvasSize),
+                          icon: _isLoadingRois
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.save),
+                          label: Text(_isLoadingRois ? 'Saving...' : 'Save ROI'),
                           style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.teal,
                               foregroundColor: Colors.white),
@@ -544,7 +538,9 @@ class _CameraSettingsDetailScreenState extends State<CameraSettingsDetailScreen>
                       backgroundColor: Colors.teal.withValues(alpha: 0.8),
                       deleteIcon: const Icon(Icons.close,
                           color: Colors.white, size: 14),
-                      onDeleted: () => _deleteROI(r['id']),
+                      onDeleted: _isLoadingRois
+                          ? null
+                          : () => _deleteROI(r['id']),
                     ))
                 .toList(),
           ),
@@ -790,8 +786,8 @@ class _ROIPainter extends CustomPainter {
             canvas,
             Offset((firstPt['x'] as num).toDouble() * size.width,
                 (firstPt['y'] as num).toDouble() * size.height - 15));
-      } catch (e) {
-        print('Error drawing ROI $roi: $e');
+      } catch (_) {
+        // Ignore malformed ROI points and skip drawing this one.
       }
     }
 

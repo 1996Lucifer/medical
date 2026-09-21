@@ -74,13 +74,34 @@ class _CallScreenState extends State<CallScreen> {
     final call = context.watch<CallService>();
     _maybePop(call);
 
+    // Guarded, not unconditional: build() re-runs on every CallService
+    // notifyListeners() - which fires very frequently during a live call
+    // (every ICE candidate, every track/state event) - and reassigning
+    // srcObject to the SAME stream on each of those isn't a cheap field
+    // write. On native platforms it tears down and reattaches the actual
+    // video sink/texture each time, which is a known flutter_webrtc crash
+    // vector under rapid rebuild storms and can also leave the renderer
+    // stuck never showing a frame. Only set it when the stream reference
+    // has actually changed.
     if (_renderersReady) {
-      _localRenderer.srcObject = call.localStream;
-      _remoteRenderer.srcObject = call.remoteStream;
+      if (call.localStream != null && _localRenderer.srcObject != call.localStream) {
+        _localRenderer.srcObject = call.localStream;
+      }
+      if (call.remoteStream != null && _remoteRenderer.srcObject != call.remoteStream) {
+        _remoteRenderer.srcObject = call.remoteStream;
+      }
     }
 
     final isVideo = call.mode == CallMode.video;
     final scheme = Theme.of(context).colorScheme;
+    // remoteStream != null only means SOME track (possibly audio-only)
+    // arrived - it says nothing about whether a video track is actually in
+    // it. Rendering RTCVideoView against a video-less stream shows a blank/
+    // black view forever with no error, which is exactly "call connected
+    // but no video ever shows": the peer's video negotiation can fail (or
+    // never have been offered) independently of audio succeeding.
+    final hasRemoteVideo = call.remoteStream != null &&
+        call.remoteStream!.getVideoTracks().isNotEmpty;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -90,7 +111,7 @@ class _CallScreenState extends State<CallScreen> {
             // Remote video (or an avatar placeholder for audio calls / before
             // the remote video track arrives).
             Positioned.fill(
-              child: isVideo && call.remoteStream != null && _renderersReady
+              child: isVideo && hasRemoteVideo && _renderersReady
                   ? RTCVideoView(_remoteRenderer,
                       objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
                   : Container(
@@ -175,6 +196,9 @@ class _CallScreenState extends State<CallScreen> {
                   _controlButton(
                     icon: call.micEnabled ? Icons.mic : Icons.mic_off,
                     onPressed: call.toggleMic,
+                    tooltip: call.micEnabled
+                        ? 'Mute microphone'
+                        : 'Unmute microphone',
                   ),
                   const SizedBox(width: 20),
                   _controlButton(
@@ -182,6 +206,7 @@ class _CallScreenState extends State<CallScreen> {
                     backgroundColor: Colors.redAccent,
                     onPressed: call.hangUp,
                     large: true,
+                    tooltip: 'End call',
                   ),
                   const SizedBox(width: 20),
                   if (isVideo)
@@ -190,6 +215,9 @@ class _CallScreenState extends State<CallScreen> {
                           ? Icons.videocam
                           : Icons.videocam_off,
                       onPressed: call.toggleCamera,
+                      tooltip: call.cameraEnabled
+                          ? 'Turn camera off'
+                          : 'Turn camera on',
                     ),
                 ],
               ),
@@ -203,6 +231,7 @@ class _CallScreenState extends State<CallScreen> {
   Widget _controlButton({
     required IconData icon,
     required VoidCallback onPressed,
+    required String tooltip,
     Color backgroundColor = Colors.white24,
     bool large = false,
   }) {
@@ -214,6 +243,7 @@ class _CallScreenState extends State<CallScreen> {
       child: IconButton(
         icon: Icon(icon, color: Colors.white, size: large ? 30 : 24),
         onPressed: onPressed,
+        tooltip: tooltip,
       ),
     );
   }

@@ -21,6 +21,15 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
 
   bool _isLoading = true;
   String? _error;
+  DateTime? _lastUpdated;
+  bool _refreshFailed = false;
+  // Bumped on every _fetchData call and captured at call time; a response
+  // only gets applied if it's still the most recent request when it
+  // resolves. Without this, a slow request from an earlier 10s tick could
+  // resolve after a faster later one and silently overwrite newer data
+  // with stale data (out-of-order network races are not guaranteed to
+  // resolve in request order).
+  int _requestId = 0;
 
   Map<String, dynamic>? _systemHealth;
   List<dynamic>? _departmentResources;
@@ -55,20 +64,32 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
   }
 
   Future<void> _fetchData({bool isRefresh = false}) async {
+    final requestId = ++_requestId;
     try {
       final data = await _service.fetchDashboardData();
-      if (mounted) {
-        setState(() {
-          _systemHealth = data['system_health'];
-          _departmentResources = data['department_resources'];
-          _patientFlow = data['patient_flow'];
-          _securityVault = data['security_vault'];
-          _isLoading = false;
-          _error = null;
-        });
+      if (!mounted || requestId != _requestId) {
+        return; // superseded by a later request
       }
+      setState(() {
+        _systemHealth = data['system_health'];
+        _departmentResources = data['department_resources'];
+        _patientFlow = data['patient_flow'];
+        _securityVault = data['security_vault'];
+        _isLoading = false;
+        _error = null;
+        _refreshFailed = false;
+        _lastUpdated = DateTime.now();
+      });
     } catch (e) {
-      if (mounted && !isRefresh) {
+      if (!mounted || requestId != _requestId) return;
+      if (isRefresh) {
+        // A background refresh failing after data already loaded once
+        // used to be a silent no-op - the dashboard kept showing
+        // increasingly stale numbers forever with nothing to indicate
+        // they were no longer live. Keep the last good data on screen
+        // (better than blanking it), but say so.
+        setState(() => _refreshFailed = true);
+      } else {
         setState(() {
           _error = e.toString();
           _isLoading = false;
@@ -87,8 +108,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
         children: [
           Expanded(
             child: _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(color: _tealAccent))
+                ? Center(child: CircularProgressIndicator(color: _tealAccent))
                 : _error != null
                     ? Center(
                         child: Text('Error: $_error',
@@ -114,6 +134,14 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
     );
   }
 
+  String _lastUpdatedLabel() {
+    if (_lastUpdated == null) return '';
+    final age = DateTime.now().difference(_lastUpdated!);
+    if (age.inSeconds < 60) return 'Updated just now';
+    if (age.inMinutes < 60) return 'Updated ${age.inMinutes}m ago';
+    return 'Updated ${age.inHours}h ago';
+  }
+
   Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -124,9 +152,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
             Text(
               'System Health',
               style: TextStyle(
-                  color: _primary,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold),
+                  color: _primary, fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
             Text(
@@ -148,13 +174,24 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
-                      color: _tealAccent, shape: BoxShape.circle)),
+                      color: _refreshFailed ? _critical : _tealAccent,
+                      shape: BoxShape.circle)),
               const SizedBox(width: 8),
-              Text('Live Stream Active',
-                  style: TextStyle(
-                      color: _tealAccent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12)),
+              Text(
+                // A failed background refresh used to be entirely silent -
+                // the dashboard kept saying "Live" while quietly showing
+                // stale data forever. This makes staleness visible instead
+                // of just not updating the "last updated" label.
+                _refreshFailed
+                    ? 'Refresh failed — ${_lastUpdatedLabel()}'
+                    : (_lastUpdated != null
+                        ? _lastUpdatedLabel()
+                        : 'Live Stream Active'),
+                style: TextStyle(
+                    color: _refreshFailed ? _critical : _tealAccent,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12),
+              ),
             ],
           ),
         ),
@@ -206,9 +243,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           const SizedBox(height: 24),
           Text('${gpuValue.toStringAsFixed(1)}%',
               style: TextStyle(
-                  color: _primary,
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold)),
+                  color: _primary, fontSize: 36, fontWeight: FontWeight.bold)),
           Text('GPU UTILIZATION',
               style: TextStyle(
                   color: _textVariant,
@@ -258,9 +293,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           const SizedBox(height: 24),
           Text('${cpuValue.toStringAsFixed(1)}%',
               style: TextStyle(
-                  color: _primary,
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold)),
+                  color: _primary, fontSize: 36, fontWeight: FontWeight.bold)),
           Text('CPU CAPACITY',
               style: TextStyle(
                   color: _textVariant,
@@ -310,9 +343,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           const SizedBox(height: 24),
           Text('${ramValue.toStringAsFixed(1)}%',
               style: TextStyle(
-                  color: _primary,
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold)),
+                  color: _primary, fontSize: 36, fontWeight: FontWeight.bold)),
           Text('RAM UTILIZATION',
               style: TextStyle(
                   color: _textVariant,
@@ -362,8 +393,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(text,
-          style: TextStyle(
-              color: _textVariant, fontSize: 10, letterSpacing: 0.5)),
+          style:
+              TextStyle(color: _textVariant, fontSize: 10, letterSpacing: 0.5)),
     );
   }
 
@@ -518,25 +549,22 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                 overflow: TextOverflow.ellipsis)),
         Text(value,
             style: TextStyle(
-                color: _primary,
-                fontSize: 12,
-                fontWeight: FontWeight.bold)),
+                color: _primary, fontSize: 12, fontWeight: FontWeight.bold)),
       ],
     );
   }
 
   Widget _buildLineChartCard() {
     final flowData = _patientFlow ?? [];
-    List<FlSpot> spots = [];
-
-    if (flowData.isNotEmpty) {
-      for (var p in flowData) {
-        spots.add(FlSpot(
-            (p['hour'] as num).toDouble(), (p['count'] as num).toDouble()));
-      }
-    } else {
-      spots = const [FlSpot(0, 0)];
-    }
+    // A single FlSpot(0,0) fallback used to be plotted here when there was
+    // no data - a flat line at zero reads as "zero patient flow all day",
+    // not "we have no data", which is misleading. Branch to an explicit
+    // empty state instead (below), matching the donut chart's own "No
+    // Data" slice elsewhere on this dashboard.
+    final spots = [
+      for (final p in flowData)
+        FlSpot((p['hour'] as num).toDouble(), (p['count'] as num).toDouble()),
+    ];
 
     return _buildStatCard(
       height: 320,
@@ -571,71 +599,79 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           ),
           const SizedBox(height: 32),
           Expanded(
-            child: LineChart(
-              LineChartData(
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      strokeWidth: 1),
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false)),
-                  topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false)),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 22,
-                      getTitlesWidget: (value, meta) {
-                        final v = value.toInt();
-                        if (v % 4 == 0) {
-                          final hourStr = v.toString().padLeft(2, '0');
-                          return Text('$hourStr:00',
-                              style: TextStyle(
-                                  color: _textVariant.withValues(alpha: 0.5),
-                                  fontSize: 10));
-                        }
-                        return const SizedBox();
-                      },
-                    ),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: spots,
-                    isCurved: true,
-                    curveSmoothness: 0.35,
-                    color: _tealAccent,
-                    barWidth: 3,
-                    isStrokeCapRound: true,
-                    dotData: FlDotData(
+            child: spots.isEmpty
+                ? Center(
+                    child: Text('No data yet',
+                        style: TextStyle(color: _textVariant, fontSize: 13)),
+                  )
+                : LineChart(
+                    LineChartData(
+                      gridData: FlGridData(
                         show: true,
-                        checkToShowDot: (spot, barData) =>
-                            spot.x == spots.last.x,
-                        getDotPainter: (spot, percent, barData, index) =>
-                            FlDotCirclePainter(
-                                radius: 4, color: _tealAccent, strokeWidth: 0)),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        colors: [
-                          _tealAccent.withValues(alpha: 0.2),
-                          _tealAccent.withValues(alpha: 0.0)
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
+                        drawVerticalLine: false,
+                        getDrawingHorizontalLine: (value) => FlLine(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            strokeWidth: 1),
                       ),
+                      titlesData: FlTitlesData(
+                        leftTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false)),
+                        rightTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false)),
+                        topTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false)),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 22,
+                            getTitlesWidget: (value, meta) {
+                              final v = value.toInt();
+                              if (v % 4 == 0) {
+                                final hourStr = v.toString().padLeft(2, '0');
+                                return Text('$hourStr:00',
+                                    style: TextStyle(
+                                        color:
+                                            _textVariant.withValues(alpha: 0.5),
+                                        fontSize: 10));
+                              }
+                              return const SizedBox();
+                            },
+                          ),
+                        ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: spots,
+                          isCurved: true,
+                          curveSmoothness: 0.35,
+                          color: _tealAccent,
+                          barWidth: 3,
+                          isStrokeCapRound: true,
+                          dotData: FlDotData(
+                              show: true,
+                              checkToShowDot: (spot, barData) =>
+                                  spot.x == spots.last.x,
+                              getDotPainter: (spot, percent, barData, index) =>
+                                  FlDotCirclePainter(
+                                      radius: 4,
+                                      color: _tealAccent,
+                                      strokeWidth: 0)),
+                          belowBarData: BarAreaData(
+                            show: true,
+                            gradient: LinearGradient(
+                              colors: [
+                                _tealAccent.withValues(alpha: 0.2),
+                                _tealAccent.withValues(alpha: 0.0)
+                              ],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
           ),
         ],
       ),
@@ -685,7 +721,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 child: Row(
                   children: [
                     Expanded(
@@ -873,8 +910,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                                             staffName != null)
                                           Container(
                                             width: double.infinity,
-                                            margin:
-                                                const EdgeInsets.only(bottom: 12),
+                                            margin: const EdgeInsets.only(
+                                                bottom: 12),
                                             padding: const EdgeInsets.symmetric(
                                                 horizontal: 16, vertical: 12),
                                             decoration: BoxDecoration(
@@ -942,8 +979,7 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                                                                 ? _primary
                                                                 : _critical,
                                                             fontWeight:
-                                                                FontWeight
-                                                                    .w600,
+                                                                FontWeight.w600,
                                                             fontSize: 13)),
                                                   ],
                                                 ),
@@ -956,8 +992,8 @@ class _SuperAdminDashboardScreenState extends State<SuperAdminDashboardScreen> {
                                                 BorderRadius.circular(12),
                                             child: Image.network(
                                               '${EnvironmentConfig.current.baseUrl.replaceAll('/api', '')}/$snapshotPath',
-                                              headers: NetworkManager.instance
-                                                          .token !=
+                                              headers: NetworkManager
+                                                          .instance.token !=
                                                       null
                                                   ? {
                                                       'Authorization':

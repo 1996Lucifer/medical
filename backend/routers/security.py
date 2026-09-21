@@ -34,7 +34,7 @@ async def security_alerts_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         active_security_websockets.remove(websocket)
 
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_permission
 
 @router.get("/alerts")
 def get_alerts(unresolved_only: bool = False, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -75,12 +75,19 @@ class SecurityRuleCreate(BaseModel):
     rule_text: str
 
 @router.get("/rules")
-def get_security_rules(db: Session = Depends(get_db)):
+def get_security_rules(
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_permission("manage_security")),
+):
     rules = db.query(models.SecurityRule).filter(models.SecurityRule.is_active == True).all()
     return rules
 
 @router.post("/rules")
-def create_security_rule(rule_data: SecurityRuleCreate, db: Session = Depends(get_db)):
+def create_security_rule(
+    rule_data: SecurityRuleCreate,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_permission("manage_security")),
+):
     new_rule = models.SecurityRule(
         target_area=rule_data.target_area,
         rule_text=rule_data.rule_text,
@@ -91,7 +98,11 @@ def create_security_rule(rule_data: SecurityRuleCreate, db: Session = Depends(ge
     return new_rule
 
 @router.delete("/rules/{rule_id}")
-def delete_security_rule(rule_id: int, db: Session = Depends(get_db)):
+def delete_security_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_permission("manage_security")),
+):
     rule = db.query(models.SecurityRule).filter(models.SecurityRule.id == rule_id).first()
     if rule:
         rule.is_active = False
@@ -104,7 +115,11 @@ class RuleSyncRequest(BaseModel):
     rules: List[SecurityRuleCreate]
 
 @router.post("/rules/sync")
-def sync_security_rules(req: RuleSyncRequest, db: Session = Depends(get_db)):
+def sync_security_rules(
+    req: RuleSyncRequest,
+    db: Session = Depends(get_db),
+    _user: models.User = Depends(require_permission("manage_security")),
+):
     # Deactivate old rules
     db.query(models.SecurityRule).update({"is_active": False})
     

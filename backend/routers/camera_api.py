@@ -7,9 +7,28 @@ from pydantic import BaseModel, ConfigDict
 
 from database import get_db
 import models
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_permission
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
+
+
+@router.post("/warmup")
+async def warmup_cameras(
+    _user: models.User = Depends(require_permission("view_camera")),
+):
+    """
+    Kick off the AI vision models' cold-start load (InsightFace + YOLO,
+    ~30-60s) in the background, without connecting to any specific
+    camera's stream. Meant to be called right after login by any role
+    with view_camera - so that cost pays off before the user navigates
+    into the camera screen, instead of blocking whatever camera they open
+    first. Fire-and-forget: returns immediately, does not wait for the
+    models to finish loading.
+    """
+    from camera.vision_worker import vision_process_manager
+
+    vision_process_manager.warmup()
+    return {"status": "warming_up"}
 
 def parse_rtsp_url(url: str) -> dict:
     if not url:

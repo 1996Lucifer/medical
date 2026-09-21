@@ -17,16 +17,22 @@ import os
 import asyncio
 import time
 from typing import Dict, List, Optional, Tuple
+from insightface.utils import face_align
 
 from camera.model_manager import ModelManager, get_best_device
 from camera.compliance_engine import compliance_engine
 from camera.security_rules_service import get_required_ppe_items
+from camera.attendance_service import has_pending_first_sighting
 
 from camera.constants.vision_constants import (
     REJECTION_THRESHOLD,
+    MIN_MATCH_MARGIN,
     UPPER_FACE_REJECTION_THRESHOLD,
     UPPER_FACE_HEIGHT_RATIO,
     MIN_FACE_SIZE,
+    IDENTITY_CONFIRMATION_STREAK,
+    INSTANT_CONFIRM_THRESHOLD,
+    NO_MATCH_RETRY_GRACE_FRAMES,
     YOLO_CONFIDENCE_THRESHOLD,
     YOLO_PERSON_CLASS,
     YOLO_CPU_IMGSZ,
@@ -43,7 +49,6 @@ from camera.constants.vision_constants import (
     ZONE_TYPE_RESTRICTED,
     IDENTITY_REFRESH_FRAMES,
     UNKNOWN_IDENTITY_RETRY_FRAMES,
-    IDENTITY_CACHE_TTL_FRAMES,
     get_runtime_vision_config,
 )
 
@@ -92,10 +97,6 @@ class VisionServiceZones:
         self.staff_upper_embeddings_matrix = np.empty((0, 512))
         self.staff_has_upper_embedding = np.empty((0,), dtype=bool)
 
-        # Tracking state
-        self.identity_cache: Dict[int, dict] = {}  # track_id → {name, score, last_frame}
-        self.identity_cache_ttl = IDENTITY_CACHE_TTL_FRAMES
-
         # VLM verification is entirely removed. We rely strictly on real-time YOLO PPE detection.
 
         # Zone polygon cache (set externally by the worker)
@@ -107,7 +108,9 @@ class VisionServiceZones:
         self._active_tracks: Dict[int, dict] = {}
         self._next_track_id: int = 0
         self._last_identity_run: Dict[int, int] = {}  # track_id → last frame identity was checked
-        self._last_ppe_sample: Dict[int, int] = {}  # track_id → last frame PPE crops were sampled
+        # track_id → {"candidate": staff_id, "count": consecutive-match streak,
+        # "name"/"staff_id"/"score": the currently *confirmed* (displayed) identity}
+        self._identity_streak: Dict[int, dict] = {}
         self._ppe_evidence: Dict[int, dict] = {}
         self._ppe_miss_streak: Dict[int, dict] = {}
         self._ppe_hit_streak: Dict[int, dict] = {}
@@ -294,138 +297,6 @@ class VisionServiceZones:
             return False
         aspect_ratio = width / height
         return aspect_ratio >= MIN_PERSON_ASPECT_RATIO
-
-    def _identify_person(
-        self, frame: np.ndarray, bbox: list, track_id: int
-    ) -> Tuple[str, float, Optional[int]]:
-        """
-        Run InsightFace on the person's bounding box region to identify them.
-        Uses caching to avoid running InsightFace every frame.
-        """
-        # Check cache first
-        cached = self.identity_cache.get(track_id)
-        if cached:
-            frames_since = self._frame_count - cached.get("last_frame", 0)
-            if (
-                cached["name"] != "Unknown"
-                and frames_since < self.identity_cache_ttl
-            ):
-                return cached["name"], cached["score"], cached.get("staff_id")
-
-        # Run InsightFace
-        app = ModelManager().get_face_analysis(self.config)
-        if not app:
-            return "Unknown", 0.0, None
-
-        # Crop the person region with margin for face detection
-        h, w = frame.shape[:2]
-        x1, y1, x2, y2 = map(int, bbox)
-        margin = int((x2 - x1) * 0.2)
-        rx1 = max(0, x1 - margin)
-        ry1 = max(0, y1 - margin)
-        rx2 = min(w, x2 + margin)
-        ry2 = min(h, y2 + margin)
-        person_crop = frame[ry1:ry2, rx1:rx2]
-
-        if person_crop.size == 0:
-            return "Unknown", 0.0, None
-
-        faces = app.get(person_crop)
-        if not faces:
-            return "Unknown", 0.0, None
-
-        # The crop has a margin around the tracked bbox, so it can bleed into a
-        # neighboring person standing close by. Only consider faces whose center
-        # actually falls inside the tracked person's own (un-padded) bbox region -
-        # picking the largest face anywhere in the crop would let a nearby
-        # bystander's face get matched against this track_id.
-        core_x1, core_y1 = x1 - rx1, y1 - ry1
-        core_x2, core_y2 = x2 - rx1, y2 - ry1
-
-        def _face_center_in_core(f):
-            fcx = (f.bbox[0] + f.bbox[2]) / 2.0
-            fcy = (f.bbox[1] + f.bbox[3]) / 2.0
-            return core_x1 <= fcx <= core_x2 and core_y1 <= fcy <= core_y2
-
-        owned_faces = [f for f in faces if _face_center_in_core(f)]
-        candidates = owned_faces if owned_faces else faces
-
-        # Pick the largest face among those that actually belong to this track
-        best_face = max(candidates, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-
-        face_w = best_face.bbox[2] - best_face.bbox[0]
-        face_h = best_face.bbox[3] - best_face.bbox[1]
-        if face_w < MIN_FACE_SIZE or face_h < MIN_FACE_SIZE:
-            # Face is too small/far away to produce a reliable embedding - don't
-            # risk a false match, just report Unknown instead.
-            self.identity_cache[track_id] = {
-                "name": "Unknown",
-                "staff_id": None,
-                "score": 0.0,
-                "identity_source": "too_small",
-                "last_frame": self._frame_count,
-                "last_bbox": bbox,
-                "face_bbox": [
-                    rx1 + int(best_face.bbox[0]),
-                    ry1 + int(best_face.bbox[1]),
-                    rx1 + int(best_face.bbox[2]),
-                    ry1 + int(best_face.bbox[3]),
-                ],
-            }
-            self._last_identity_run[track_id] = self._frame_count
-            return "Unknown", 0.0, None
-
-        emb = best_face.embedding
-        emb_norm = np.linalg.norm(emb)
-        if emb_norm > 0:
-            emb = emb / emb_norm
-
-        if self.staff_embeddings_matrix.shape[0] == 0:
-            return "Unknown", 0.0, None
-
-        scores = np.dot(self.staff_embeddings_matrix, emb)
-        best_idx = int(np.argmax(scores))
-        best_score = float(scores[best_idx])
-        name = "Unknown"
-        staff_id = None
-        identity_source = "full_face"
-
-        if best_score >= REJECTION_THRESHOLD:
-            name = self.staff_names[best_idx]
-            staff_id = self.staff_ids[best_idx]
-        elif self.staff_has_upper_embedding.any():
-            upper_emb = self._extract_upper_face_embedding(
-                person_crop, best_face.bbox
-            )
-            if upper_emb is not None:
-                upper_scores = np.dot(self.staff_upper_embeddings_matrix, upper_emb)
-                upper_scores[~self.staff_has_upper_embedding] = -1.0
-                upper_best_idx = int(np.argmax(upper_scores))
-                upper_best_score = float(upper_scores[upper_best_idx])
-                if upper_best_score >= UPPER_FACE_REJECTION_THRESHOLD:
-                    name = self.staff_names[upper_best_idx]
-                    staff_id = self.staff_ids[upper_best_idx]
-                    best_score = upper_best_score
-                    identity_source = "upper_face"
-
-        # Cache the result
-        self.identity_cache[track_id] = {
-            "name": name,
-            "staff_id": staff_id,
-            "score": best_score,
-            "identity_source": identity_source,
-            "last_frame": self._frame_count,
-            "last_bbox": bbox,
-            "face_bbox": [
-                rx1 + int(best_face.bbox[0]),
-                ry1 + int(best_face.bbox[1]),
-                rx1 + int(best_face.bbox[2]),
-                ry1 + int(best_face.bbox[3]),
-            ],
-        }
-        self._last_identity_run[track_id] = self._frame_count
-
-        return name, best_score, staff_id
 
     def _crop_face_region(
         self,
@@ -784,22 +655,30 @@ class VisionServiceZones:
         ppe_events = []
 
         # ── Step 1: Detect Human Faces & Landmarks (InsightFace SCRFD) ──────
+        # Detection-only pass - cheap, and needed every frame regardless of
+        # anyone's identity (bboxes drive tracking/zones/PPE). Recognition
+        # (the expensive ArcFace forward pass) is deliberately NOT run here
+        # for every face - see Step 1.5 below, which only re-embeds the
+        # faces that actually need it and batches them into one inference
+        # call. This matters a lot in a hospital scene with many people in
+        # frame at once: most of them are already-confirmed staff who don't
+        # need re-verifying every single frame.
         app = ModelManager().get_face_analysis(self.config)
         if not app:
             return frame, face_events, equipment_events, incident_events, ppe_events
 
-        faces = app.get(original_frame)
-        if not faces or len(faces) == 0:
+        bboxes, kpss = app.det_model.detect(original_frame, max_num=0, metric="default")
+        if bboxes is None or bboxes.shape[0] == 0:
             return frame, face_events, equipment_events, incident_events, ppe_events
 
         current_detections = []
-        for face in faces:
-            det_conf = float(getattr(face, "det_score", 0.90))
+        for i in range(bboxes.shape[0]):
+            det_conf = float(bboxes[i, 4])
             # InsightFace SCRFD can hallucinate faces in clothes/books at lower confidences
             if det_conf < 0.65:
                 continue
 
-            fx1, fy1, fx2, fy2 = map(int, face.bbox)
+            fx1, fy1, fx2, fy2 = map(int, bboxes[i, 0:4])
             fw_box = max(1, fx2 - fx1)
             fh_box = max(1, fy2 - fy1)
 
@@ -810,25 +689,154 @@ class VisionServiceZones:
             py2 = min(fh, fy2 + int(fh_box * 4.5))
             person_bbox = [px1, py1, px2, py2]
 
-            emb = face.embedding
-            emb_norm = np.linalg.norm(emb)
-            if emb_norm > 0:
-                emb = emb / emb_norm
+            current_detections.append({
+                "face_bbox": [fx1, fy1, fx2, fy2],
+                "bbox": person_bbox,
+                "det_conf": det_conf,
+                "kps": kpss[i] if kpss is not None else None,
+                "face_w": fw_box,
+                "face_h": fh_box,
+            })
 
-            name = "Unknown"
-            score = 0.0
-            staff_id = None
+        tracked_human_objects = self._update_human_tracks(current_detections)
+        if not tracked_human_objects:
+            return frame, face_events, equipment_events, incident_events, ppe_events
 
-            if self.staff_embeddings_matrix.shape[0] > 0 and emb is not None:
+        tracked_people = [(det["track_id"], det["bbox"]) for det in tracked_human_objects]
+        ppe_by_track = self._detect_ppe_for_tracks(original_frame, tracked_people)
+
+        # ── Step 1.5: Selective, batched recognition ──────────────────────
+        # Only re-embed a track's face when it actually needs it: it's new,
+        # it isn't confirmed yet (retried every UNKNOWN_IDENTITY_RETRY_FRAMES
+        # so a genuinely new/unenrolled person isn't hammered every frame
+        # either), or it's confirmed but due for its periodic recheck
+        # (IDENTITY_REFRESH_FRAMES) so a badge/photo change eventually gets
+        # noticed. Every crop that needs it is embedded in ONE batched ONNX
+        # call (get_feat accepts a list) instead of one call per face.
+        rec_model = app.models.get("recognition")
+        to_embed = []  # (index into tracked_human_objects, aligned 112x112 crop)
+        if rec_model is not None:
+            rec_size = rec_model.input_size[0]
+            for idx, det in enumerate(tracked_human_objects):
+                kps = det.get("kps")
+                if kps is None or det["face_w"] < MIN_FACE_SIZE or det["face_h"] < MIN_FACE_SIZE:
+                    continue
+                track_id = det["track_id"]
+                streak = self._identity_streak.get(track_id)
+                confirmed_id = streak.get("staff_id") if streak else None
+                candidate_id = streak.get("candidate") if streak else None
+                is_confirmed = confirmed_id is not None
+                # A candidate that disagrees with what's currently confirmed
+                # must be rechecked every frame, not just while building a
+                # track's FIRST confirmation. Gating this on "not confirmed"
+                # alone (the original version) meant a track that already
+                # locked onto someone could never be corrected if a
+                # different person took over the same track_id: the new
+                # candidate could only advance once per
+                # IDENTITY_REFRESH_FRAMES, and any single mismatched sample
+                # reset that wait - a track effectively couldn't ever be
+                # re-verified again once confirmed. Keying this on
+                # "candidate != confirmed" instead covers both cases with
+                # the same fast path, and only backs off to the slow
+                # periodic recheck once the candidate actually agrees with
+                # the confirmed identity (a genuinely stable match).
+                building_candidate = candidate_id is not None and candidate_id != confirmed_id
+                # A run of "no match at all" isn't necessarily a genuine
+                # stranger - a moving/turning person is frequently
+                # motion-blurred enough to score below REJECTION_THRESHOLD
+                # on any given frame even though they're known staff. Give
+                # it NO_MATCH_RETRY_GRACE_FRAMES fast (every-frame) attempts
+                # before concluding "probably a stranger" and backing off
+                # to the slow interval - a clear frame in between blurry
+                # ones then gets a chance to confirm quickly instead of the
+                # track getting stuck showing Unknown while it's rechecked
+                # only once every UNKNOWN_IDENTITY_RETRY_FRAMES.
+                no_match_streak = streak.get("no_match_streak", 0) if streak else 0
+                still_in_grace = not is_confirmed and no_match_streak < NO_MATCH_RETRY_GRACE_FRAMES
+                # A track that's already identity-confirmed but whose
+                # attendance is still waiting on the corroborating second
+                # sighting (attendance_service._pending_first_sighting)
+                # must keep being re-embedded every dispatched frame, not
+                # back off to IDENTITY_REFRESH_FRAMES - otherwise the
+                # corroboration that gate is waiting on doesn't arrive
+                # until the next periodic recheck, up to
+                # IDENTITY_REFRESH_FRAMES dispatched frames later. That
+                # was the actual source of attendance feeling like it took
+                # 2-4s after someone was already confirmed on-screen
+                # (/investigate 2026-09-20). Cheap to check: a small
+                # in-memory dict lookup under a lock, once per candidate
+                # track per dispatched frame.
+                confirmed_name = streak.get("name") if streak else None
+                awaiting_attendance_corroboration = (
+                    is_confirmed
+                    and confirmed_name not in (None, "Unknown")
+                    and has_pending_first_sighting(confirmed_name)
+                )
+                last_run = self._last_identity_run.get(track_id)
+                frames_since = self._frame_count - last_run if last_run is not None else None
+                needs_run = (
+                    last_run is None
+                    or building_candidate
+                    or still_in_grace
+                    or awaiting_attendance_corroboration
+                    or (is_confirmed and frames_since >= IDENTITY_REFRESH_FRAMES)
+                    or (not is_confirmed and not still_in_grace and frames_since >= UNKNOWN_IDENTITY_RETRY_FRAMES)
+                )
+                if needs_run:
+                    aimg = face_align.norm_crop(original_frame, landmark=kps, image_size=rec_size)
+                    to_embed.append((idx, aimg))
+
+        raw_matches = {}  # index into tracked_human_objects -> (name, score, staff_id)
+        if to_embed and self.staff_embeddings_matrix.shape[0] > 0:
+            feats = rec_model.get_feat([crop for _, crop in to_embed])
+            for (idx, _), feat in zip(to_embed, feats):
+                emb = feat.flatten()
+                norm = np.linalg.norm(emb)
+                if norm > 0:
+                    emb = emb / norm
+
+                name, score, staff_id = "Unknown", 0.0, None
                 scores = np.dot(self.staff_embeddings_matrix, emb)
                 best_idx = int(np.argmax(scores))
                 best_score = float(scores[best_idx])
-                if best_score >= REJECTION_THRESHOLD:
+                # Require the winner to clear the runner-up by a real
+                # margin, not just be numerically the largest of however
+                # many candidates exist - see MIN_MATCH_MARGIN's comment.
+                # With only 1 gallery row there's no runner-up to compare
+                # against, so the margin check doesn't apply (irrelevant,
+                # not satisfied-by-default).
+                margin_ok = True
+                if scores.shape[0] >= 2:
+                    second_best_score = float(np.sort(scores)[-2])
+                    margin_ok = (best_score - second_best_score) >= MIN_MATCH_MARGIN
+                if best_score >= REJECTION_THRESHOLD and margin_ok:
                     name = self.staff_names[best_idx]
                     staff_id = self.staff_ids[best_idx]
                     score = best_score
-                elif self.staff_has_upper_embedding.any():
-                    upper_emb = self._extract_upper_face_embedding(original_frame, face.bbox)
+                elif best_score >= REJECTION_THRESHOLD and not margin_ok:
+                    # A plausible-looking match that's too close to call
+                    # against the runner-up is exactly the ambiguous case
+                    # this margin exists to catch - don't rescue it via the
+                    # even-less-discriminative upper-face fallback below,
+                    # just leave it Unknown.
+                    pass
+                elif int(self.staff_has_upper_embedding.sum()) >= 2:
+                    # The periocular (eyes/eyebrows-only) signal is far less
+                    # discriminative than a full face, and enrollment is
+                    # inconsistent - not every staff member has upper-face
+                    # data captured. With fewer than 2 real candidate rows,
+                    # this degenerates to "the one person who has upper-face
+                    # data wins by default" for anyone whose full face didn't
+                    # match - confirmed live (/investigate 2026-09-15): two
+                    # different real people both scored 0.5-0.62 against the
+                    # ONLY staff member with upper-face data, because there
+                    # was no second candidate to discriminate against at all.
+                    # Requiring genuine competition is a data-completeness
+                    # gate, not a threshold guess - it directly prevents the
+                    # single-candidate degenerate case regardless of what
+                    # UPPER_FACE_REJECTION_THRESHOLD is set to.
+                    face_bbox = tracked_human_objects[idx]["face_bbox"]
+                    upper_emb = self._extract_upper_face_embedding(original_frame, np.array(face_bbox))
                     if upper_emb is not None:
                         upper_scores = np.dot(self.staff_upper_embeddings_matrix, upper_emb)
                         upper_scores[~self.staff_has_upper_embedding] = -1.0
@@ -839,26 +847,13 @@ class VisionServiceZones:
                             staff_id = self.staff_ids[upper_best_idx]
                             score = upper_best_score
 
-            current_detections.append({
-                "face_bbox": [fx1, fy1, fx2, fy2],
-                "bbox": person_bbox,
-                "name": name,
-                "score": score,
-                "staff_id": staff_id,
-                "det_conf": float(getattr(face, "det_score", 0.90)),
-            })
-
-        tracked_human_objects = self._update_human_tracks(current_detections)
-        if not tracked_human_objects:
-            return frame, face_events, equipment_events, incident_events, ppe_events
-
-        tracked_people = [(det["track_id"], det["bbox"]) for det in tracked_human_objects]
-        ppe_by_track = self._detect_ppe_for_tracks(original_frame, tracked_people)
+                raw_matches[idx] = (name, score, staff_id)
+                self._last_identity_run[tracked_human_objects[idx]["track_id"]] = self._frame_count
 
         # ── Step 2: Process Each Tracked Person ───────────────────────────
         active_track_ids = set()
 
-        for det in tracked_human_objects:
+        for idx, det in enumerate(tracked_human_objects):
             bbox = det["bbox"]
             # `bbox` is the extrapolated body region (face size x a fixed
             # ratio) used for zone classification and PPE cropping — it's
@@ -867,10 +862,57 @@ class VisionServiceZones:
             face_bbox = det.get("face_bbox", bbox)
             track_id = det["track_id"]
             det_conf = det["det_conf"]
-            name = det["name"]
-            score = det["score"]
-            staff_id = det["staff_id"]
             active_track_ids.add(track_id)
+
+            # ── Step 3.5: Temporal identity confirmation ──────────────────
+            # A single frame's match is only ever a candidate - a lucky or
+            # unlucky one shouldn't be able to (re)label a track by itself.
+            # Require IDENTITY_CONFIRMATION_STREAK consecutive *checked*
+            # frames agreeing on the same staff_id before it becomes the
+            # identity actually displayed/used. Only touched on frames where
+            # this track was actually re-embedded this pass (see Step 1.5) -
+            # a frame that skipped re-embedding just keeps showing whatever
+            # was last confirmed, it doesn't count as an Unknown result.
+            streak = self._identity_streak.setdefault(
+                track_id,
+                {
+                    "candidate": None,
+                    "count": 0,
+                    "name": "Unknown",
+                    "staff_id": None,
+                    "score": 0.0,
+                    "no_match_streak": 0,
+                },
+            )
+            if idx in raw_matches:
+                raw_name, raw_score, raw_staff_id = raw_matches[idx]
+                if raw_staff_id is not None and raw_score >= INSTANT_CONFIRM_THRESHOLD:
+                    # Near-certain match - don't make a brand-new track (a
+                    # routine handoff from the crude centroid tracker, not
+                    # necessarily a new person) wait through the streak.
+                    streak["candidate"] = raw_staff_id
+                    streak["count"] = IDENTITY_CONFIRMATION_STREAK
+                    streak["no_match_streak"] = 0
+                elif raw_staff_id is not None and raw_staff_id == streak["candidate"]:
+                    streak["count"] += 1
+                    streak["no_match_streak"] = 0
+                elif raw_staff_id is not None:
+                    streak["candidate"] = raw_staff_id
+                    streak["count"] = 1
+                    streak["no_match_streak"] = 0
+                else:
+                    streak["candidate"] = None
+                    streak["count"] = 0
+                    streak["no_match_streak"] = streak.get("no_match_streak", 0) + 1
+
+                if raw_staff_id is not None and streak["count"] >= IDENTITY_CONFIRMATION_STREAK:
+                    streak["name"] = raw_name
+                    streak["staff_id"] = raw_staff_id
+                    streak["score"] = raw_score
+
+            name = streak["name"]
+            staff_id = streak["staff_id"]
+            score = streak["score"]
 
             # ── Step 4: Zone Classification ───────────────────────────────────
             zone_name, zone_type = self._classify_zone(bbox, name)
@@ -1005,25 +1047,46 @@ class VisionServiceZones:
                     "required_ppe": sorted(required_ppe),
                     "kps": None,
                     "staff_id": staff_id,
+                    # True while a known-staff candidate is actively being
+                    # confirmed (or already confirmed) for this track, even
+                    # if `name` is still displaying "Unknown" pending the
+                    # IDENTITY_CONFIRMATION_STREAK. Lets callers (worker.py's
+                    # off-hours/unauthorized-entry alerting) distinguish "a
+                    # known person mid-recognition" from "genuinely nobody
+                    # matched" - conflating the two turns every recognition
+                    # delay into a false unauthorized-entry alert.
+                    "has_pending_match": streak.get("candidate") is not None,
+                    # True only on a frame where this track was actually
+                    # re-embedded and re-scored this pass (Step 1.5's
+                    # `raw_matches`) - False means `name`/`staff_id` here are
+                    # just the cached result of some EARLIER frame's
+                    # decision, not new evidence. Attendance's new-session
+                    # confirmation gate (attendance_service.py) needs this:
+                    # without it, a single bad frame's instant-confirmed
+                    # identity gets echoed to _maybe_mark_attendance on
+                    # every subsequent frame until the next periodic
+                    # recheck, which satisfied a naive "reported twice,
+                    # spaced apart" gate using nothing but that one bad
+                    # frame repeating - found live (/investigate
+                    # 2026-09-19): a full minute of a real person's track
+                    # being mislabeled as someone else still created an
+                    # attendance record even with that gate in place.
+                    "re_verified": idx in raw_matches,
                 }
             )
 
-        # ── Cleanup stale identity cache entries ──────────────────────────
-        stale_ids = [
-            tid
-            for tid in self.identity_cache
-            if tid not in active_track_ids
-            and (self._frame_count - self.identity_cache[tid].get("last_frame", 0))
-            > self.identity_cache_ttl * 2
-        ]
-        for tid in stale_ids:
-            del self.identity_cache[tid]
-            self._last_identity_run.pop(tid, None)
-            self._last_ppe_sample.pop(tid, None)
+        # ── Cleanup stale per-track bookkeeping for tracks no longer seen ──
+        for tid in list(self._last_identity_run):
+            if tid not in active_track_ids:
+                del self._last_identity_run[tid]
 
         for tid in list(self._ppe_evidence):
             if tid not in active_track_ids:
                 del self._ppe_evidence[tid]
+
+        for tid in list(self._identity_streak):
+            if tid not in active_track_ids:
+                del self._identity_streak[tid]
 
         # Append raw PPE bounding boxes to events so the worker can draw them
         ppe_events.extend(self._last_ppe_boxes)

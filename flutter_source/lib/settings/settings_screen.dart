@@ -561,6 +561,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       SizedBox(
                         width: isMobile ? double.infinity : 340,
+                        child: _buildNavCard(
+                            title: 'Indoor Floor Map Editor',
+                            subtitle:
+                                'Upload floor plans, place Wi-Fi APs and cameras, draw rooms, and publish for live tracking.',
+                            icon: Icons.map_outlined,
+                            onTap: () => context.go(settingsFloorEditorPath)),
+                      ),
+                      SizedBox(
+                        width: isMobile ? double.infinity : 340,
+                        child: _buildNavCard(
+                            title: 'Hospital Geofence & Hours',
+                            subtitle:
+                                'Configure the premises boundary and working hours that gate indoor location tracking.',
+                            icon: Icons.fence_outlined,
+                            onTap: () => context.go(settingsGeofencePath)),
+                      ),
+                      SizedBox(
+                        width: isMobile ? double.infinity : 340,
                         child: _buildThemeToggleCard(),
                       ),
                       Consumer<AuthProvider>(builder: (context, auth, _) {

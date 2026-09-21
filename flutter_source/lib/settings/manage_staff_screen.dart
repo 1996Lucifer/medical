@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:go_router/go_router.dart';
@@ -14,13 +14,6 @@ import '../network/api_routes.dart';
 import '../network/network_manager.dart';
 import '../widgets/shared_app_drawer.dart';
 import 'rfid_enroll_dialog.dart';
-
-/// /uploads is authenticated now (staff photos included) — attach the same
-/// bearer token used for API calls so NetworkImage can still load them.
-Map<String, String> _authHeaders() {
-  final token = NetworkManager.instance.token;
-  return token != null ? {'Authorization': 'Bearer $token'} : {};
-}
 
 class ManageStaffScreen extends StatefulWidget {
   final int? autoEnrollRfidStaffId;
@@ -42,8 +35,6 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
   Color get _surfaceContainer => Theme.of(context).colorScheme.surfaceContainer;
   Color get _surfaceContainerLow =>
       Theme.of(context).colorScheme.surfaceContainerLow;
-  Color get _surfaceContainerHigh =>
-      Theme.of(context).colorScheme.surfaceContainerHigh;
   Color get _surfaceContainerHighest =>
       Theme.of(context).colorScheme.surfaceContainerHighest;
   Color get _tealAccent => Theme.of(context).colorScheme.secondary;
@@ -57,20 +48,37 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
   String? _selectedDepartment;
   bool _isLoading = true;
 
-  List<String> get _departmentOptions {
-    final categories = _staffList
-        .map((s) => (s['category'] as String?)?.trim())
-        .where((c) => c != null && c.isNotEmpty)
-        .cast<String>()
-        .toSet()
-        .toList();
-    categories.sort();
-    return categories;
+  // The real, configured RBAC groups (routers/rbac.py's GET /groups) - the
+  // single source of truth for "what categories can a staff member
+  // actually be" everywhere this screen offers a category choice. Replaces
+  // both this screen's own department filter (previously derived from
+  // whatever category strings happened to already exist in the data - a
+  // typo or a stale default like "Medical Staff" would show up as a real
+  // filter option forever) and the "Onboard New Personnel"/"Edit Profile"
+  // category dropdowns (previously a hardcoded list disconnected from RBAC
+  // entirely).
+  List<String> _rbacGroupNames = [];
+
+  Future<void> _fetchRbacGroups() async {
+    try {
+      final response = await NetworkManager.instance.get(ApiRoutes.rbacGroups);
+      if (response.statusCode == 200 && mounted) {
+        final groups = (jsonDecode(response.body) as List<dynamic>)
+            .cast<Map<String, dynamic>>();
+        setState(() {
+          _rbacGroupNames = groups.map((g) => g['name'] as String).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load RBAC groups: $e');
+    }
   }
+
+  List<String> get _departmentOptions => _rbacGroupNames;
 
   List<Map<String, dynamic>> get _filteredStaffList {
     final query = _searchQuery.toLowerCase();
-    return _staffList.where((staff) {
+    final filtered = _staffList.where((staff) {
       final name = (staff['name'] as String).toLowerCase();
       final role = (staff['role'] as String? ?? 'Medical Staff');
       final category = (staff['category'] as String? ?? 'Medical Staff');
@@ -82,12 +90,17 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
           _selectedDepartment == null || category == _selectedDepartment;
       return matchesQuery && matchesDepartment;
     }).toList();
+    filtered.sort((a, b) => (a['name'] as String)
+        .toLowerCase()
+        .compareTo((b['name'] as String).toLowerCase()));
+    return filtered;
   }
 
   @override
   void initState() {
     super.initState();
     _fetchStaff();
+    _fetchRbacGroups();
     if (widget.autoEnrollRfidStaffId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -108,15 +121,22 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
       // this screen spends loading (previously: staff request, then wait
       // for it to fully finish before even starting the activity request).
       final results = await Future.wait([
-        NetworkManager.instance.get(ApiRoutes.staff).timeout(const Duration(seconds: 5)),
-        NetworkManager.instance.get(ApiRoutes.staffActivity).timeout(const Duration(seconds: 5)),
+        NetworkManager.instance
+            .get(ApiRoutes.staff)
+            .timeout(const Duration(seconds: 5)),
+        NetworkManager.instance
+            .get(ApiRoutes.staffActivity)
+            .timeout(const Duration(seconds: 5)),
       ]);
       final resp = results[0];
       final activityResp = results[1];
 
       if (resp.statusCode == 200 && mounted) {
         setState(() {
-          _staffList = (jsonDecode(resp.body) as List<dynamic>)
+          // GET /api/staff now returns {items, total, page, limit} instead
+          // of a bare list (see routers/staff.py) - unwrap items.
+          _staffList = ((jsonDecode(resp.body) as Map<String, dynamic>)['items']
+                  as List<dynamic>)
               .cast<Map<String, dynamic>>();
           if (activityResp.statusCode == 200) {
             _activityList = (jsonDecode(activityResp.body) as List<dynamic>)
@@ -716,7 +736,8 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       image: photoUrl != null
                           ? DecorationImage(
                               image: NetworkImage(photoUrl,
-                                  headers: _authHeaders()),
+                                  headers:
+                                      NetworkManager.instance.authHeaders()),
                               fit: BoxFit.cover)
                           : null,
                     ),
@@ -846,11 +867,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: _buildActionBtn(Icons.edit, 'EDIT PROFILE', () {
-                  _editProfile(
-                      staff['id'] as int,
-                      staff['name'] as String,
-                      staff['role'] as String? ?? 'Medical Staff',
-                      staff['category'] as String? ?? 'Medical Staff');
+                  _editProfile(staff);
                 }),
               ),
               const SizedBox(width: 8),
@@ -1028,8 +1045,9 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
             tooltip: 'Copy',
             onPressed: () {
               Clipboard.setData(ClipboardData(text: value));
-              ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$label copied'), duration: const Duration(seconds: 1)));
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('$label copied'),
+                  duration: const Duration(seconds: 1)));
             },
           ),
         ],
@@ -1037,20 +1055,14 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     );
   }
 
-  static const List<String> _staffCategoryOptions = [
-    'Medical Staff',
-    'Doctor',
-    'Nurse',
-    'Security',
-    'Morgue',
-    'Administrative',
-    'Support Staff',
-  ];
-
   Future<void> _showRegisterNewStaffDialog() async {
+    if (_rbacGroupNames.isEmpty) await _fetchRbacGroups();
+    if (!mounted) return;
+
     final nameController = TextEditingController();
     String selectedRole = 'Medical Staff';
-    String selectedCategory = 'Medical Staff';
+    String selectedCategory =
+        _rbacGroupNames.isNotEmpty ? _rbacGroupNames.first : 'Medical Staff';
     bool isUploading = false;
 
     await showDialog(
@@ -1079,7 +1091,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                 DropdownButtonFormField<String>(
                   initialValue: selectedCategory,
                   decoration: const InputDecoration(labelText: 'Category'),
-                  items: _staffCategoryOptions
+                  items: _rbacGroupNames
                       .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                       .toList(),
                   onChanged: (val) {
@@ -1116,14 +1128,16 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                   onPressed: () => Navigator.pop(ctx),
                   child: Text('Cancel', style: TextStyle(color: _textVariant))),
               ElevatedButton(
-                onPressed: (nameController.text.isEmpty || isUploading)
+                onPressed: (nameController.text.trim().isEmpty || isUploading)
                     ? null
                     : () async {
                         setD(() => isUploading = true);
                         try {
                           final resp = await NetworkManager.instance.post(
-                              ApiRoutes.registerStaff(nameController.text,
-                                  selectedRole, selectedCategory));
+                              ApiRoutes.registerStaff(
+                                  nameController.text.trim(),
+                                  selectedRole,
+                                  selectedCategory));
                           if (ctx.mounted) {
                             Navigator.pop(ctx);
                             if (resp.statusCode == 200) {
@@ -1140,6 +1154,14 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                                 await _showGeneratedCredentialsDialog(
                                     newUsername, tempPassword);
                               }
+                              // Re-check after the dialog's own await -
+                              // the outer `ctx.mounted` above only covers
+                              // up to that point, not past it. `context`
+                              // here is this State's own context, so the
+                              // State's `mounted` getter is the right
+                              // guard for it (not `ctx.mounted`, which is
+                              // the dialog route's own context).
+                              if (!mounted) return;
 
                               // go() (not push()) so the URL reflects the
                               // live-setup screen. onboarding=true chains
@@ -1155,7 +1177,7 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                                   'staffName': nameController.text,
                                 },
                               ).toString());
-                            } else {
+                            } else if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                                   content: Text(
                                       'Error registering staff (Code: ${resp.statusCode})'),
@@ -1204,14 +1226,67 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     );
   }
 
-  Future<void> _editProfile(int staffId, String staffName, String staffRole,
-      String staffCategory) async {
+  TimeOfDay? _parseHHMM(String? s) {
+    if (s == null || !s.contains(':')) return null;
+    final parts = s.split(':');
+    return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  }
+
+  String? _formatHHMM(TimeOfDay? t) {
+    if (t == null) return null;
+    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _editProfile(Map<String, dynamic> staff) async {
+    final staffId = staff['id'] as int;
+    final staffName = staff['name'] as String;
+    final staffRole = staff['role'] as String? ?? 'Medical Staff';
+    final staffCategory = staff['category'] as String? ?? 'Medical Staff';
+    final shiftStart = staff['shift_start'] as String?;
+    final shiftEnd = staff['shift_end'] as String?;
+    // Reporting hierarchy (services/staff/hierarchy.py) - is_head/
+    // department/reports_to_id are sent back on every save below exactly
+    // like shift_start/shift_end already are: PUT /api/staff/{id} replaces
+    // the full record, so omitting a field here would silently reset it
+    // (e.g. un-head someone, or drop their reporting assignment) rather
+    // than leaving it untouched.
+    bool isHead = staff['is_head'] as bool? ?? false;
+    final departmentController =
+        TextEditingController(text: staff['department'] as String? ?? '');
+    int? reportsToId = staff['reports_to_id'] as int?;
+
+    if (_rbacGroupNames.isEmpty) await _fetchRbacGroups();
+    if (!mounted) return;
+
     final nameController = TextEditingController(text: staffName);
     String selectedRole = staffRole.isNotEmpty ? staffRole : 'Medical Staff';
     String selectedCategory =
         staffCategory.isNotEmpty ? staffCategory : 'Medical Staff';
+    // Anyone this person could report to - every other staff member,
+    // excluding themselves (a staff member can't report to themselves;
+    // services/staff/hierarchy.would_create_cycle also rejects this
+    // server-side, but excluding it here is simpler than surfacing that
+    // error after the fact).
+    final reportsToOptions = _staffList
+        .where((s) => s['id'] != staffId)
+        .toList()
+      ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+    // GET /api/rbac/groups is now hierarchy-scoped (only groups whose
+    // permissions the CALLER already holds) - an editor can genuinely lack
+    // the target staff member's own current category (e.g. an Admin
+    // without Doctor's exact permission set editing a doctor's profile).
+    // Dropdown items must still include it: without this, opening the
+    // dialog and hitting Save without touching Category would silently
+    // downgrade that person away from their real role the moment the
+    // dropdown's initialValue fell back to something else. This only
+    // widens THIS dialog's own item list, not the shared _rbacGroupNames
+    // the editor could newly assign to someone else.
+    final categoryOptions =
+        <String>{..._rbacGroupNames, selectedCategory}.toList()..sort();
+    TimeOfDay? shiftStartTime = _parseHHMM(shiftStart);
+    TimeOfDay? shiftEndTime = _parseHHMM(shiftEnd);
 
-    final result = await showDialog<Map<String, String>>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => Theme(
         data: Theme.of(context).copyWith(
@@ -1219,45 +1294,162 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
         child: StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
             title: Text('Edit Profile', style: TextStyle(color: _textColor)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                    controller: nameController,
-                    decoration: const InputDecoration(labelText: 'Full Name')),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  initialValue: _staffCategoryOptions.contains(selectedCategory)
-                      ? selectedCategory
-                      : 'Medical Staff',
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: _staffCategoryOptions
-                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) setD(() => selectedCategory = val);
-                  },
-                  dropdownColor: _surfaceContainerHighest,
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedRole,
-                  decoration: const InputDecoration(labelText: 'Role'),
-                  items: [
-                    'Medical Staff',
-                    'Head of Radiology',
-                    'Oncology Lead',
-                    'Security Specialist',
-                    'Admin'
-                  ]
-                      .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) setD(() => selectedRole = val);
-                  },
-                  dropdownColor: _surfaceContainerHighest,
-                ),
-              ],
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                      controller: nameController,
+                      decoration:
+                          const InputDecoration(labelText: 'Full Name')),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedCategory,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                    items: categoryOptions
+                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) setD(() => selectedCategory = val);
+                    },
+                    dropdownColor: _surfaceContainerHighest,
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedRole,
+                    decoration: const InputDecoration(labelText: 'Role'),
+                    items: [
+                      'Medical Staff',
+                      'Head of Radiology',
+                      'Oncology Lead',
+                      'Security Specialist',
+                      'Admin'
+                    ]
+                        .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) setD(() => selectedRole = val);
+                    },
+                    dropdownColor: _surfaceContainerHighest,
+                  ),
+                  const SizedBox(height: 20),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Shift hours',
+                        style: TextStyle(
+                            color: _textVariant,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Used to detect shortfall/overtime and to gate indoor '
+                    'tracking to this person\'s own hours. Leave blank if '
+                    'this role has no fixed shift.',
+                    style: TextStyle(color: _textVariant, fontSize: 11),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            final picked = await showTimePicker(
+                              context: ctx,
+                              initialTime: shiftStartTime ??
+                                  const TimeOfDay(hour: 9, minute: 0),
+                            );
+                            if (picked != null) {
+                              setD(() => shiftStartTime = picked);
+                            }
+                          },
+                          child: Text(shiftStartTime == null
+                              ? 'Start time'
+                              : shiftStartTime!.format(ctx)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            final picked = await showTimePicker(
+                              context: ctx,
+                              initialTime: shiftEndTime ??
+                                  const TimeOfDay(hour: 17, minute: 0),
+                            );
+                            if (picked != null) {
+                              setD(() => shiftEndTime = picked);
+                            }
+                          },
+                          child: Text(shiftEndTime == null
+                              ? 'End time'
+                              : shiftEndTime!.format(ctx)),
+                        ),
+                      ),
+                      if (shiftStartTime != null || shiftEndTime != null)
+                        IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          tooltip: 'Clear shift',
+                          onPressed: () => setD(() {
+                            shiftStartTime = null;
+                            shiftEndTime = null;
+                          }),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Reporting hierarchy',
+                        style: TextStyle(
+                            color: _textVariant,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('Is a team head',
+                        style: TextStyle(color: _textColor)),
+                    subtitle: Text(
+                      'Leads everyone in "$selectedCategory" (or just this '
+                      'department, below) who has no other senior assigned.',
+                      style: TextStyle(color: _textVariant, fontSize: 11),
+                    ),
+                    value: isHead,
+                    onChanged: (val) => setD(() => isHead = val),
+                    activeThumbColor: _tealAccent,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: departmentController,
+                    decoration: const InputDecoration(
+                      labelText: 'Department / ward (optional)',
+                      hintText: 'e.g. ICU',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<int?>(
+                    initialValue: reportsToId,
+                    decoration: const InputDecoration(labelText: 'Reports to'),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('Category / department head (default)'),
+                      ),
+                      ...reportsToOptions.map((s) => DropdownMenuItem<int?>(
+                            value: s['id'] as int,
+                            child: Text(s['name'] as String,
+                                overflow: TextOverflow.ellipsis),
+                          )),
+                    ],
+                    onChanged: (val) => setD(() => reportsToId = val),
+                    dropdownColor: _surfaceContainerHighest,
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -1268,6 +1460,13 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                         'name': nameController.text,
                         'role': selectedRole,
                         'category': selectedCategory,
+                        'shift_start': _formatHHMM(shiftStartTime),
+                        'shift_end': _formatHHMM(shiftEndTime),
+                        'is_head': isHead,
+                        'department': departmentController.text.trim().isEmpty
+                            ? null
+                            : departmentController.text.trim(),
+                        'reports_to_id': reportsToId,
                       }),
                   style: ElevatedButton.styleFrom(
                       backgroundColor: _tealAccent, foregroundColor: _bgBase),
@@ -1279,15 +1478,23 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     );
 
     if (result != null) {
-      final newName = result['name']!;
-      final newRole = result['role']!;
-      final newCategory = result['category']!;
+      final newName = result['name'] as String;
+      final newRole = result['role'] as String;
+      final newCategory = result['category'] as String;
       if (newName.isNotEmpty) {
         await NetworkManager.instance.put(
           ApiRoutes.staffMember(staffId),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(
-              {'name': newName, 'role': newRole, 'category': newCategory}),
+          body: jsonEncode({
+            'name': newName,
+            'role': newRole,
+            'category': newCategory,
+            'shift_start': result['shift_start'],
+            'shift_end': result['shift_end'],
+            'is_head': result['is_head'],
+            'department': result['department'],
+            'reports_to_id': result['reports_to_id'],
+          }),
         );
         _fetchStaff();
       }
@@ -1582,7 +1789,8 @@ class _StaffDetailsViewState extends State<_StaffDetailsView> {
                         image: photoUrl != null
                             ? DecorationImage(
                                 image: NetworkImage(photoUrl,
-                                    headers: _authHeaders()),
+                                    headers:
+                                        NetworkManager.instance.authHeaders()),
                                 fit: BoxFit.cover)
                             : null,
                       ),

@@ -23,7 +23,6 @@ openvino>=2024.0.0
 psutil>=5.9.0
 bcrypt
 pyjwt
-passlib
 cryptography
 pyttsx3
 websockets

@@ -92,7 +92,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         });
       }
     } catch (e) {
-      setState(() => _error = 'Could not reach the server: $e');
+      debugPrint('Setup wizard submit failed: $e');
+      setState(() => _error =
+          'Could not reach the server. Check your connection and try again.');
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -192,6 +194,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         icon: Icons.lock_outline,
                         obscureText: _obscurePassword,
                         onSubmitted: (_) => _submit(),
+                        validator: (v) => v != _passwordController.text
+                            ? "Passwords don't match"
+                            : null,
                       ),
                       if (_error != null) ...[
                         const SizedBox(height: 16),

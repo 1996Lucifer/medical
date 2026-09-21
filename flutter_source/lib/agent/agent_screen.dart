@@ -329,15 +329,34 @@ class _AgentScreenState extends State<AgentScreen>
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
+      // MainShell's own top bar + the bottom nav tab already say "what app,
+      // what section" on mobile, so this screen's own title/status-pill
+      // AppBar was pure duplicate chrome there - desktop keeps it.
+      appBar: isMobile ? null : AppBar(
         title: Consumer<SiteConfigProvider>(
           builder: (context, siteConfig, _) {
+            final dot = FadeTransition(
+              opacity: _pulseController,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                    color: _primaryFixedDim,
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: _primaryFixedDim, blurRadius: 4)]),
+              ),
+            );
+
             return Row(
               children: [
-                Text(
-                  '${siteConfig.agentName} Command',
-                  style:
-                      TextStyle(fontWeight: FontWeight.bold, color: _primary),
+                Flexible(
+                  child: Text(
+                    '${siteConfig.agentName} Command',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, color: _primary),
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Container(
@@ -351,20 +370,7 @@ class _AgentScreenState extends State<AgentScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      FadeTransition(
-                        opacity: _pulseController,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                              color: _primaryFixedDim,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                    color: _primaryFixedDim, blurRadius: 4)
-                              ]),
-                        ),
-                      ),
+                      dot,
                       const SizedBox(width: 8),
                       Text('CLINICAL AGENT ACTIVE',
                           style: TextStyle(
@@ -398,8 +404,7 @@ class _AgentScreenState extends State<AgentScreen>
         child: SizedBox.expand(
           child: isMobile
               ? Padding(
-                  padding:
-                      const EdgeInsets.only(top: 16.0), // Account for appbar
+                  padding: const EdgeInsets.only(top: 16.0), // small gap under MainShell's top bar (no AppBar here on mobile)
                   child: Column(
                     children: [
                       Expanded(child: mainChatArea),
@@ -533,6 +538,10 @@ class _AgentScreenState extends State<AgentScreen>
   }
 
   Widget _buildInputArea(AgentProvider provider) {
+    // Mobile keeps just the text field + send button - no "+" attachment
+    // button - per the simplified mobile chat input request. Desktop is
+    // untouched.
+    final isMobile = MediaQuery.of(context).size.width < 900;
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -604,12 +613,13 @@ class _AgentScreenState extends State<AgentScreen>
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              IconButton(
-                icon: Icon(Icons.add_circle_outline,
-                    color: _onSurfaceVariant, size: 28),
-                onPressed: () => _pickFile(provider),
-                tooltip: "Attach Document or Image",
-              ),
+              if (!isMobile)
+                IconButton(
+                  icon: Icon(Icons.add_circle_outline,
+                      color: _onSurfaceVariant, size: 28),
+                  onPressed: () => _pickFile(provider),
+                  tooltip: "Attach Document or Image",
+                ),
               Expanded(
                 child: Focus(
                   onKeyEvent: (node, event) {

@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -41,8 +42,16 @@ def _load_key() -> bytes:
     _KEY_FILE.write_bytes(key)
     try:
         os.chmod(_KEY_FILE, 0o600)
-    except OSError:
-        pass
+    except OSError as e:
+        # A key file with wrong/unknown permissions is a real security
+        # problem (it decrypts PHI chat data) - never swallow this
+        # silently, even though we don't hard-fail the process for it.
+        print(
+            f"[Encryption] ERROR: failed to set permissions 0600 on "
+            f"{_KEY_FILE} ({e}). This file holds the key that decrypts PHI "
+            f"chat data - verify/fix its file permissions manually.",
+            file=sys.stderr,
+        )
     print(
         f"[Encryption] No AGENT_CHAT_ENCRYPTION_KEY set - generated a new key "
         f"at {_KEY_FILE}. For production, set AGENT_CHAT_ENCRYPTION_KEY to this "

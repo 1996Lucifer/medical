@@ -146,6 +146,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         label: 'Confirm new password',
                         obscureText: _obscureNew,
                         onSubmitted: (_) => _submit(),
+                        validator: (v) => v != _newPasswordController.text
+                            ? "New passwords don't match"
+                            : null,
                       ),
                       if (_error != null) ...[
                         const SizedBox(height: 16),

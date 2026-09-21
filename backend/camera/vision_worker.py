@@ -2,6 +2,7 @@ import multiprocessing as mp
 from multiprocessing import shared_memory
 import os
 import threading
+import time
 import numpy as np
 import traceback
 import queue
@@ -26,6 +27,25 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
             req = input_queue.get()
             if req is None:
                 break # Shutdown signal
+
+            if req["type"] == "warmup":
+                # Force the lazy InsightFace/YOLO singletons to load now,
+                # ahead of any camera actually being viewed. This is the
+                # ~30-60s cold-start cost (ONNX/torch imports + model
+                # weight loading) that otherwise only pays off on the
+                # first frame of the first camera someone opens - moving
+                # it here lets it happen in the background right after
+                # login instead of blocking the first camera view.
+                try:
+                    from camera.model_manager import ModelManager
+
+                    mgr = ModelManager()
+                    mgr.get_face_analysis()
+                    mgr.get_yolo_detector("warmup")
+                    output_queue.put({"type": "warmed_up"})
+                except Exception as e:
+                    output_queue.put({"type": "error", "error": f"Warmup failed: {e}"})
+                continue
 
             if req["type"] == "update_staff":
                 global_staff_list = req["staff_list"]
@@ -147,7 +167,16 @@ def _default_pool_size() -> int:
 
 
 class _Worker:
-    __slots__ = ("input_queue", "output_queue", "process", "reader_thread", "camera_ids")
+    __slots__ = (
+        "input_queue",
+        "output_queue",
+        "process",
+        "reader_thread",
+        "camera_ids",
+        "restart_count",
+        "restart_window_start",
+        "failed",
+    )
 
     def __init__(self, input_queue, output_queue, process, reader_thread):
         self.input_queue = input_queue
@@ -155,6 +184,13 @@ class _Worker:
         self.process = process
         self.reader_thread = reader_thread
         self.camera_ids = set()
+        # Restart bookkeeping for the health-check/respawn logic in
+        # VisionProcessManager - bounded so a worker that keeps crashing
+        # (e.g. a poison-pill frame, a broken model file) doesn't cause an
+        # unbounded respawn loop.
+        self.restart_count = 0
+        self.restart_window_start = time.time()
+        self.failed = False
 
 
 class VisionProcessManager:
@@ -167,6 +203,14 @@ class VisionProcessManager:
     """
     _instance = None
     _thread_lock = threading.Lock()
+
+    # Bounded restart policy for dead pool workers: at most _MAX_RESTARTS
+    # respawns within a rolling _RESTART_WINDOW_SEC window. If a worker
+    # keeps dying faster than that, it's marked permanently failed and we
+    # stop trying to respawn it (its cameras stay assigned to it and will
+    # simply fail to get results, rather than us respawning forever).
+    _MAX_RESTARTS = 5
+    _RESTART_WINDOW_SEC = 300
 
     def __new__(cls, *args, **kwargs):
         with cls._thread_lock:
@@ -192,29 +236,124 @@ class VisionProcessManager:
         if self.workers:
             return
 
-        ctx = mp.get_context('spawn')
         for _ in range(self.pool_size):
-            input_queue = ctx.Queue(maxsize=4)
-            output_queue = ctx.Queue()
-            process = ctx.Process(
-                target=_vision_worker_process,
-                args=(input_queue, output_queue, self.max_h, self.max_w, self.dtype),
-                daemon=True,
-            )
-            process.start()
-
-            worker = _Worker(input_queue, output_queue, process, None)
-            reader_thread = threading.Thread(
-                target=self._read_results, args=(worker,), daemon=True
-            )
-            worker.reader_thread = reader_thread
-            reader_thread.start()
-
-            self.workers.append(worker)
+            self.workers.append(self._spawn_worker())
 
         print(
             f"[VisionProcessManager] Started {len(self.workers)} inference worker process(es)."
         )
+
+    def _spawn_worker(self) -> "_Worker":
+        """
+        Create one pool worker: fresh IPC queues, a fresh subprocess running
+        _vision_worker_process, and a fresh reader thread draining its
+        output_queue. Used both for initial pool creation (start_process)
+        and to respawn a replacement when a worker is found dead
+        (_ensure_worker_alive).
+        """
+        ctx = mp.get_context('spawn')
+        input_queue = ctx.Queue(maxsize=4)
+        output_queue = ctx.Queue()
+        process = ctx.Process(
+            target=_vision_worker_process,
+            args=(input_queue, output_queue, self.max_h, self.max_w, self.dtype),
+            daemon=True,
+        )
+        process.start()
+
+        worker = _Worker(input_queue, output_queue, process, None)
+        reader_thread = threading.Thread(
+            target=self._read_results, args=(worker,), daemon=True
+        )
+        worker.reader_thread = reader_thread
+        reader_thread.start()
+        return worker
+
+    def _ensure_worker_alive(self, worker: "_Worker") -> "_Worker":
+        """
+        Liveness check + bounded respawn for one pool worker. Called right
+        before a worker is used (camera assignment or frame dispatch) so a
+        crashed subprocess (native crash in InsightFace/YOLO/OpenCV, OOM)
+        doesn't silently leave its cameras dark forever.
+
+        If `worker` is dead, this respawns a replacement in place inside
+        self.workers, reassigns every camera that was pinned to the dead
+        worker to the replacement (re-issuing "register_camera" so the new
+        process attaches the existing shared-memory buffers), and clears
+        is_busy for those cameras so any frame that was in flight to the
+        dead worker is dropped (fail-fast) rather than blocking the
+        camera's queue forever. Returns the worker to actually use (either
+        the same live worker, or its replacement).
+        """
+        if worker.process is not None and worker.process.is_alive():
+            return worker
+
+        if worker.failed:
+            # Already gave up on this slot within the current restart
+            # window - avoid respawning it again on every single dispatch.
+            return worker
+
+        now = time.time()
+        if now - worker.restart_window_start > self._RESTART_WINDOW_SEC:
+            worker.restart_window_start = now
+            worker.restart_count = 0
+
+        if worker.restart_count >= self._MAX_RESTARTS:
+            worker.failed = True
+            print(
+                f"[VisionProcessManager] Worker (pid={worker.process.pid if worker.process else '?'}) "
+                f"has died {worker.restart_count} times within {self._RESTART_WINDOW_SEC}s; "
+                f"giving up on respawning it. Cameras stuck on this worker: {sorted(worker.camera_ids)}"
+            )
+            return worker
+
+        worker.restart_count += 1
+        print(
+            f"[VisionProcessManager] Worker process (pid={worker.process.pid if worker.process else '?'}) "
+            f"is dead. Respawning replacement (attempt {worker.restart_count}/{self._MAX_RESTARTS})..."
+        )
+        try:
+            worker.process.join(timeout=0.1)
+        except Exception:
+            pass
+
+        new_worker = self._spawn_worker()
+        new_worker.restart_count = worker.restart_count
+        new_worker.restart_window_start = worker.restart_window_start
+
+        try:
+            idx = self.workers.index(worker)
+            self.workers[idx] = new_worker
+        except ValueError:
+            self.workers.append(new_worker)
+
+        stale_camera_ids = list(worker.camera_ids)
+        for cam_id in stale_camera_ids:
+            new_worker.camera_ids.add(cam_id)
+            self.camera_worker[cam_id] = new_worker
+
+            # Unstick this camera's queue: whatever frame (if any) was in
+            # flight to the dead worker is lost, fail fast instead of
+            # leaving is_busy stuck True forever.
+            self.is_busy[cam_id] = False
+            with self.result_lock:
+                self.latest_results.pop(cam_id, None)
+
+            # Re-register the camera against the new process so it
+            # reattaches the existing shared-memory buffers.
+            if cam_id in self.camera_shms:
+                shm_in, shm_out = self.camera_shms[cam_id]
+                try:
+                    new_worker.input_queue.put({
+                        "type": "register_camera",
+                        "camera_id": cam_id,
+                        "shm_name": shm_in.name,
+                        "shm_out_name": shm_out.name,
+                    })
+                except Exception:
+                    pass
+
+        return new_worker
 
     def _read_results(self, worker: "_Worker"):
         while True:
@@ -232,12 +371,30 @@ class VisionProcessManager:
                 pass
 
     def _least_loaded_worker(self) -> "_Worker":
-        return min(self.workers, key=lambda w: len(w.camera_ids))
+        candidates = [w for w in self.workers if not w.failed] or self.workers
+        return min(candidates, key=lambda w: len(w.camera_ids))
 
     def update_staff(self, staff_list: list):
         for worker in self.workers:
             if worker.process and worker.process.is_alive():
                 worker.input_queue.put({"type": "update_staff", "staff_list": staff_list})
+
+    def warmup(self):
+        """
+        Pre-load the InsightFace/YOLO models in every pool worker process
+        without registering any camera - lets the ~30-60s cold-start cost
+        happen right after login (or whenever the caller decides), instead
+        of blocking whichever camera the user opens first. Starts the
+        process pool first if it isn't already running. Fire-and-forget:
+        callers should not block waiting for the "warmed_up" response.
+        """
+        self.start_process()
+        for worker in self.workers:
+            if worker.process and worker.process.is_alive():
+                try:
+                    worker.input_queue.put_nowait({"type": "warmup"})
+                except queue.Full:
+                    pass
 
     def update_zones(self, zones: list):
         for worker in self.workers:
@@ -256,6 +413,7 @@ class VisionProcessManager:
         self.camera_shms[camera_id] = (shm_in, shm_out)
 
         worker = self._least_loaded_worker()
+        worker = self._ensure_worker_alive(worker)
         worker.camera_ids.add(camera_id)
         self.camera_worker[camera_id] = worker
         worker.input_queue.put({"type": "register_camera", "camera_id": camera_id, "shm_name": shm_in.name, "shm_out_name": shm_out.name})
@@ -285,6 +443,13 @@ class VisionProcessManager:
         worker = self.camera_worker.get(camera_id)
         if worker is None:
             return False
+
+        # Health-check before every dispatch: if this camera's worker
+        # process died (native crash / OOM), respawn a replacement and
+        # clear the stuck is_busy flag before deciding whether to send
+        # this frame, instead of blocking the camera's queue forever.
+        worker = self._ensure_worker_alive(worker)
+        self.camera_worker[camera_id] = worker
 
         if self.is_busy.get(camera_id, False):
             return False

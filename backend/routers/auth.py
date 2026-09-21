@@ -229,6 +229,17 @@ def get_current_user_info(
         "patient_id": patient.id if patient else None,
         "staff_id": staff.id if staff else None,
         "staff_category": staff.category if staff else None,
+        # Whether this account leads a team (services/staff/hierarchy.py) -
+        # lets the sidebar show "My Team" only to accounts it's actually
+        # useful for, instead of every staff login landing on an empty
+        # "you don't lead anyone" screen.
+        "is_head": staff.is_head if staff else False,
+        # The linked Staff record's actual name - the login username is
+        # often a generated handle (e.g. "dr.deepak"), not what the person
+        # wants to see labeled as themselves in the UI (sidebar account
+        # card, mobile top bar). Falls back to the patient's name for a
+        # patient-portal login, then username itself if neither exists.
+        "display_name": staff.name if staff else (patient.name if patient else current_user.username),
     }
 
 

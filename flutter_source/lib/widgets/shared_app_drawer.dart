@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../app_router.dart';
+import '../call/call_service.dart';
 import '../providers/auth_provider.dart';
 import '../providers/site_config_provider.dart';
 
@@ -19,6 +20,7 @@ class SharedAppDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final unreadMessages = context.watch<CallService>().totalUnreadCount;
     final visibleEntries =
         kNavEntries.where((e) => auth.hasPermission(e.permission)).toList();
 
@@ -52,7 +54,7 @@ class SharedAppDrawer extends StatelessWidget {
                           siteConfig.fullLogoUrl!,
                           width: 64,
                           height: 64,
-                          fit: BoxFit.cover,
+                          fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) =>
                               Icon(Icons.shield, color: tealAccent, size: 64),
                         ),
@@ -78,40 +80,60 @@ class SharedAppDrawer extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: surfaceBright.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: textVariant.withValues(alpha: 0.15)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: tealAccent.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(6),
+            // This used to be a static "Core AI / PROTOCOL ACTIVE" filler
+            // card with no relation to the logged-in account - the only
+            // way to reach /profile on desktop/web was a doc comment in
+            // profile_screen.dart that claimed a sidebar link existed when
+            // none ever did. Replaced with an actual account card that
+            // opens it, matching what the mobile top bar's avatar already
+            // does.
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                Scaffold.maybeOf(context)?.closeDrawer();
+                context.push('/profile');
+              },
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: surfaceBright.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: textVariant.withValues(alpha: 0.15)),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: tealAccent.withValues(alpha: 0.2),
+                      child: Text(
+                        (auth.displayName ?? '?').isNotEmpty
+                            ? auth.displayName![0].toUpperCase()
+                            : '?',
+                        style: TextStyle(color: tealAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Core AI',
-                          style: TextStyle(
-                              color: textColor,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13)),
-                      Text('PROTOCOL ACTIVE',
-                          style: TextStyle(
-                              color: tealAccent,
-                              fontSize: 10,
-                              letterSpacing: 0.5)),
-                    ],
-                  ),
-                ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(auth.displayName ?? '—',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color: textColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13)),
+                          Text((auth.role ?? 'user').toUpperCase(),
+                              style: TextStyle(
+                                  color: tealAccent,
+                                  fontSize: 10,
+                                  letterSpacing: 0.5)),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, color: textVariant, size: 18),
+                  ],
+                ),
               ),
             ),
           ),
@@ -150,15 +172,34 @@ class SharedAppDrawer extends StatelessWidget {
                             color: isActive ? tealAccent : textVariant,
                             size: 24),
                         const SizedBox(width: 16),
-                        Text(
-                          entry.label,
-                          style: TextStyle(
-                            color: isActive ? tealAccent : textVariant,
-                            fontWeight:
-                                isActive ? FontWeight.bold : FontWeight.normal,
-                            fontSize: 15,
+                        Expanded(
+                          child: Text(
+                            entry.label,
+                            style: TextStyle(
+                              color: isActive ? tealAccent : textVariant,
+                              fontWeight: isActive
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              fontSize: 15,
+                            ),
                           ),
                         ),
+                        if (entry.path == '/inbox' && unreadMessages > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red[400],
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              unreadMessages > 99 ? '99+' : '$unreadMessages',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
                       ],
                     ),
                   ),

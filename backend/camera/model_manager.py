@@ -91,37 +91,47 @@ class ModelManager:
         if self._face_app is None:
             with self._face_lock:
                 if self._face_app is None:
-                    from insightface.app import FaceAnalysis
+                    try:
+                        from insightface.app import FaceAnalysis
 
-                    providers = get_best_onnx_providers()
-                    has_gpu = any(
-                        p in providers
-                        for p in [
-                            "CUDAExecutionProvider",
-                            "CoreMLExecutionProvider",
-                            "ROCMExecutionProvider",
-                        ]
-                    )
-                    ctx_id = 0 if has_gpu else -1
+                        providers = get_best_onnx_providers()
+                        has_gpu = any(
+                            p in providers
+                            for p in [
+                                "CUDAExecutionProvider",
+                                "CoreMLExecutionProvider",
+                                "ROCMExecutionProvider",
+                            ]
+                        )
+                        ctx_id = 0 if has_gpu else -1
 
-                    print(
-                        f"[ModelManager] Lazy loading InsightFace (buffalo_l) on providers={providers}, ctx_id={ctx_id}..."
-                    )
-                    self._face_app = FaceAnalysis(
-                        name="buffalo_l",
-                        root="~/.insightface",
-                        providers=providers,
-                    )
-                    det_size = (
-                        config["det_size"]
-                        if config and "det_size" in config
-                        else (640, 640)
-                    )
-                    self._face_app.prepare(
-                        ctx_id=ctx_id,
-                        det_size=det_size,
-                    )
-        return self._face_app
+                        print(
+                            f"[ModelManager] Lazy loading InsightFace (buffalo_l) on providers={providers}, ctx_id={ctx_id}..."
+                        )
+                        face_app = FaceAnalysis(
+                            name="buffalo_l",
+                            root="~/.insightface",
+                            providers=providers,
+                            # Only detection (SCRFD) + recognition (ArcFace) are
+                            # ever read from a face result (.bbox/.embedding/
+                            # .det_score) - genderage and both landmark models
+                            # are never consumed, so skip running them entirely.
+                            allowed_modules=["detection", "recognition"],
+                        )
+                        det_size = (
+                            config["det_size"]
+                            if config and "det_size" in config
+                            else (640, 640)
+                        )
+                        face_app.prepare(
+                            ctx_id=ctx_id,
+                            det_size=det_size,
+                        )
+                        self._face_app = face_app
+                    except Exception as exc:
+                        print(f"[ModelManager] Failed to load InsightFace: {exc}")
+                        self._face_app = False
+        return self._face_app if self._face_app is not False else None
 
     def get_mp_holistic(self):
         if self._mp_holistic is None:

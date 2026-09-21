@@ -51,15 +51,19 @@ class _CameraStatusDotState extends State<CameraStatusDot> {
   @override
   Widget build(BuildContext context) {
     Color color;
+    IconData icon;
     switch (_status) {
       case 'online':
         color = Colors.green;
+        icon = Icons.check;
         break;
       case 'offline':
         color = Colors.red;
+        icon = Icons.close;
         break;
       default:
         color = Colors.orange;
+        icon = Icons.hourglass_empty;
     }
 
     return Tooltip(
@@ -81,6 +85,10 @@ class _CameraStatusDotState extends State<CameraStatusDot> {
                 spreadRadius: 1),
           ],
         ),
+        // Status is also conveyed by shape, not just dot color, so it
+        // reads correctly for color-blind users: a check for online, an
+        // X for offline, an hourglass while checking.
+        child: Icon(icon, color: Colors.white, size: widget.size * 0.7),
       ),
     );
   }

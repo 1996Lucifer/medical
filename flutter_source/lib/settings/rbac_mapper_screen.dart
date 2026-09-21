@@ -98,8 +98,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
     if (isRulesMode) {
       setState(() {
         rulesNodes.removeWhere((n) => n.id == node.id);
-        rulesEdges.removeWhere(
-            (e) => e.source == node.id || e.target == node.id);
+        rulesEdges
+            .removeWhere((e) => e.source == node.id || e.target == node.id);
       });
       _saveRulesGraph(silent: true);
       return;
@@ -507,21 +507,21 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({"rules": compiledRules}),
       );
-      if (!silent) {
+      if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('AI Rules synchronized successfully!',
                 style: TextStyle(color: _bgBase, fontWeight: FontWeight.bold)),
             backgroundColor: _tealAccent));
       }
     } catch (e) {
-      if (!silent) {
+      if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('Error saving rules: $e',
                 style: TextStyle(color: _textColor)),
             backgroundColor: Colors.red));
       }
     }
-    if (!silent) setState(() => isLoading = false);
+    if (!silent && mounted) setState(() => isLoading = false);
   }
 
   void _showCreateNodeDialog(String type) {
@@ -782,7 +782,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                       .cast<_Node?>()
                                       .firstWhere((n) => n?.id == e.target,
                                           orElse: () => null);
-                                  if (sourceNode == null || targetNode == null) {
+                                  if (sourceNode == null ||
+                                      targetNode == null) {
                                     return const SizedBox.shrink();
                                   }
 
@@ -1182,8 +1183,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                                     style: TextStyle(
                                                         color: _critical,
                                                         fontSize: 13)),
-                                                onTap: () =>
-                                                    _deleteNode(selectedNodeMenu!),
+                                                onTap: () => _deleteNode(
+                                                    selectedNodeMenu!),
                                               ),
                                             ],
                                           ),
@@ -1214,8 +1215,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                         padding: const EdgeInsets.all(24.0),
                         child: TextField(
                           style: TextStyle(color: _textColor, fontSize: 14),
-                          onChanged: (v) => setState(
-                              () => _librarySearchQuery = v.trim().toLowerCase()),
+                          onChanged: (v) => setState(() =>
+                              _librarySearchQuery = v.trim().toLowerCase()),
                           decoration: InputDecoration(
                             hintText: 'Search items...',
                             hintStyle: TextStyle(color: _textVariant),
@@ -1231,7 +1232,8 @@ class _RBACMapperScreenState extends State<RBACMapperScreen> {
                                 borderRadius:
                                     const BorderRadius.all(Radius.circular(8)),
                                 borderSide: BorderSide(color: _outlineVariant)),
-                            contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                            contentPadding:
+                                const EdgeInsets.symmetric(vertical: 0),
                           ),
                         ),
                       ),

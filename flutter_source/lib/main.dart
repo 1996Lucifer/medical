@@ -2,29 +2,71 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'app_router.dart';
+import 'call/call_notification_service.dart';
 import 'call/call_service.dart';
+import 'call/call_sound_service.dart';
 import 'call/incoming_call_dialog.dart';
 import 'network/environment.dart';
 import 'network/network_manager.dart';
 import 'providers/agent_provider.dart';
-import 'providers/analytics_provider.dart';
 import 'providers/auth_provider.dart';
-import 'providers/camera_provider.dart';
-import 'providers/consultation_provider.dart';
-import 'providers/security_provider.dart';
 import 'providers/site_config_provider.dart';
 import 'providers/theme_provider.dart';
+
+/// Injected via --dart-define=MAPBOX_KEY=pk.xxxxx, used by the Hospital
+/// Geofence editor (indoor_tracking/hospital_geofence_screen.dart). An
+/// empty value just means that screen's map tiles fail to load - a safe,
+/// visible failure mode rather than baking in a real token.
+const String kMapboxKey = String.fromEnvironment('MAPBOX_KEY');
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EnvironmentConfig.init();
+  await CallSoundService().init();
+  await CallNotificationService().init();
+  if (kMapboxKey.isNotEmpty) {
+    MapboxOptions.setAccessToken(kMapboxKey);
+  }
 
   final authProvider = AuthProvider();
   final siteConfigProvider = SiteConfigProvider();
   final themeProvider = ThemeProvider();
+  final callService = CallService();
+
+  // Drives CallService's connection off AuthProvider's own notifications,
+  // registered here at app startup rather than as a side effect inside
+  // MyApp's build()/builder. A plain ChangeNotifier listener like this
+  // runs when authProvider.notifyListeners() fires - not nested inside
+  // the framework's Element build phase the way a widget's build() is -
+  // so callService.connect()/loadConversations() triggering their OWN
+  // notifyListeners() here can never collide with "setState() or
+  // markNeedsBuild() called during build" the way it could (and did, for
+  // an unrelated case - see chat_screen.dart's initState fix) when this
+  // lived inside MaterialApp.router's `builder`, which re-runs on every
+  // app-wide rebuild.
+  void syncCallServiceToAuth() {
+    final token = NetworkManager.instance.token;
+    if (authProvider.isAuthenticated &&
+        authProvider.userId != null &&
+        token != null) {
+      // Only load once per fresh connection (login, or a reconnect after a
+      // dropped socket) - connect() itself is already a no-op while still
+      // connected as the same user, so gating on isConnected here keeps
+      // this from re-fetching the conversations list on every auth change.
+      final wasConnected = callService.isConnected;
+      callService.connect(authProvider.userId!, token,
+          myName: authProvider.username ?? '');
+      if (!wasConnected) callService.loadConversations();
+    } else if (!authProvider.isAuthenticated) {
+      callService.disconnect();
+    }
+  }
+
+  authProvider.addListener(syncCallServiceToAuth);
   // Kick off session restoration from persisted JWT before first frame
   authProvider.tryAutoLogin();
   // Load hospital branding config
@@ -41,11 +83,7 @@ void main() async {
         ChangeNotifierProvider.value(value: siteConfigProvider),
         ChangeNotifierProvider.value(value: themeProvider),
         ChangeNotifierProvider(create: (_) => AgentProvider()),
-        ChangeNotifierProvider(create: (_) => ConsultationProvider()),
-        ChangeNotifierProvider(create: (_) => CameraProvider()),
-        ChangeNotifierProvider(create: (_) => AnalyticsProvider()),
-        ChangeNotifierProvider(create: (_) => SecurityProvider()),
-        ChangeNotifierProvider(create: (_) => CallService()),
+        ChangeNotifierProvider.value(value: callService),
       ],
       child: MyApp(router: router),
     ),
@@ -73,19 +111,21 @@ class MyApp extends StatelessWidget {
           // the real route in the URL bar before restoration finishes).
           builder: (context, child) {
             final auth = context.watch<AuthProvider>();
-            final callService = context.read<CallService>();
-            final token = NetworkManager.instance.token;
-            if (auth.isAuthenticated && auth.userId != null && token != null) {
-              callService.connect(auth.userId!, token, myName: auth.username ?? '');
-            } else if (!auth.isAuthenticated) {
-              callService.disconnect();
-            }
             if (!auth.isRestoringSession) {
-              return Stack(
-                children: [
-                  child ?? const SizedBox(),
-                  if (auth.isAuthenticated) const IncomingCallOverlay(),
-                ],
+              // Tap anywhere outside the focused field to dismiss the
+              // keyboard - opaque so it also catches taps on empty
+              // background area, not just visible widgets. Fires after
+              // whatever was actually tapped handles its own onTap, so this
+              // never blocks a button/field from working normally.
+              return GestureDetector(
+                onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                behavior: HitTestBehavior.opaque,
+                child: Stack(
+                  children: [
+                    child ?? const SizedBox(),
+                    if (auth.isAuthenticated) const IncomingCallOverlay(),
+                  ],
+                ),
               );
             }
             return Consumer<SiteConfigProvider>(

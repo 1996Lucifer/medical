@@ -18,13 +18,14 @@ class AIGateway:
         user_id: Optional[int] = None,
         role: Optional[str] = None,
     ) -> Dict[str, Any]:
-        # Cache key includes role: a response cached for one role must never
-        # be served to a different role. Without this, a cached answer for
-        # an allowed role (e.g. a doctor's "list all patients") would leak
-        # straight to a role that tool_executor's RBAC check would otherwise
-        # deny (e.g. security staff asking the identical question), since a
-        # cache hit returns before the RBAC check in execute_workflow ever runs.
-        cache_key = f"{role or 'anonymous'}:{message}"
+        # Cache key includes role AND user_id: role alone let one doctor's
+        # cached patient-data answer (e.g. "show latest report") be served
+        # straight to a different doctor asking the identical question - a
+        # cross-session/cross-patient PHI leak, since a cache hit returns
+        # before any per-user scoping in execute_workflow's tool calls ever
+        # runs. Role is still included so RBAC-denied roles (e.g. security
+        # staff) never get a doctor's cached answer either.
+        cache_key = f"{role or 'anonymous'}:{user_id or 'anonymous'}:{message}"
 
         # 1. Check exact match cache
         cached_response = cache_manager.get(cache_key)

@@ -184,6 +184,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         });
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error starting recording: $e')),
       );
@@ -194,6 +195,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
     _recordTimer?.cancel();
     try {
       final pathOrUrl = await _audioRecorder.stop();
+      if (!mounted) return;
       setState(() {
         _isRecording = false;
         if (pathOrUrl != null) {
@@ -201,6 +203,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         }
       });
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error stopping recording: $e')),
       );
@@ -216,12 +219,14 @@ class _ConsultationScreenState extends State<ConsultationScreen>
     }
 
     try {
+      // The file picker can stay open indefinitely (user-paced) - the
+      // widget may be disposed by the time it resolves.
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'flac'],
         withData: kIsWeb,
       );
-      if (result == null || result.files.isEmpty) return;
+      if (!mounted || result == null || result.files.isEmpty) return;
 
       final file = result.files.first;
       setState(() {
@@ -237,6 +242,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         _recordDuration = 0;
       });
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error uploading audio: $e')),
       );
@@ -292,6 +298,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
+      if (!mounted) return;
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -304,6 +311,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isTranscribing = false);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Transcription failed: $e')));
@@ -321,12 +329,17 @@ class _ConsultationScreenState extends State<ConsultationScreen>
           'patient_name': _patientNameController.text.trim(),
           'transcript': _transcriptController.text.trim(),
         }),
+        // LLM summary generation on a long transcript can genuinely take
+        // longer than NetworkManager's 30s default.
+        timeout: const Duration(seconds: 90),
       );
+      if (!mounted) return;
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         await SecureStorageService.instance
             .savePatientNote(_patientNameController.text.trim(), data);
+        if (!mounted) return;
         _loadSavedNotes();
         _openDrawerWithNote(data);
         _patientNameController.clear();
@@ -341,10 +354,11 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('AI Processing failed: $e')));
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -356,8 +370,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _surfaceContainerHighest,
-        title: Text('Delete Consultation',
-            style: TextStyle(color: _primary)),
+        title: Text('Delete Consultation', style: TextStyle(color: _primary)),
         content: Text(
             'Are you sure you want to delete this consultation? This action cannot be undone.',
             style: TextStyle(color: _onSurfaceVariant)),
@@ -369,8 +382,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            child: Text('Delete',
-                style: TextStyle(color: _primary)),
+            child: Text('Delete', style: TextStyle(color: _primary)),
           ),
         ],
       ),
@@ -382,8 +394,10 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       final response = await NetworkManager.instance.delete(
         '${ApiRoutes.baseUrl}/api/consultations/$consultationId',
       );
+      if (!mounted) return;
       if (response.statusCode == 200) {
         await SecureStorageService.instance.deleteNoteById(consultationId);
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Consultation deleted')));
         _loadSavedNotes();
@@ -395,6 +409,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
     }
@@ -405,8 +420,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
       context: context,
       backgroundColor: _surfaceContainerHighest,
       shape: const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
         return SafeArea(
@@ -415,8 +429,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
             children: [
               ListTile(
                 leading: Icon(Icons.camera_alt, color: _primary),
-                title: Text('Take Photo',
-                    style: TextStyle(color: _primary)),
+                title: Text('Take Photo', style: TextStyle(color: _primary)),
                 onTap: () {
                   Navigator.pop(context);
                   _processPickedFile(ImageSource.camera);
@@ -476,11 +489,15 @@ class _ConsultationScreenState extends State<ConsultationScreen>
         request.fields['patient_name'] = _patientNameController.text.trim();
       }
 
-      request.files.add(http.MultipartFile.fromBytes('file', fileBytes,
-          filename: fileName ?? 'file'));
+      // fileName is always assigned above on both branches before
+      // fileBytes can be non-null, so the `?? 'file'` fallback here was
+      // unreachable dead code, not a real null case.
+      request.files.add(
+          http.MultipartFile.fromBytes('file', fileBytes, filename: fileName));
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
+      if (!mounted) return;
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(response.body);
@@ -504,10 +521,12 @@ class _ConsultationScreenState extends State<ConsultationScreen>
                   style: TextStyle(color: _primary),
                   decoration: InputDecoration(
                       hintText: "Enter Patient Name",
-                      hintStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.6)),
+                      hintStyle: TextStyle(
+                          color: _onSurfaceVariant.withValues(alpha: 0.6)),
                       helperText:
                           "The AI could not confidently extract the name from the image.",
-                      helperStyle: TextStyle(color: _onSurfaceVariant.withValues(alpha: 0.4))),
+                      helperStyle: TextStyle(
+                          color: _onSurfaceVariant.withValues(alpha: 0.4))),
                   autofocus: true,
                 ),
                 actions: <Widget>[
@@ -534,7 +553,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
             },
           );
 
-          if (enteredName == null) {
+          if (!mounted || enteredName == null) {
             return;
           }
 
@@ -544,6 +563,7 @@ class _ConsultationScreenState extends State<ConsultationScreen>
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(reportData),
           );
+          if (!mounted) return;
 
           if (saveResponse.statusCode == 200) {
             final savedData = jsonDecode(saveResponse.body);
@@ -567,11 +587,12 @@ class _ConsultationScreenState extends State<ConsultationScreen>
             'Server error: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Image Analysis failed: $e')),
       );
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -666,620 +687,715 @@ class _ConsultationScreenState extends State<ConsultationScreen>
   @override
   Widget build(BuildContext context) {
     final siteConfig = context.watch<SiteConfigProvider>();
-    return Scaffold(
-      key: _scaffoldKey,
-      extendBodyBehindAppBar: true,
-      // This drawer is only ever meant to be opened programmatically, with
-      // _currentNote/_currentReport already set (see _openDrawerWithNote/
-      // _openDrawerWithReport) - Scaffold's default built-in edge-swipe
-      // gesture for endDrawer could open it independently of that, with
-      // nothing selected, showing just the title bar and nothing else.
-      endDrawerEnableOpenDragGesture: false,
-      appBar: AppBar(
-        title: Text(
-          'Medical Consultation',
-          style:
-              TextStyle(fontWeight: FontWeight.bold, color: _primary),
-        ),
-        backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.3),
-        elevation: 0,
-        actions: [
-          if (context.watch<AuthProvider>().staffId != null)
-            IconButton(
-              icon: Icon(Icons.people_alt_outlined, color: _primary),
-              tooltip: 'People Directory',
-              onPressed: () => context.go('/directory'),
-            ),
-        ],
-        flexibleSpace: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(color: Colors.transparent),
-          ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Container(
-              color: _primary.withValues(alpha: 0.05), height: 1.0),
-        ),
-      ),
-      endDrawer: Drawer(
-        width: MediaQuery.of(context).size.width > 800
-            ? 600
-            : MediaQuery.of(context).size.width * 0.85,
-        backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.95),
-        elevation: 24,
-        shape: const RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.horizontal(left: Radius.circular(32))),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Patient Record',
-                        style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w900,
-                            color: _primary)),
-                    Container(
-                      decoration: BoxDecoration(
-                          color: _primary.withValues(alpha: 0.1),
-                          shape: BoxShape.circle),
-                      child: IconButton(
-                        icon: Icon(Icons.close_rounded,
-                            color: _primary),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    )
-                  ],
+    // On mobile, MainShell's own top bar (hospital name + profile avatar)
+    // plus the bottom nav tab already say "what app, what section" - this
+    // screen's own "Medical Consultation" AppBar was pure duplicate chrome.
+    // The endDrawer stays reachable via _scaffoldKey.currentState
+    // ?.openEndDrawer() from the body (see _openDrawerWithNote/
+    // _openDrawerWithReport) regardless of whether an AppBar exists, so
+    // nothing is lost by dropping it here - desktop keeps the header.
+    final isMobile = MediaQuery.of(context).size.width < 900;
+    return PopScope(
+      // A recorded/uploaded audio clip or transcript held only in memory
+      // used to be discarded with zero warning on any back navigation -
+      // there's no draft-save for this screen, so leaving loses real
+      // clinical work. canPop is false only while there's something to
+      // lose; the confirm dialog then pops explicitly on "Discard".
+      canPop: !_hasUnsavedWork(),
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (await _confirmDiscardUnsavedWork()) {
+          // Already correctly guarded by `mounted` (this State's own) -
+          // the lint's static analysis doesn't trace guards through a
+          // PopScope callback closure reliably.
+          // ignore: use_build_context_synchronously
+          if (mounted) Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        extendBodyBehindAppBar: true,
+        // This drawer is only ever meant to be opened programmatically, with
+        // _currentNote/_currentReport already set (see _openDrawerWithNote/
+        // _openDrawerWithReport) - Scaffold's default built-in edge-swipe
+        // gesture for endDrawer could open it independently of that, with
+        // nothing selected, showing just the title bar and nothing else.
+        endDrawerEnableOpenDragGesture: false,
+        appBar: isMobile
+            ? null
+            : AppBar(
+                title: Text(
+                  'Medical Consultation',
+                  style:
+                      TextStyle(fontWeight: FontWeight.bold, color: _primary),
                 ),
-              ),
-              Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: _primary.withValues(alpha: 0.1)),
-              if (_currentNote != null)
-                Expanded(
-                    child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(24),
-                        child: SoapNoteView(
-                          noteData: _currentNote!,
-                          isSuperAdmin:
-                              Provider.of<AuthProvider>(context, listen: false)
-                                      .role ==
-                                  'superadmin',
-                          onDelete: () => _deleteConsultation(
-                              _currentNote!['id'],
-                              _currentNote!['patient_name'] ?? ''),
-                        )))
-              else if (_currentReport != null)
-                Expanded(
-                    child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(24),
-                        child:
-                            ReportAnalysisView(reportData: _currentReport!)))
-              else
-                // Belt-and-suspenders: even with the edge-swipe gesture
-                // disabled above, this keeps the drawer from ever showing
-                // just a title bar and nothing else if it's somehow opened
-                // with neither a note nor a report selected.
-                Expanded(
-                  child: Center(
-                    child: Text('No record selected.',
-                        style: TextStyle(
-                            color: _primary.withValues(alpha: 0.6),
-                            fontSize: 16)),
+                backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.3),
+                elevation: 0,
+                actions: [
+                  if (context.watch<AuthProvider>().staffId != null)
+                    IconButton(
+                      icon: Icon(Icons.people_alt_outlined, color: _primary),
+                      tooltip: 'People Directory',
+                      // context.go() is an imperative navigation, not a Navigator
+                      // pop - PopScope above only intercepts the back
+                      // gesture/system back, not this button, so it needs its own
+                      // guard against the same silent-discard problem.
+                      onPressed: () async {
+                        if (_hasUnsavedWork() &&
+                            !await _confirmDiscardUnsavedWork()) {
+                          return;
+                        }
+                        // ignore: use_build_context_synchronously
+                        if (mounted) context.go('/directory');
+                      },
+                    ),
+                ],
+                flexibleSpace: ClipRRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                    child: Container(color: Colors.transparent),
                   ),
                 ),
-            ],
+                bottom: PreferredSize(
+                  preferredSize: const Size.fromHeight(1.0),
+                  child: Container(
+                      color: _primary.withValues(alpha: 0.05), height: 1.0),
+                ),
+              ),
+        endDrawer: Drawer(
+          width: MediaQuery.of(context).size.width > 800
+              ? 600
+              : MediaQuery.of(context).size.width * 0.85,
+          backgroundColor: _surfaceContainerLowest.withValues(alpha: 0.95),
+          elevation: 24,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.horizontal(left: Radius.circular(32))),
+          child: SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Patient Record',
+                          style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w900,
+                              color: _primary)),
+                      Container(
+                        decoration: BoxDecoration(
+                            color: _primary.withValues(alpha: 0.1),
+                            shape: BoxShape.circle),
+                        child: IconButton(
+                          icon: Icon(Icons.close_rounded, color: _primary),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+                Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: _primary.withValues(alpha: 0.1)),
+                if (_currentNote != null)
+                  Expanded(
+                      child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(24),
+                          child: SoapNoteView(
+                            noteData: _currentNote!,
+                            isSuperAdmin: Provider.of<AuthProvider>(context,
+                                        listen: false)
+                                    .role ==
+                                'superadmin',
+                            onDelete: () => _deleteConsultation(
+                                _currentNote!['id'],
+                                _currentNote!['patient_name'] ?? ''),
+                          )))
+                else if (_currentReport != null)
+                  Expanded(
+                      child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(24),
+                          child:
+                              ReportAnalysisView(reportData: _currentReport!)))
+                else
+                  // Belt-and-suspenders: even with the edge-swipe gesture
+                  // disabled above, this keeps the drawer from ever showing
+                  // just a title bar and nothing else if it's somehow opened
+                  // with neither a note nor a report selected.
+                  Expanded(
+                    child: Center(
+                      child: Text('No record selected.',
+                          style: TextStyle(
+                              color: _primary.withValues(alpha: 0.6),
+                              fontSize: 16)),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
-      ),
-      body: GlassBackground(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1400),
-              child: Column(
-                children: [
-                  const SizedBox(height: 100),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isDesktop = constraints.maxWidth > 800;
+        body: GlassBackground(
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1400),
+                child: Column(
+                  children: [
+                    // extendBodyBehindAppBar means this body draws underneath
+                    // the (transparent/blurred) AppBar, so it needs its own
+                    // clearance equal to the AppBar's real height - zero on
+                    // mobile now that there's no AppBar at all. A hardcoded
+                    // 100px used to be here, which was already more than the
+                    // real AppBar height and, on mobile, stacked on top of
+                    // MainShell's own top bar too, pushing the title/search
+                    // field off the top of the scroll view.
+                    SizedBox(
+                        height: isMobile
+                            ? 0
+                            : MediaQuery.of(context).padding.top +
+                                kToolbarHeight),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isDesktop = constraints.maxWidth > 800;
 
-                        final leftTile = GlassCard(
-                          padding: const EdgeInsets.all(32.0),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Record Consultation\n& Analyze Reports',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w800,
-                                    color: _primary),
-                              ),
-                              const SizedBox(height: 32),
-                              Autocomplete<String>(
-                                optionsBuilder:
-                                    (TextEditingValue textEditingValue) {
-                                  if (textEditingValue.text.isEmpty) {
-                                    return const Iterable<String>.empty();
-                                  }
-                                  return _availablePatients
-                                      .where((String option) {
-                                    return option.toLowerCase().contains(
-                                        textEditingValue.text.toLowerCase());
-                                  });
-                                },
-                                onSelected: (String selection) {
-                                  _patientNameController.text = selection;
-                                },
-                                optionsViewBuilder:
-                                    (context, onSelected, options) {
-                                  return Align(
-                                    alignment: Alignment.topLeft,
-                                    child: Material(
-                                      elevation: 8,
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(16)),
-                                      color: _surfaceContainerHighest,
-                                      child: ConstrainedBox(
-                                        constraints: const BoxConstraints(
-                                            maxHeight: 250, maxWidth: 350),
-                                        child: ListView.builder(
-                                          padding: EdgeInsets.zero,
-                                          shrinkWrap: true,
-                                          itemCount: options.length,
-                                          itemBuilder: (context, index) {
-                                            final option =
-                                                options.elementAt(index);
-                                            return InkWell(
-                                              onTap: () => onSelected(option),
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        horizontal: 24,
-                                                        vertical: 16),
-                                                child: Text(option,
-                                                    style: TextStyle(
-                                                        fontSize: 16,
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        color: _primary)),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                                fieldViewBuilder: (context, controller,
-                                    focusNode, onFieldSubmitted) {
-                                  if (_patientNameController != controller) {
-                                    if (_ownsPatientNameController) {
-                                      _patientNameController.dispose();
-                                      _ownsPatientNameController = false;
+                          final leftTile = GlassCard(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Record Consultation\n& Analyze Reports',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w800,
+                                      color: _primary),
+                                ),
+                                const SizedBox(height: 32),
+                                Autocomplete<String>(
+                                  optionsBuilder:
+                                      (TextEditingValue textEditingValue) {
+                                    if (textEditingValue.text.isEmpty) {
+                                      return const Iterable<String>.empty();
                                     }
-                                    _patientNameController = controller;
-                                    _patientNameController.addListener(() {
-                                      setState(() {});
+                                    return _availablePatients
+                                        .where((String option) {
+                                      return option.toLowerCase().contains(
+                                          textEditingValue.text.toLowerCase());
                                     });
-                                  }
-                                  return Container(
-                                    decoration: BoxDecoration(
-                                      color: _surfaceContainerLowest.withValues(
-                                          alpha: 0.5),
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                          color: _primary
-                                              .withValues(alpha: 0.1)),
-                                    ),
-                                    child: TextField(
-                                      controller: controller,
-                                      focusNode: focusNode,
-                                      style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w500,
-                                          color: _primary),
-                                      decoration: InputDecoration(
-                                          labelText:
-                                              'Patient Name (Search or Create New)',
-                                          labelStyle: TextStyle(
-                                              color: _onSurfaceVariant),
-                                          border: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                              borderSide: BorderSide.none),
-                                          prefixIcon: Icon(
-                                              Icons.person_search_rounded,
-                                              color: _primaryFixedDim),
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                  horizontal: 24,
-                                                  vertical: 16)),
-                                      enabled: !_isRecording && !_isProcessing,
-                                    ),
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 40),
-                              if (_isProcessing)
-                                Column(
-                                  children: [
-                                    CircularProgressIndicator(
-                                        color: _primaryFixedDim,
-                                        strokeWidth: 3),
-                                    const SizedBox(height: 20),
-                                    FadeTransition(
-                                      opacity: _pulseController,
-                                      child: Text(
-                                          'Processing with ${siteConfig.agentName}...',
-                                          style: TextStyle(
-                                              color: _primaryFixedDim,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w600)),
-                                    ),
-                                  ],
-                                )
-                              else if (_isTranscribing)
-                                Column(
-                                  children: [
-                                    CircularProgressIndicator(
-                                        color: _primaryFixedDim,
-                                        strokeWidth: 3),
-                                    const SizedBox(height: 20),
-                                    FadeTransition(
-                                      opacity: _pulseController,
-                                      child: Text('Transcribing Audio...',
-                                          style: TextStyle(
-                                              color: _primaryFixedDim,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w600)),
-                                    ),
-                                  ],
-                                )
-                              else if (_transcriptionText != null)
-                                Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Text('Edit Transcript',
-                                        style: TextStyle(
-                                            color: _primary,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16)),
-                                    const SizedBox(height: 8),
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: _surfaceContainerLowest
-                                            .withValues(alpha: 0.5),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                            color: _primary
-                                                .withValues(alpha: 0.1)),
-                                      ),
-                                      child: TextField(
-                                        controller: _transcriptController,
-                                        maxLines: 8,
-                                        style: TextStyle(
-                                            color: _primary, fontSize: 14),
-                                        decoration: const InputDecoration(
-                                            border: InputBorder.none,
-                                            contentPadding:
-                                                EdgeInsets.all(16)),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceEvenly,
-                                      children: [
-                                        TextButton.icon(
-                                          onPressed: _discardAudio,
-                                          icon: const Icon(Icons.delete_outline,
-                                              color: Colors.redAccent),
-                                          label: const Text('Discard',
-                                              style: TextStyle(
-                                                  color: Colors.redAccent)),
-                                        ),
-                                        ElevatedButton.icon(
-                                          onPressed: _generateSummary,
-                                          style: ElevatedButton.styleFrom(
-                                              backgroundColor: _primaryFixedDim,
-                                              foregroundColor: Colors.black,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 24,
-                                                      vertical: 12)),
-                                          icon: const Icon(Icons.auto_awesome),
-                                          label: const Text('Generate Summary',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold)),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                )
-                              else if (_recordedAudioPath != null ||
-                                  _uploadedAudioBytes != null)
-                                Column(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(16),
-                                      decoration: BoxDecoration(
-                                        color: _surfaceContainerLowest,
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          IconButton(
-                                            icon: Icon(
-                                                _isPlaying
-                                                    ? Icons.pause_circle_filled
-                                                    : Icons.play_circle_fill,
-                                                color: _primaryFixedDim,
-                                                size: 40),
-                                            onPressed: _playAudio,
-                                          ),
-                                          const SizedBox(width: 16),
-                                          Text(
-                                              'Audio Recorded (${_formatDuration(_recordDuration)})',
-                                              style: TextStyle(
-                                                  color: _primary,
-                                                  fontWeight: FontWeight.bold)),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 24),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceEvenly,
-                                      children: [
-                                        TextButton.icon(
-                                          onPressed: _discardAudio,
-                                          icon: const Icon(Icons.delete_outline,
-                                              color: Colors.redAccent),
-                                          label: const Text('Discard',
-                                              style: TextStyle(
-                                                  color: Colors.redAccent)),
-                                        ),
-                                        TextButton.icon(
-                                          onPressed: _discardAudio,
-                                          icon: Icon(Icons.replay,
-                                              color: _onSurfaceVariant),
-                                          label: Text('Retake',
-                                              style: TextStyle(
-                                                  color: _onSurfaceVariant)),
-                                        ),
-                                        ElevatedButton.icon(
-                                          onPressed: _transcribeAudio,
-                                          style: ElevatedButton.styleFrom(
-                                              backgroundColor: _primaryFixedDim,
-                                              foregroundColor: Colors.black,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 24,
-                                                      vertical: 12)),
-                                          icon: const Icon(Icons.text_fields),
-                                          label: const Text('Transcribe',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold)),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                )
-                              else
-                                Column(
-                                  children: [
-                                    GestureDetector(
-                                      onTap: _isRecording
-                                          ? _stopRecording
-                                          : _startRecording,
-                                      child: AnimatedContainer(
-                                        duration:
-                                            const Duration(milliseconds: 300),
-                                        width: 90,
-                                        height: 90,
-                                        decoration: BoxDecoration(
-                                          color: _isRecording
-                                              ? Colors.redAccent
-                                                  .withValues(alpha: 0.2)
-                                              : _primaryFixedDim.withValues(
-                                                  alpha: 0.1),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: _isRecording
-                                                ? Colors.redAccent
-                                                : _primaryFixedDim,
-                                            width: 2,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: (_isRecording
-                                                      ? Colors.redAccent
-                                                      : _primaryFixedDim)
-                                                  .withValues(alpha: 0.3),
-                                              blurRadius:
-                                                  _isRecording ? 30 : 20,
-                                              spreadRadius:
-                                                  _isRecording ? 10 : 0,
-                                            ),
-                                          ],
-                                        ),
-                                        child: Icon(
-                                            _isRecording
-                                                ? Icons.stop_rounded
-                                                : Icons.mic_rounded,
-                                            color: _isRecording
-                                                ? Colors.redAccent
-                                                : _primaryFixedDim,
-                                            size: 40),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                        _isRecording
-                                            ? 'Recording... ${_formatDuration(_recordDuration)}'
-                                            : 'Record Audio',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: _isRecording
-                                                ? Colors.redAccent
-                                                : _onSurfaceVariant)),
-                                    if (!_isRecording) ...[
-                                      const SizedBox(height: 8),
-                                      TextButton.icon(
-                                        onPressed: _uploadAudioFile,
-                                        icon: Icon(Icons.upload_file,
-                                            color: _primaryFixedDim, size: 20),
-                                        label: Text('Upload Audio File',
-                                            style: TextStyle(
-                                                color: _primaryFixedDim)),
-                                      ),
-                                    ],
-                                    const SizedBox(height: 32),
-                                    ElevatedButton.icon(
-                                      onPressed: _isRecording
-                                          ? null
-                                          : _showFileOptionsAndAnalyze,
-                                      icon: const Icon(
-                                          Icons.document_scanner_rounded,
-                                          size: 20),
-                                      label: const Text(
-                                          'Analyze Report (Image/PDF)',
-                                          style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor:
-                                            _surfaceContainerLowest,
-                                        foregroundColor: _primary,
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 24, vertical: 16),
+                                  },
+                                  onSelected: (String selection) {
+                                    _patientNameController.text = selection;
+                                  },
+                                  optionsViewBuilder:
+                                      (context, onSelected, options) {
+                                    return Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Material(
+                                        elevation: 8,
                                         shape: RoundedRectangleBorder(
                                             borderRadius:
                                                 BorderRadius.circular(16)),
-                                        side: BorderSide(
-                                            color: _primary
-                                                .withValues(alpha: 0.2)),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        );
-
-                        final searchQuery =
-                            _patientNameController.text.trim().toLowerCase();
-                        final filteredNotes = searchQuery.isEmpty
-                            ? _savedNotes
-                            : _savedNotes.where((note) {
-                                final name =
-                                    (note['patient_name'] as String? ?? '')
-                                        .toLowerCase();
-                                return name.contains(searchQuery);
-                              }).toList();
-
-                        final rightTile = Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8.0, vertical: 8.0),
-                              child: Text('Recent Patient Records',
-                                  style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.w900,
-                                      color: _primary)),
-                            ),
-                            const SizedBox(height: 16),
-                            filteredNotes.isEmpty
-                                ? Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(top: 40.0),
-                                      child: Text(
-                                        searchQuery.isEmpty
-                                            ? 'No patient records found. Start a consultation!'
-                                            : 'No records found for this patient.',
-                                        style: TextStyle(
-                                          color: _onSurfaceVariant,
-                                          fontSize: 16,
+                                        color: _surfaceContainerHighest,
+                                        child: ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                              maxHeight: 250, maxWidth: 350),
+                                          child: ListView.builder(
+                                            padding: EdgeInsets.zero,
+                                            shrinkWrap: true,
+                                            itemCount: options.length,
+                                            itemBuilder: (context, index) {
+                                              final option =
+                                                  options.elementAt(index);
+                                              return InkWell(
+                                                onTap: () => onSelected(option),
+                                                child: Padding(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 24,
+                                                      vertical: 16),
+                                                  child: Text(option,
+                                                      style: TextStyle(
+                                                          fontSize: 16,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          color: _primary)),
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  )
-                                : GridView.builder(
-                                    shrinkWrap: true,
-                                    physics:
-                                        const NeverScrollableScrollPhysics(),
-                                    padding: const EdgeInsets.only(
-                                        bottom: 40, top: 8),
-                                    gridDelegate:
-                                        SliverGridDelegateWithMaxCrossAxisExtent(
-                                      maxCrossAxisExtent: isDesktop ? 350 : 300,
-                                      mainAxisSpacing: 24,
-                                      crossAxisSpacing: 24,
-                                      childAspectRatio: 1.3,
-                                    ),
-                                    itemCount: filteredNotes.length,
-                                    itemBuilder: (context, index) {
-                                      final note = filteredNotes[index];
-                                      final isReport =
-                                          note.containsKey('key_findings');
-                                      return _buildPatientCard(note, isReport);
-                                    },
-                                  ),
-                          ],
-                        );
-
-                        if (isDesktop) {
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              SizedBox(width: 450, child: leftTile),
-                              const SizedBox(width: 40),
-                              Expanded(
-                                child: SingleChildScrollView(
-                                  child: rightTile,
+                                    );
+                                  },
+                                  fieldViewBuilder: (context, controller,
+                                      focusNode, onFieldSubmitted) {
+                                    if (_patientNameController != controller) {
+                                      if (_ownsPatientNameController) {
+                                        _patientNameController.dispose();
+                                        _ownsPatientNameController = false;
+                                      }
+                                      _patientNameController = controller;
+                                      _patientNameController.addListener(() {
+                                        setState(() {});
+                                      });
+                                    }
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        color: _surfaceContainerLowest
+                                            .withValues(alpha: 0.5),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                            color: _primary.withValues(
+                                                alpha: 0.1)),
+                                      ),
+                                      child: TextField(
+                                        controller: controller,
+                                        focusNode: focusNode,
+                                        style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w500,
+                                            color: _primary),
+                                        decoration: InputDecoration(
+                                            labelText:
+                                                'Patient Name (Search or Create New)',
+                                            labelStyle: TextStyle(
+                                                color: _onSurfaceVariant),
+                                            border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                                borderSide: BorderSide.none),
+                                            prefixIcon: Icon(
+                                                Icons.person_search_rounded,
+                                                color: _primaryFixedDim),
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 24,
+                                                    vertical: 16)),
+                                        enabled:
+                                            !_isRecording && !_isProcessing,
+                                      ),
+                                    );
+                                  },
                                 ),
-                              ),
-                            ],
-                          );
-                        } else {
-                          return SingleChildScrollView(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                leftTile,
-                                const SizedBox(height: 32),
-                                rightTile,
+                                const SizedBox(height: 40),
+                                if (_isProcessing)
+                                  Column(
+                                    children: [
+                                      CircularProgressIndicator(
+                                          color: _primaryFixedDim,
+                                          strokeWidth: 3),
+                                      const SizedBox(height: 20),
+                                      FadeTransition(
+                                        opacity: _pulseController,
+                                        child: Text(
+                                            'Processing with ${siteConfig.agentName}...',
+                                            style: TextStyle(
+                                                color: _primaryFixedDim,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600)),
+                                      ),
+                                    ],
+                                  )
+                                else if (_isTranscribing)
+                                  Column(
+                                    children: [
+                                      CircularProgressIndicator(
+                                          color: _primaryFixedDim,
+                                          strokeWidth: 3),
+                                      const SizedBox(height: 20),
+                                      FadeTransition(
+                                        opacity: _pulseController,
+                                        child: Text('Transcribing Audio...',
+                                            style: TextStyle(
+                                                color: _primaryFixedDim,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600)),
+                                      ),
+                                    ],
+                                  )
+                                else if (_transcriptionText != null)
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text('Edit Transcript',
+                                          style: TextStyle(
+                                              color: _primary,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16)),
+                                      const SizedBox(height: 8),
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: _surfaceContainerLowest
+                                              .withValues(alpha: 0.5),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: _primary.withValues(
+                                                  alpha: 0.1)),
+                                        ),
+                                        child: TextField(
+                                          controller: _transcriptController,
+                                          maxLines: 8,
+                                          style: TextStyle(
+                                              color: _primary, fontSize: 14),
+                                          decoration: const InputDecoration(
+                                              border: InputBorder.none,
+                                              contentPadding:
+                                                  EdgeInsets.all(16)),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 20),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          TextButton.icon(
+                                            onPressed: _discardAudio,
+                                            icon: const Icon(
+                                                Icons.delete_outline,
+                                                color: Colors.redAccent),
+                                            label: const Text('Discard',
+                                                style: TextStyle(
+                                                    color: Colors.redAccent)),
+                                          ),
+                                          ElevatedButton.icon(
+                                            onPressed: _generateSummary,
+                                            style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    _primaryFixedDim,
+                                                foregroundColor: Colors.black,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 24,
+                                                        vertical: 12)),
+                                            icon:
+                                                const Icon(Icons.auto_awesome),
+                                            label: const Text(
+                                                'Generate Summary',
+                                                style: TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  )
+                                else if (_recordedAudioPath != null ||
+                                    _uploadedAudioBytes != null)
+                                  Column(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: _surfaceContainerLowest,
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            IconButton(
+                                              icon: Icon(
+                                                  _isPlaying
+                                                      ? Icons
+                                                          .pause_circle_filled
+                                                      : Icons.play_circle_fill,
+                                                  color: _primaryFixedDim,
+                                                  size: 40),
+                                              onPressed: _playAudio,
+                                            ),
+                                            const SizedBox(width: 16),
+                                            Text(
+                                                'Audio Recorded (${_formatDuration(_recordDuration)})',
+                                                style: TextStyle(
+                                                    color: _primary,
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 24),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          TextButton.icon(
+                                            onPressed: _discardAudio,
+                                            icon: const Icon(
+                                                Icons.delete_outline,
+                                                color: Colors.redAccent),
+                                            label: const Text('Discard',
+                                                style: TextStyle(
+                                                    color: Colors.redAccent)),
+                                          ),
+                                          TextButton.icon(
+                                            onPressed: _discardAudio,
+                                            icon: Icon(Icons.replay,
+                                                color: _onSurfaceVariant),
+                                            label: Text('Retake',
+                                                style: TextStyle(
+                                                    color: _onSurfaceVariant)),
+                                          ),
+                                          ElevatedButton.icon(
+                                            onPressed: _transcribeAudio,
+                                            style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    _primaryFixedDim,
+                                                foregroundColor: Colors.black,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 24,
+                                                        vertical: 12)),
+                                            icon: const Icon(Icons.text_fields),
+                                            label: const Text('Transcribe',
+                                                style: TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Column(
+                                    children: [
+                                      GestureDetector(
+                                        onTap: _isRecording
+                                            ? _stopRecording
+                                            : _startRecording,
+                                        child: AnimatedContainer(
+                                          duration:
+                                              const Duration(milliseconds: 300),
+                                          width: 90,
+                                          height: 90,
+                                          decoration: BoxDecoration(
+                                            color: _isRecording
+                                                ? Colors.redAccent
+                                                    .withValues(alpha: 0.2)
+                                                : _primaryFixedDim.withValues(
+                                                    alpha: 0.1),
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: _isRecording
+                                                  ? Colors.redAccent
+                                                  : _primaryFixedDim,
+                                              width: 2,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: (_isRecording
+                                                        ? Colors.redAccent
+                                                        : _primaryFixedDim)
+                                                    .withValues(alpha: 0.3),
+                                                blurRadius:
+                                                    _isRecording ? 30 : 20,
+                                                spreadRadius:
+                                                    _isRecording ? 10 : 0,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Icon(
+                                              _isRecording
+                                                  ? Icons.stop_rounded
+                                                  : Icons.mic_rounded,
+                                              color: _isRecording
+                                                  ? Colors.redAccent
+                                                  : _primaryFixedDim,
+                                              size: 40),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                          _isRecording
+                                              ? 'Recording... ${_formatDuration(_recordDuration)}'
+                                              : 'Record Audio',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: _isRecording
+                                                  ? Colors.redAccent
+                                                  : _onSurfaceVariant)),
+                                      if (!_isRecording) ...[
+                                        const SizedBox(height: 8),
+                                        TextButton.icon(
+                                          onPressed: _uploadAudioFile,
+                                          icon: Icon(Icons.upload_file,
+                                              color: _primaryFixedDim,
+                                              size: 20),
+                                          label: Text('Upload Audio File',
+                                              style: TextStyle(
+                                                  color: _primaryFixedDim)),
+                                        ),
+                                      ],
+                                      const SizedBox(height: 32),
+                                      ElevatedButton.icon(
+                                        onPressed: _isRecording
+                                            ? null
+                                            : _showFileOptionsAndAnalyze,
+                                        icon: const Icon(
+                                            Icons.document_scanner_rounded,
+                                            size: 20),
+                                        label: const Text(
+                                            'Analyze Report (Image/PDF)',
+                                            style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700)),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor:
+                                              _surfaceContainerLowest,
+                                          foregroundColor: _primary,
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 24, vertical: 16),
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(16)),
+                                          side: BorderSide(
+                                              color: _primary.withValues(
+                                                  alpha: 0.2)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                               ],
                             ),
                           );
-                        }
-                      },
+
+                          final searchQuery =
+                              _patientNameController.text.trim().toLowerCase();
+                          final filteredNotes = searchQuery.isEmpty
+                              ? _savedNotes
+                              : _savedNotes.where((note) {
+                                  final name =
+                                      (note['patient_name'] as String? ?? '')
+                                          .toLowerCase();
+                                  return name.contains(searchQuery);
+                                }).toList();
+
+                          final rightTile = Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8.0, vertical: 8.0),
+                                child: Text('Recent Patient Records',
+                                    style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w900,
+                                        color: _primary)),
+                              ),
+                              const SizedBox(height: 16),
+                              filteredNotes.isEmpty
+                                  ? Center(
+                                      child: Padding(
+                                        padding:
+                                            const EdgeInsets.only(top: 40.0),
+                                        child: Text(
+                                          searchQuery.isEmpty
+                                              ? 'No patient records found. Start a consultation!'
+                                              : 'No records found for this patient.',
+                                          style: TextStyle(
+                                            color: _onSurfaceVariant,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : GridView.builder(
+                                      shrinkWrap: true,
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
+                                      padding: const EdgeInsets.only(
+                                          bottom: 40, top: 8),
+                                      gridDelegate:
+                                          SliverGridDelegateWithMaxCrossAxisExtent(
+                                        maxCrossAxisExtent:
+                                            isDesktop ? 350 : 300,
+                                        mainAxisSpacing: 24,
+                                        crossAxisSpacing: 24,
+                                        childAspectRatio: 1.3,
+                                      ),
+                                      itemCount: filteredNotes.length,
+                                      itemBuilder: (context, index) {
+                                        final note = filteredNotes[index];
+                                        final isReport =
+                                            note.containsKey('key_findings');
+                                        return _buildPatientCard(
+                                            note, isReport);
+                                      },
+                                    ),
+                            ],
+                          );
+
+                          if (isDesktop) {
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(width: 450, child: leftTile),
+                                const SizedBox(width: 40),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: rightTile,
+                                  ),
+                                ),
+                              ],
+                            );
+                          } else {
+                            return SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  leftTile,
+                                  const SizedBox(height: 32),
+                                  rightTile,
+                                ],
+                              ),
+                            );
+                          }
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  bool _hasUnsavedWork() =>
+      _transcriptController.text.trim().isNotEmpty ||
+      _recordedAudioPath != null ||
+      _uploadedAudioBytes != null;
+
+  Future<bool> _confirmDiscardUnsavedWork() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard this consultation?'),
+        content: const Text(
+            'You have a recording or transcript that hasn\'t been saved. '
+            'Leaving now will discard it.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep editing'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
   }
 }
