@@ -141,13 +141,26 @@ def _vision_worker_process(input_queue, output_queue, max_h, max_w, dtype):
             pass
 
 
-def _default_pool_size() -> int:
+def _default_pool_size(camera_count: int = 1) -> int:
     """
     Number of parallel inference subprocesses to run. CPU-only deployments
     benefit most (multiple cameras were previously serialized on one
-    process); GPU deployments default to a single worker since a single
-    stream already saturates the accelerator and extra processes would
-    just contend for the same VRAM/context.
+    process); CUDA deployments default to a single worker since one shared
+    discrete-GPU stream already saturates the accelerator and extra
+    processes would just contend for the same VRAM/context.
+
+    CoreML (Apple Silicon) does NOT have that discrete-VRAM contention
+    story - it's unified memory, and the earlier "GPU means 1 worker"
+    logic lumped it in with CUDA anyway. With every camera sharing one
+    worker's single-threaded, blocking `input_queue.get()` loop
+    (_vision_worker_process below), per-camera frame latency scales with
+    (active cameras) x (per-frame cost) instead of the cost of a single
+    detection - this is what turned tens-of-ms detections into the
+    multi-second, "sometimes more" waits reported live with 2 cameras
+    both feeding one worker (/investigate 2026-09-24). Sizing the CoreML
+    pool to the actual camera count (bounded at 4 - the ANE/GPU is still
+    finite, so unbounded worker growth would just relocate the
+    contention) removes that serialization instead of just tolerating it.
     """
     override = os.environ.get("VISION_WORKER_POOL_SIZE")
     if override:
@@ -163,7 +176,11 @@ def _default_pool_size() -> int:
     except Exception:
         backend = "cpu"
 
-    return 2 if backend == "cpu" else 1
+    if backend == "cpu":
+        return 2
+    if backend == "coreml":
+        return max(1, min(camera_count, 4))
+    return 1  # CUDA: single shared stream, see docstring above
 
 
 class _Worker:
@@ -224,7 +241,13 @@ class VisionProcessManager:
         self.max_w = max_w
         self.dtype = dtype
 
-        self.pool_size = _default_pool_size()
+        # Resolved lazily in start_process() instead of here: this manager
+        # is a module-level singleton constructed at import time (see
+        # `vision_process_manager = VisionProcessManager()` below), before
+        # the app's database is necessarily ready to answer "how many
+        # cameras are configured" - start_process() only runs once the
+        # first camera actually starts, well after app startup.
+        self.pool_size = 1
         self.workers: list[_Worker] = []
         self.camera_shms = {}
         self.camera_worker = {}  # camera_id -> _Worker
@@ -232,10 +255,29 @@ class VisionProcessManager:
         self.result_lock = threading.Lock()
         self.is_busy = {}
 
+    @staticmethod
+    def _configured_camera_count() -> int:
+        """How many cameras exist in the DB - used to size the CoreML
+        worker pool (see _default_pool_size). Falls back to 1 (today's
+        prior fixed behavior) if the DB isn't reachable for any reason;
+        this must never be allowed to block/crash camera startup."""
+        try:
+            from database import SessionLocal
+            import models
+
+            db = SessionLocal()
+            try:
+                return max(1, db.query(models.Camera).count())
+            finally:
+                db.close()
+        except Exception:
+            return 1
+
     def start_process(self):
         if self.workers:
             return
 
+        self.pool_size = _default_pool_size(self._configured_camera_count())
         for _ in range(self.pool_size):
             self.workers.append(self._spawn_worker())
 

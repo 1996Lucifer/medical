@@ -36,7 +36,7 @@ class ProdEnvironment implements Environment {
   @override
   String get name => 'production';
   @override
-  String get baseUrl => 'https://api.example.com';
+  String get baseUrl => 'http://api.example.com';
   @override
   String get wsBaseUrl => 'wss://api.example.com';
 }

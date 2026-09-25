@@ -36,7 +36,7 @@ if [ -d "/workspace/flutter_source" ]; then
     (
         cd /workspace/flutter_source
         flutter pub get
-        flutter build web --release
+        flutter build web --release --no-tree-shake-icons --dart-define=DEV_IP=127.0.0.1 --dart-define=MAPBOX_KEY="${MAPBOX_KEY:-}"
     )
     echo "Serving Flutter Web Application on port 8080..."
     python3 -m http.server 8080 --directory /workspace/flutter_source/build/web &

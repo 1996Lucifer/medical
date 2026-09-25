@@ -240,10 +240,34 @@ class VisionServiceZones:
 
         return None, ZONE_TYPE_OBSERVATION
 
+    # Base centroid-distance gate for one elapsed processed-frame. Scaled by
+    # frames-since-last-seen below (a track skipped for a couple of
+    # AI-sampled frames - occlusion, a missed detection - legitimately
+    # needs a wider gate, not the same fixed radius as a track seen last
+    # frame).
+    _TRACK_MATCH_BASE_DIST = 220.0
+
     def _update_human_tracks(self, current_detections: List[dict]) -> List[dict]:
         """
-        Maintain persistent human track IDs across consecutive frames using centroid matching.
-        Ensures a track ID is only assigned to one detection per frame.
+        Maintain persistent human track IDs across consecutive frames using
+        velocity-predicted centroid matching.
+
+        Originally this matched against each track's raw LAST-SEEN centroid
+        with a fixed 220px gate. `_frame_count` only increments once per
+        AI-sampled frame (see ai_sample_interval in vision_constants.py -
+        every 2nd/3rd real capture frame, not every frame), so a person
+        walking briskly can easily cover more than 220px of screen space
+        between two processed frames. When that happened, no existing track
+        was within the gate, a brand-new track was minted, and that new
+        track starts unconfirmed - displaying "Unknown" until it
+        re-accumulates an identity streak, even though recognition itself
+        never actually failed (/investigate 2026-09-24).
+        Fix: predict each track's expected position from its last observed
+        velocity (extrapolated by however many processed frames have
+        elapsed since it was last seen) and match against THAT, with a gate
+        that scales with elapsed frames instead of a flat radius - this
+        follows a person's actual motion instead of assuming they stood
+        still since their last detection.
         """
         updated_tracks = []
         available_tracks = set(self._active_tracks.keys())
@@ -253,25 +277,39 @@ class VisionServiceZones:
             cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
 
             best_tid = -1
-            min_dist = 220.0  # Max pixel distance for same track across frames
+            best_dist = None
             for tid in available_tracks:
                 t_data = self._active_tracks[tid]
                 tcx, tcy = t_data["centroid"]
-                dist = ((cx - tcx)**2 + (cy - tcy)**2)**0.5
-                if dist < min_dist:
-                    min_dist = dist
+                vx, vy = t_data.get("velocity", (0.0, 0.0))
+                frames_elapsed = max(1, self._frame_count - t_data["last_frame"])
+                pred_cx = tcx + vx * frames_elapsed
+                pred_cy = tcy + vy * frames_elapsed
+                dist = ((cx - pred_cx) ** 2 + (cy - pred_cy) ** 2) ** 0.5
+                gate = self._TRACK_MATCH_BASE_DIST * frames_elapsed
+                if dist < gate and (best_dist is None or dist < best_dist):
+                    best_dist = dist
                     best_tid = tid
 
             if best_tid != -1:
                 available_tracks.remove(best_tid)
+                prev = self._active_tracks[best_tid]
+                prev_cx, prev_cy = prev["centroid"]
+                frames_elapsed = max(1, self._frame_count - prev["last_frame"])
+                velocity = (
+                    (cx - prev_cx) / frames_elapsed,
+                    (cy - prev_cy) / frames_elapsed,
+                )
             else:
                 self._next_track_id += 1
                 best_tid = self._next_track_id
+                velocity = (0.0, 0.0)
 
             self._active_tracks[best_tid] = {
                 "centroid": (cx, cy),
                 "bbox": det["bbox"],
                 "last_frame": self._frame_count,
+                "velocity": velocity,
             }
             item = det.copy()
             item["track_id"] = best_tid

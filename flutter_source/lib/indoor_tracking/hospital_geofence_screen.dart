@@ -20,6 +20,19 @@ import '../network/network_manager.dart';
 /// mapbox_maps_flutter_web's circle_annotation_manager_web.dart). Plain
 /// style sources/layers (addSource/addLayer/setStyleSourceProperty) ARE
 /// implemented on web, so both the polygon and the points use that path.
+///
+/// Tap handling goes through `MapboxMap.addInteraction(TapInteraction.onMap
+/// (...))`, NOT a Flutter `GestureDetector` wrapping `MapWidget`. On web
+/// (and, per the platform-view model, on every platform) `MapWidget` is
+/// backed by a native platform view that owns its own pixels in the real
+/// DOM/view hierarchy - the browser/OS routes a tap on those pixels
+/// directly to Mapbox's own gesture handling (so the map still pans/
+/// zooms), and Flutter's widget-level hit-testing never sees it, so a
+/// `GestureDetector` layered on top silently never fires (discovered live:
+/// tapping the map moved/rendered nothing, no console error, no state
+/// change - superadmin genuinely had no way to add a boundary point).
+/// `addInteraction` registers the tap listener with the native map
+/// instance itself, which works identically on web and mobile.
 class HospitalGeofenceScreen extends StatefulWidget {
   const HospitalGeofenceScreen({super.key});
 
@@ -33,6 +46,7 @@ class _HospitalGeofenceScreenState extends State<HospitalGeofenceScreen> {
   static const _lineLayerId = 'hospital-geofence-line';
   static const _pointsSourceId = 'hospital-geofence-points-source';
   static const _pointsLayerId = 'hospital-geofence-points';
+  static const _tapInteractionId = 'hospital-geofence-tap';
   static final _defaultCenter =
       turf.Position(77.7104553, 29.1035953); // fallback: no saved geofence yet
 
@@ -113,6 +127,14 @@ class _HospitalGeofenceScreenState extends State<HospitalGeofenceScreen> {
       circleStrokeWidth: 2.0,
     ));
 
+    mapboxMap.addInteraction(
+      TapInteraction.onMap((context) {
+        setState(() => _points.add(context.point.coordinates));
+        _syncMap();
+      }),
+      interactionID: _tapInteractionId,
+    );
+
     setState(() => _styleReady = true);
   }
 
@@ -169,16 +191,6 @@ class _HospitalGeofenceScreenState extends State<HospitalGeofenceScreen> {
     );
   }
 
-  Future<void> _addPointAt(Offset localPosition) async {
-    final mapboxMap = _mapboxMap;
-    if (mapboxMap == null) return;
-    final point = await mapboxMap.coordinateForPixel(
-      ScreenCoordinate(x: localPosition.dx, y: localPosition.dy),
-    );
-    setState(() => _points.add(point.coordinates));
-    await _syncMap();
-  }
-
   Future<void> _removePoint(int index) async {
     setState(() => _points.removeAt(index));
     await _syncMap();
@@ -229,17 +241,14 @@ class _HospitalGeofenceScreenState extends State<HospitalGeofenceScreen> {
             flex: 3,
             child: Stack(
               children: [
-                GestureDetector(
+                MapWidget(
                   key: _mapKey,
-                  onTapUp: (details) => _addPointAt(details.localPosition),
-                  child: MapWidget(
-                    viewport: CameraViewportState(
-                      center: turf.Point(coordinates: _center),
-                      zoom: 17,
-                    ),
-                    onMapCreated: _onMapCreated,
-                    onStyleLoadedListener: (data) => _onStyleLoaded(),
+                  viewport: CameraViewportState(
+                    center: turf.Point(coordinates: _center),
+                    zoom: 17,
                   ),
+                  onMapCreated: _onMapCreated,
+                  onStyleLoadedListener: (data) => _onStyleLoaded(),
                 ),
                 Positioned(
                   top: 12,
